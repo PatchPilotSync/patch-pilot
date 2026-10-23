@@ -58,7 +58,8 @@ A profile is a small JSON file; rules are checked in order and the last match wi
 ] }
 ```
 
-Known alpha limits: CLAP plug-ins are listed by file name only, product
+Known alpha limits: CLAP plug-ins get exact names and vendors only if Reaper has
+scanned them (otherwise name and version come from the file), product
 matching is by vendor and name, and template readiness isn't in the score yet.
 
 ## Contributing

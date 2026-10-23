@@ -7,3 +7,4 @@
 *.dll binary
 *.vst3 binary
 *.aaxplugin binary
+*.clap binary

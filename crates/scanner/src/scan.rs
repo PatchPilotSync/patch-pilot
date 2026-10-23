@@ -13,8 +13,8 @@ use patchpilot_core::{
 
 use crate::vendor_apps::{Detection, VendorAppStatus};
 use crate::{
-    Candidate, PluginRoot, WalkWarning, enumerate, normalize_name, path_map, read_aax, read_au,
-    read_vst2, read_vst3,
+    Candidate, ClapCache, PluginRoot, WalkWarning, enumerate, normalize_name, path_map, read_aax,
+    read_au, read_clap, read_vst2, read_vst3,
 };
 
 /// What [`scan_machine`] needs to know about the machine.
@@ -28,6 +28,9 @@ pub struct ScanInput {
     pub roots: Vec<PluginRoot>,
     /// Vendor app results from [`crate::detect_windows`] / [`crate::detect_macos`].
     pub vendor_apps: Vec<VendorAppStatus>,
+    /// Reaper's CLAP cache, for real CLAP IDs ([`ClapCache::load_reaper`]).
+    /// Empty is fine: CLAP files then fall back to file metadata.
+    pub clap_cache: ClapCache,
     /// Unix seconds.
     pub now: i64,
 }
@@ -57,27 +60,28 @@ pub fn scan_machine(input: ScanInput) -> ScanOutput {
     );
 
     for c in &found.candidates {
-        let read = read_candidate(c);
-        warnings.extend(read.warnings);
-        let id = product_id(read.vendor.as_deref(), &read.name);
-        if manifest.product(&id).is_none() {
-            manifest.products.push(Product {
-                canonical_id: id.clone(),
-                vendor: read.vendor.clone().unwrap_or_default(),
-                name: read.name.clone(),
-            });
+        for read in read_candidate(c, &input.clap_cache) {
+            warnings.extend(read.warnings);
+            let id = product_id(read.vendor.as_deref(), &read.name);
+            if manifest.product(&id).is_none() {
+                manifest.products.push(Product {
+                    canonical_id: id.clone(),
+                    vendor: read.vendor.clone().unwrap_or_default(),
+                    name: read.name.clone(),
+                });
+            }
+            let mut item = Item::plugin(
+                c.format,
+                input.os,
+                map.to_portable(&c.path.to_string_lossy()),
+            );
+            item.product_id = Some(id);
+            item.version = read.version;
+            item.arch = read.arch;
+            item.confidence = read.confidence;
+            item.mtime = mtime(&c.path);
+            manifest.items.push(item);
         }
-        let mut item = Item::plugin(
-            c.format,
-            input.os,
-            map.to_portable(&c.path.to_string_lossy()),
-        );
-        item.product_id = Some(id);
-        item.version = read.version;
-        item.arch = read.arch;
-        item.confidence = read.confidence;
-        item.mtime = mtime(&c.path);
-        manifest.items.push(item);
     }
 
     for status in &input.vendor_apps {
@@ -120,7 +124,35 @@ struct Read {
     warnings: Vec<String>,
 }
 
-fn read_candidate(c: &Candidate) -> Read {
+/// One [`Read`] per plug-in in the file. A `.clap` can hold several plug-ins;
+/// when Reaper's cache lists them, each becomes its own item with its real
+/// name and vendor, and the version still comes from the file's metadata.
+fn read_candidate(c: &Candidate, clap_cache: &ClapCache) -> Vec<Read> {
+    let file = read_one(c);
+    if c.format != PluginFormat::Clap {
+        return vec![file];
+    }
+    let Some(entries) = clap_cache.lookup(&c.path) else {
+        return vec![file];
+    };
+    let mut reads: Vec<Read> = entries
+        .iter()
+        .map(|e| Read {
+            name: normalize_name(&e.name).name,
+            vendor: e.vendor.clone().or_else(|| file.vendor.clone()),
+            version: file.version.clone(),
+            arch: file.arch,
+            confidence: Confidence::High,
+            warnings: Vec::new(),
+        })
+        .collect();
+    if let Some(first) = reads.first_mut() {
+        first.warnings = file.warnings;
+    }
+    reads
+}
+
+fn read_one(c: &Candidate) -> Read {
     match c.format {
         PluginFormat::Vst3 => {
             let i = read_vst3(&c.path);
@@ -149,11 +181,11 @@ fn read_candidate(c: &Candidate) -> Read {
                 warnings: i.warnings,
             }
         }
-        PluginFormat::Vst2 | PluginFormat::Aax => {
-            let m = if c.format == PluginFormat::Vst2 {
-                read_vst2(&c.path)
-            } else {
-                read_aax(&c.path)
+        PluginFormat::Vst2 | PluginFormat::Aax | PluginFormat::Clap => {
+            let m = match c.format {
+                PluginFormat::Vst2 => read_vst2(&c.path),
+                PluginFormat::Aax => read_aax(&c.path),
+                _ => read_clap(&c.path),
             };
             Read {
                 name: m.name,
@@ -164,8 +196,7 @@ fn read_candidate(c: &Candidate) -> Read {
                 warnings: m.warnings,
             }
         }
-        // CLAP has no static metadata (see #8); name only until that's decided.
-        PluginFormat::Clap | PluginFormat::Jsfx => {
+        PluginFormat::Jsfx => {
             let stem = c
                 .path
                 .file_stem()
