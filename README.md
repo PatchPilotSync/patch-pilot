@@ -17,6 +17,50 @@ Patch Pilot compares each of your machines against a Golden Profile (your ideal 
 
 Plug-in inventory (VST2/VST3/AU/CLAP/AAX) · Golden and target profiles · machine comparison and parity score · Reaper and Ableton asset sync with dependency checks · Installer Vault · drift detection · snapshots and rollback.
 
+## Alpha testers: `patchpilot` CLI
+
+Before the app exists, the CLI scans a machine and compares two machines.
+It only reads: it never loads plug-ins, changes DAW settings or touches
+anything except the file you ask it to write.
+
+Build it (needs [Rust](https://rustup.rs)):
+
+```sh
+cargo build --release -p patchpilot-cli
+# binary: target/release/patchpilot (patchpilot.exe on Windows)
+```
+
+Scan each machine:
+
+```sh
+patchpilot scan --name "Studio PC" --out studio.json
+patchpilot scan --name "Travel MacBook" --out laptop.json
+```
+
+It reads the standard VST2/VST3/AU/AAX/CLAP folders plus vendor apps
+(Native Access, Waves Central, iLok, ...). Add other plug-in folders with
+`--folder vst2=D:\VSTPlugins` (repeatable). Your username is removed from
+paths by default, so the file is safe to send us; `--keep-paths` keeps it.
+
+Compare a machine against your Golden rig:
+
+```sh
+patchpilot diff studio.json laptop.json
+patchpilot diff studio.json laptop.json --profile travel.json   # e.g. no AAX
+```
+
+A profile is a small JSON file; rules are checked in order and the last match wins:
+
+```json
+{ "id": "travel", "name": "Travel", "rules": [
+  { "action": "exclude", "match": { "format": "aax" } },
+  { "action": "exclude", "match": { "size_over": 20000000000 } }
+] }
+```
+
+Known alpha limits: CLAP plug-ins are listed by file name only, product
+matching is by vendor and name, and template readiness isn't in the score yet.
+
 ## Contributing
 
 One issue → one branch → one PR, reviewed by the other founder. See CLAUDE.md.

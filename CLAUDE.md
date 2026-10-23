@@ -80,4 +80,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on `windows-latest` and `macos-latest` for every PR. Keep it green on both.
 
+The alpha CLI is `crates/cli` (`cargo run -p patchpilot-cli -- scan --out rig.json`, `... -- diff golden.json machine.json`); see README.
+
 The Tauri app (`app/`) is not scaffolded yet.
