@@ -109,6 +109,22 @@ It lists licensing tools and vendor apps first, then "Open Native Access and
 install these 2", then manual installs and DAW files to copy. It never installs
 or copies anything itself, and it never suggests copying plug-ins between machines.
 
+Move scans, the Golden Rig and your profiles to another machine with one file
+(USB stick, shared folder, email to yourself):
+
+```sh
+patchpilot export --out rig-bundle.json                 # this machine's latest scan + Golden + profiles
+patchpilot export --out rig-bundle.json --all-machines  # every machine in the database
+patchpilot import rig-bundle.json                       # on the other machine
+```
+
+Import never overwrites anything. Scans are added as new snapshots, your own
+profiles win over ones with the same ID, and Golden versions are added only if
+this machine's Golden Rig is behind; if both machines changed it, nothing is
+imported and you pick with `golden promote` or `golden propose`. The bundle has
+no plug-ins or files, only what `scan` reads, and usernames are removed unless
+`--keep-paths`.
+
 Scans also read Reaper's track templates, project templates and FX chains
 (from the standard Reaper folder, or `--reaper-dir` for a portable install).
 `diff` then lists templates that aren't ready on the machine and weighs the

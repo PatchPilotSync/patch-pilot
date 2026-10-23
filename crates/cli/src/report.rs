@@ -163,6 +163,7 @@ pub fn history(machine: &str, snapshots: &[SnapshotSummary]) -> String {
             SnapshotReason::DriftAccepted => "drift accepted",
             SnapshotReason::Manual => "manual",
             SnapshotReason::Golden => "golden",
+            SnapshotReason::Imported => "imported",
         };
         let changes = if s.parent_id.is_some() {
             format!("  +{} -{}", s.added, s.removed)

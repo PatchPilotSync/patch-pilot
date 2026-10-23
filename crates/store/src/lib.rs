@@ -11,8 +11,9 @@ mod paths;
 use std::path::Path;
 
 use patchpilot_core::{
-    Confidence, ContentHash, GoldenVersion, GoldenVersionInfo, Item, MachineInfo, Manifest,
-    PathMap, PortablePath, Product, ProfileRule, TargetProfile, golden_machine_id, golden_name,
+    Bundle, BundleGolden, BundleMachine, Confidence, ContentHash, GoldenVersion, GoldenVersionInfo,
+    Item, MachineInfo, Manifest, PathMap, PortablePath, Product, ProfileRule, TargetProfile,
+    golden_machine_id, golden_name,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
@@ -59,6 +60,8 @@ pub enum SnapshotReason {
     Manual,
     /// A Golden Profile version (#35).
     Golden,
+    /// Brought in from an exchange bundle (#38).
+    Imported,
 }
 
 impl SnapshotReason {
@@ -70,6 +73,7 @@ impl SnapshotReason {
             Self::DriftAccepted => "drift_accepted",
             Self::Manual => "manual",
             Self::Golden => "golden",
+            Self::Imported => "imported",
         }
     }
 
@@ -81,6 +85,7 @@ impl SnapshotReason {
             "drift_accepted" => Self::DriftAccepted,
             "manual" => Self::Manual,
             "golden" => Self::Golden,
+            "imported" => Self::Imported,
             _ => {
                 return Err(StoreError::BadValue {
                     column: "snapshots.reason",
@@ -109,6 +114,35 @@ pub struct StoredProfile {
     pub profile: TargetProfile,
     pub builtin: bool,
     pub machines: Vec<String>,
+}
+
+/// What [`Store::import_bundle`] did. Import only ever adds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ImportReport {
+    /// Machine names with a new snapshot.
+    pub machines_added: Vec<String>,
+    /// Machine names whose latest snapshot already matched.
+    pub machines_unchanged: Vec<String>,
+    /// True if the bundle held this machine's own scan, which is skipped.
+    pub skipped_own_machine: bool,
+    pub golden: GoldenImport,
+    pub profiles_added: Vec<String>,
+    /// Profiles whose ID exists here with different rules; left as they are.
+    pub profiles_conflicting: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum GoldenImport {
+    /// The bundle has no Golden Rig.
+    #[default]
+    NotInBundle,
+    /// This machine already has the bundle's latest Golden version (or newer).
+    UpToDate,
+    /// New local versions, oldest first.
+    Imported(Vec<u32>),
+    /// Both sides changed the Golden Rig since they last matched. Nothing was
+    /// imported; the user picks with `golden promote` / `golden propose`.
+    Diverged,
 }
 
 /// One row of a machine's snapshot history, see [`Store::snapshots`].
@@ -236,8 +270,7 @@ impl Store {
     ) -> Result<GoldenVersionInfo> {
         let parent = self.golden(None)?;
         if let Some(p) = &parent
-            && p.manifest.items == manifest.items
-            && used_products(&p.manifest) == used_products(manifest)
+            && same_content(&p.manifest, manifest)
         {
             return Err(StoreError::GoldenUnchanged(p.info.version));
         }
@@ -295,6 +328,156 @@ impl Store {
         )?;
         let rows = stmt.query_map([GOLDEN_ID], golden_info)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Bundle these machines' latest scans (and their profile assignments),
+    /// every Golden version and every user target profile.
+    pub fn export_bundle(
+        &self,
+        machine_ids: &[String],
+        exported_from: Option<&str>,
+        now: i64,
+    ) -> Result<Bundle> {
+        let mut bundle = Bundle::new(now, exported_from.map(str::to_owned));
+        for id in machine_ids {
+            let manifest = self
+                .latest_manifest(id)?
+                .ok_or_else(|| StoreError::UnknownMachine(id.clone()))?;
+            let profile_id: Option<String> = self.conn.query_row(
+                "SELECT target_profile_id FROM machines WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )?;
+            bundle.machines.push(BundleMachine {
+                manifest,
+                profile_id,
+            });
+        }
+        for info in self.golden_history()?.into_iter().rev() {
+            let g = self
+                .golden(Some(info.version))?
+                .expect("listed version exists");
+            bundle.golden.push(BundleGolden {
+                version: info.version,
+                created_at: info.created_at,
+                source_machine_id: info.source_machine_id,
+                note: info.note,
+                manifest: g.manifest,
+            });
+        }
+        bundle.profiles = self
+            .target_profiles()?
+            .into_iter()
+            .filter(|p| !p.builtin)
+            .map(|p| p.profile)
+            .collect();
+        Ok(bundle)
+    }
+
+    /// Add what a bundle holds without overwriting anything (#38).
+    ///
+    /// Machines get a new `imported` snapshot (none if unchanged); this
+    /// machine's own scan is skipped. User profiles are added if their ID is
+    /// free. Golden versions are added only as a fast-forward: when this
+    /// machine has no Golden Rig, or its latest version appears in the
+    /// bundle's history. A profile assignment is copied only if the machine
+    /// has none here.
+    pub fn import_bundle(
+        &mut self,
+        bundle: &Bundle,
+        this_machine: Option<&str>,
+        now: i64,
+    ) -> Result<ImportReport> {
+        let mut report = ImportReport::default();
+
+        for p in &bundle.profiles {
+            match self.target_profile(&p.id)? {
+                Some(existing) if existing == *p => {}
+                Some(_) => report.profiles_conflicting.push(p.id.clone()),
+                None => match self.save_target_profile(p) {
+                    Ok(()) => report.profiles_added.push(p.id.clone()),
+                    Err(StoreError::BuiltinProfile(_)) => {
+                        report.profiles_conflicting.push(p.id.clone());
+                    }
+                    Err(e) => return Err(e),
+                },
+            }
+        }
+
+        for m in &bundle.machines {
+            let id = &m.manifest.machine.id;
+            if Some(id.as_str()) == this_machine || id.starts_with("golden@") {
+                report.skipped_own_machine |= Some(id.as_str()) == this_machine;
+                continue;
+            }
+            let info = self.save_manifest(&m.manifest, SnapshotReason::Imported, now)?;
+            let name = m.manifest.machine.name.clone();
+            if info.unchanged {
+                report.machines_unchanged.push(name);
+            } else {
+                report.machines_added.push(name);
+            }
+            if let Some(p) = &m.profile_id
+                && self.machine_profile(id)?.is_none()
+                && self.target_profile(p)?.is_some()
+            {
+                self.set_machine_profile(id, Some(p))?;
+            }
+        }
+
+        report.golden = self.import_golden(bundle)?;
+        Ok(report)
+    }
+
+    fn import_golden(&mut self, bundle: &Bundle) -> Result<GoldenImport> {
+        let Some(theirs_latest) = bundle.golden.last() else {
+            return Ok(GoldenImport::NotInBundle);
+        };
+        let start = match self.golden(None)? {
+            None => 0,
+            Some(ours) => {
+                match bundle
+                    .golden
+                    .iter()
+                    .rposition(|g| same_content(&g.manifest, &ours.manifest))
+                {
+                    Some(i) => i + 1,
+                    None => {
+                        // Their latest may be one of our older versions.
+                        let ours_has_theirs = self.golden_history()?.iter().any(|v| {
+                            self.golden(Some(v.version))
+                                .ok()
+                                .flatten()
+                                .is_some_and(|g| same_content(&g.manifest, &theirs_latest.manifest))
+                        });
+                        return Ok(if ours_has_theirs {
+                            GoldenImport::UpToDate
+                        } else {
+                            GoldenImport::Diverged
+                        });
+                    }
+                }
+            }
+        };
+        if start == bundle.golden.len() {
+            return Ok(GoldenImport::UpToDate);
+        }
+        let from = bundle.exported_from.as_deref().unwrap_or("another machine");
+        let mut added = Vec::new();
+        for g in &bundle.golden[start..] {
+            let note = match &g.note {
+                Some(n) => format!("{n} (imported: v{} from {from})", g.version),
+                None => format!("Imported: v{} from {from}", g.version),
+            };
+            let info = self.save_golden(
+                &g.manifest,
+                g.source_machine_id.as_deref(),
+                Some(&note),
+                g.created_at,
+            )?;
+            added.push(info.version);
+        }
+        Ok(GoldenImport::Imported(added))
     }
 
     /// Every machine with saved scans (not Golden versions), by name.
@@ -584,6 +767,22 @@ impl Store {
 
 /// The one Golden Profile per install (`profiles` row from migration 2).
 const GOLDEN_ID: &str = "golden";
+
+/// Same items and same products in use, for Golden versions. The machine
+/// header, time and item paths are ignored: paths don't change what the rig
+/// is, and a bundle's copy may have the username removed (#38).
+fn same_content(a: &Manifest, b: &Manifest) -> bool {
+    let pathless = |m: &Manifest| -> Vec<Item> {
+        m.items
+            .iter()
+            .map(|i| Item {
+                path: PortablePath::Absolute(String::new()),
+                ..i.clone()
+            })
+            .collect()
+    };
+    pathless(a) == pathless(b) && used_products(a) == used_products(b)
+}
 
 /// Products that items refer to, sorted: what a snapshot keeps of
 /// `manifest.products`.

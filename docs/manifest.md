@@ -50,6 +50,15 @@ means something on the machine that wrote it.
 Well-known roots are defined by the scanner (#5); user roots such as
 `SAMPLES_ROOT` come from the user's path map.
 
+## Exchange bundles
+
+`patchpilot export` wraps manifests in a bundle (`patchpilot_core::Bundle`,
+`bundle_version` 1): `machines` (each a manifest plus optional `profile_id`),
+`golden` (versions oldest first, each with `version`, `created_at`, optional
+`source_machine_id` and `note`, and a manifest) and `profiles` (user target
+profiles). The bundle version bumps by the same rules as the manifest's, and
+a reader refuses a newer bundle or any newer manifest inside it. See decision #28.
+
 ## Changing the format
 
 Additive optional fields don't need a version bump (`requires` was added this
