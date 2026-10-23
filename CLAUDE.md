@@ -68,4 +68,16 @@ Fill in names once agreed.
 
 ## Build & run
 
-_Not scaffolded yet — the first issue sets this up. Update this section in that PR._
+Rust workspace at the repo root; crates are named `patchpilot-<dir>` (e.g. `patchpilot-core`). Needs stable Rust (`rust-toolchain.toml` pins the channel and components).
+
+```sh
+cargo build --workspace
+cargo test --workspace                              # all crates
+cargo test -p patchpilot-scanner                    # one crate
+cargo fmt --all                                     # CI runs --check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on `windows-latest` and `macos-latest` for every PR. Keep it green on both.
+
+The Tauri app (`app/`) is not scaffolded yet.
