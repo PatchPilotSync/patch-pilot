@@ -22,6 +22,7 @@ const TABLES: &[&str] = &[
     "dependencies",
     "events",
     "decisions",
+    "golden_versions",
 ];
 
 #[test]
@@ -183,4 +184,70 @@ fn history_lists_snapshots_newest_first_with_changes() {
     assert_eq!(oldest.parent_id, None);
     assert_eq!(oldest.added, manifest.items.len() as u64);
     assert_eq!(oldest.removed, 0);
+}
+
+#[test]
+fn golden_versions_are_kept_and_chained() {
+    let studio = fixture_manifest();
+    let mut store = Store::open_in_memory().unwrap();
+    assert!(store.golden(None).unwrap().is_none());
+
+    let v1 = store
+        .save_golden(&studio, Some(&studio.machine.id), Some("first rig"), 100)
+        .unwrap();
+    assert_eq!((v1.version, v1.parent), (1, None));
+
+    let mut updated = studio.clone();
+    updated.items[0].version = Some("9.9.9".into());
+    let v2 = store.save_golden(&updated, None, None, 200).unwrap();
+    assert_eq!((v2.version, v2.parent), (2, Some(1)));
+
+    // v1 stays readable exactly as it was, under its own name.
+    let g1 = store.golden(Some(1)).unwrap().unwrap();
+    assert_eq!(g1.info, v1);
+    assert_eq!(g1.manifest.machine.id, "golden@1");
+    assert_eq!(g1.manifest.machine.name, "Golden Rig v1");
+    assert_eq!(g1.manifest.items, studio.items);
+    assert_eq!(g1.manifest.machine.path_map, studio.machine.path_map);
+
+    let latest = store.golden(None).unwrap().unwrap();
+    assert_eq!(latest.info.version, 2);
+    assert_eq!(latest.manifest.items, updated.items);
+    assert!(store.golden(Some(3)).unwrap().is_none());
+
+    // Saving the same content again is refused; history doesn't grow.
+    let mut same = updated.clone();
+    same.generated_at += 60;
+    assert!(matches!(
+        store.save_golden(&same, None, None, 300),
+        Err(StoreError::GoldenUnchanged(2))
+    ));
+    let history: Vec<_> = store
+        .golden_history()
+        .unwrap()
+        .iter()
+        .map(|v| v.version)
+        .collect();
+    assert_eq!(history, [2, 1]);
+
+    // Golden versions don't show up as the scanned machine's history.
+    assert_eq!(store.snapshots(&studio.machine.id).unwrap().len(), 0);
+}
+
+#[test]
+fn migrates_a_v1_database_to_v2() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("patchpilot.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(patchpilot_store::MIGRATIONS[0].1)
+            .unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+    }
+    let mut store = Store::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 2);
+    store
+        .save_golden(&fixture_manifest(), None, None, 1)
+        .unwrap();
+    assert_eq!(store.golden(None).unwrap().unwrap().info.version, 1);
 }

@@ -5,6 +5,7 @@
 //! and `history` use Patch Pilot's own database in the app-data folder.
 
 mod anonymize;
+mod golden;
 mod report;
 
 use std::collections::BTreeSet;
@@ -78,6 +79,11 @@ enum Command {
         #[arg(long)]
         machine: Option<String>,
     },
+    /// Create, version and update the Golden Rig.
+    Golden {
+        #[command(subcommand)]
+        command: golden::GoldenCommand,
+    },
 }
 
 fn main() -> ExitCode {
@@ -108,6 +114,7 @@ fn main() -> ExitCode {
             all,
         } => diff(&golden, &machine, profile.as_deref(), all),
         Command::History { machine } => history(db, machine),
+        Command::Golden { command } => golden::run(db, command),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -232,11 +239,7 @@ fn scan(
     if let Some(out) = out {
         let mut manifest = manifest;
         if !keep_paths {
-            let home = home_dir();
-            let user = std::env::var("USERNAME")
-                .or_else(|_| std::env::var("USER"))
-                .ok();
-            anonymize::anonymize(&mut manifest, home.as_deref(), user.as_deref());
+            anonymize_for_sharing(&mut manifest);
         }
         std::fs::write(out, manifest.to_json_pretty() + "\n")
             .map_err(|e| format!("{}: {e}", out.display()))?;
@@ -247,20 +250,44 @@ fn scan(
 
 fn history(db: Option<PathBuf>, machine: Option<String>) -> Result<(), String> {
     let path = db_path(db)?;
-    let id = match machine {
-        Some(id) => id,
-        None => patchpilot_store::read_machine_id(app_dir(&path))
-            .map_err(|e| e.to_string())?
-            .ok_or("no saved scans on this machine yet; run `patchpilot scan --save`")?,
-    };
-    if !path.exists() {
-        return Err(format!("{}: no database yet", path.display()));
-    }
-    let store = open_store(&path)?;
+    let id = this_or(&path, machine)?;
+    let store = open_existing_store(&path)?;
     let name = store.machine(&id).map_err(|e| e.to_string())?.name;
     let snapshots = store.snapshots(&id).map_err(|e| e.to_string())?;
     print!("{}", report::history(&name, &snapshots));
     Ok(())
+}
+
+/// `machine`, else this machine's ID from app-data.
+fn this_or(db: &Path, machine: Option<String>) -> Result<String, String> {
+    match machine {
+        Some(id) => Ok(id),
+        None => patchpilot_store::read_machine_id(app_dir(db))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                "no saved scans on this machine yet; run `patchpilot scan --save`".to_owned()
+            }),
+    }
+}
+
+/// Open the database for reading commands; never creates one.
+fn open_existing_store(path: &Path) -> Result<Store, String> {
+    if !path.exists() {
+        return Err(format!(
+            "{}: no database yet; run `patchpilot scan --save`",
+            path.display()
+        ));
+    }
+    open_store(path)
+}
+
+/// Strip home folder and username from paths before a manifest is written.
+fn anonymize_for_sharing(m: &mut patchpilot_core::Manifest) {
+    let home = home_dir();
+    let user = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .ok();
+    anonymize::anonymize(m, home.as_deref(), user.as_deref());
 }
 
 /// `--db`, else `$PATCHPILOT_DB`, else the app-data default.

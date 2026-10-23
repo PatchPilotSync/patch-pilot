@@ -5,7 +5,10 @@ use rusqlite::Connection;
 use crate::{Result, StoreError};
 
 /// `(version, sql)`, ascending. Never edit a released migration; add a new one.
-pub const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("../migrations/0001_init.sql"))];
+pub const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("../migrations/0001_init.sql")),
+    (2, include_str!("../migrations/0002_golden.sql")),
+];
 
 pub const LATEST_VERSION: u32 = MIGRATIONS[MIGRATIONS.len() - 1].0;
 

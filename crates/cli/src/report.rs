@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use patchpilot_core::{Manifest, TargetProfile};
+use patchpilot_core::{GoldenVersionInfo, ItemKind, Manifest, TargetProfile};
 use patchpilot_parity::{ParityScore, ParityState};
 use patchpilot_store::{SnapshotReason, SnapshotSummary};
 
@@ -93,6 +93,7 @@ pub fn history(machine: &str, snapshots: &[SnapshotSummary]) -> String {
             SnapshotReason::BeforeApply => "before apply",
             SnapshotReason::DriftAccepted => "drift accepted",
             SnapshotReason::Manual => "manual",
+            SnapshotReason::Golden => "golden",
         };
         let changes = if s.parent_id.is_some() {
             format!("  +{} -{}", s.added, s.removed)
@@ -108,6 +109,59 @@ pub fn history(machine: &str, snapshots: &[SnapshotSummary]) -> String {
         );
     }
     out
+}
+
+/// One Golden version: header, then counts by plug-in format.
+pub fn golden(v: &GoldenVersionInfo, source: Option<&str>, m: &Manifest) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "{}", golden_line(v, source));
+    let plugins: Vec<_> = m
+        .items
+        .iter()
+        .filter(|i| i.kind == ItemKind::Plugin)
+        .collect();
+    let mut formats: Vec<(String, usize)> = Vec::new();
+    for f in plugins.iter().filter_map(|i| i.format) {
+        let name = serde_json::to_value(f)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_uppercase))
+            .unwrap_or_default();
+        match formats.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, c)) => *c += 1,
+            None => formats.push((name, 1)),
+        }
+    }
+    let formats: Vec<_> = formats.iter().map(|(n, c)| format!("{c} {n}")).collect();
+    let _ = writeln!(
+        out,
+        "  {} products, {} plug-ins ({})",
+        m.products.len(),
+        plugins.len(),
+        formats.join(", ")
+    );
+    out
+}
+
+/// Golden versions, newest first.
+pub fn golden_history(versions: &[(&GoldenVersionInfo, Option<String>)]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "{} Golden Rig version(s)", versions.len());
+    for (v, source) in versions {
+        let _ = writeln!(out, "  {}", golden_line(v, source.as_deref()));
+    }
+    out
+}
+
+/// `v2  2026-10-23 18:04 UTC  from Travel MacBook  "note"`.
+fn golden_line(v: &GoldenVersionInfo, source: Option<&str>) -> String {
+    let mut line = format!("Golden Rig v{}  {}", v.version, utc(v.created_at));
+    if let Some(s) = source {
+        let _ = write!(line, "  from {s}");
+    }
+    if let Some(n) = &v.note {
+        let _ = write!(line, "  \"{n}\"");
+    }
+    line
 }
 
 /// `YYYY-MM-DD HH:MM UTC` from Unix seconds (proleptic Gregorian).

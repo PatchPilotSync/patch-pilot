@@ -7,10 +7,12 @@
 //!
 //! Changes here are reviewed by both founders (CLAUDE.md, Ownership).
 
+mod golden;
 mod manifest;
 mod path;
 mod profile;
 
+pub use golden::{GoldenVersion, GoldenVersionInfo, golden_machine_id, golden_name};
 pub use manifest::{
     Arch, Confidence, ContentHash, Item, ItemKind, MachineInfo, Manifest, ManifestError, Os,
     PluginFormat, Product, ProductId,
