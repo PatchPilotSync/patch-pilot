@@ -1,0 +1,29 @@
+<TRACK {A1B2C3D4-0000-4000-8000-000000000001}
+  NAME "Lead Vocal"
+  VOLPAN 1 0 -1 -1 1
+  <FXCHAIN
+    SHOW 0
+    LASTSEL 0
+    DOCKED 0
+    BYPASS 0 0 0
+    <VST "VST3: Acme Verb (Acme Audio)" "Acme Verb.vst3" 0 "" 1997878177{5653544163654D6163726F7665726200} ""
+      YWJjZGVmZ2hpamtsbW5vcA==
+      776t3g3wrd4=
+    >
+    FLOATPOS 0 0 0 0
+    FXID {11111111-2222-3333-4444-555555555555}
+    WAK 0 0
+    BYPASS 0 0 0
+    <VST "VST: Acme Comp (Acme Audio)" "Acme Comp x64.dll" 0 "" 1094807365<56535441434D4F4D> ""
+      ZGF0YQ==
+    >
+    BYPASS 0 0 0
+    <JS "Acme/gate.jsfx" ""
+      0 -60 10 - - - -
+    >
+    BYPASS 0 0 0
+    <JS utility/volume ""
+      0 0 - - - -
+    >
+  >
+>

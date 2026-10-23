@@ -1,0 +1,7 @@
+BYPASS 0 0 0
+<VST "VST: Acme EQ (Mono) (Acme Audio)" 'Acme EQ Mono.dll' 0 "" 1094807366<56535441> ""
+  ZXE=
+>
+BYPASS 0 0 0
+<VIDEO_EFFECT "Video processor" ""
+>
