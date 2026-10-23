@@ -1,0 +1,257 @@
+//! Comparison view (#41): every machine's score against the Golden Rig
+//! through its target profile, the diff with reasons, the Up To Speed plan,
+//! and importing another machine's export file.
+
+use std::path::PathBuf;
+
+use patchpilot_core::{Bundle, Os};
+use patchpilot_parity::{Comparison, Plan, compare, up_to_speed};
+use patchpilot_store::{GoldenImport, Store};
+use serde::Serialize;
+
+use crate::rig::{db_path, err, open, scanned_at};
+
+#[derive(Debug, Serialize)]
+pub struct MachinesView {
+    pub golden_version: Option<u32>,
+    pub machines: Vec<MachineCard>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MachineCard {
+    pub id: String,
+    pub name: String,
+    pub os: Os,
+    pub scanned_at: i64,
+    pub is_this_machine: bool,
+    pub profile: Option<ProfileRef>,
+    /// None until there is a Golden Rig.
+    pub score: Option<u8>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProfileRef {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MachineComparison {
+    pub machine: MachineCard,
+    pub golden_version: u32,
+    pub comparison: Comparison,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportSummary {
+    /// Plain-language lines, e.g. "New scans: Travel MacBook".
+    pub lines: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn machines() -> Result<MachinesView, String> {
+    let Some(store) = existing_store()? else {
+        return Ok(MachinesView {
+            golden_version: None,
+            machines: Vec::new(),
+        });
+    };
+    machines_view(&store, this_machine()?.as_deref())
+}
+
+#[tauri::command]
+pub async fn compare_machine(id: String) -> Result<MachineComparison, String> {
+    let store = existing_store()?.ok_or("no saved scans yet")?;
+    comparison(&store, &id, this_machine()?.as_deref())
+}
+
+#[tauri::command]
+pub async fn plan_machine(id: String) -> Result<Plan, String> {
+    let store = existing_store()?.ok_or("no saved scans yet")?;
+    let golden = store.golden(None).map_err(err)?.ok_or(NO_GOLDEN)?;
+    let scan = store
+        .latest_manifest(&id)
+        .map_err(err)?
+        .ok_or("no saved scan of that machine")?;
+    let profile = store.machine_profile(&id).map_err(err)?.unwrap_or_default();
+    let (mut g, mut m) = (golden.manifest, scan);
+    patchpilot_parity::align_products(&mut g, &mut m);
+    Ok(up_to_speed(&g, &profile, &m))
+}
+
+/// Add another machine's `patchpilot export` file to this database.
+#[tauri::command]
+pub async fn import_bundle(path: PathBuf) -> Result<ImportSummary, String> {
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bundle = Bundle::from_json(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let db = db_path()?;
+    let mut store = open(&db)?;
+    let report = store
+        .import_bundle(&bundle, this_machine()?.as_deref(), patchpilot_local::now())
+        .map_err(err)?;
+    let mut lines = Vec::new();
+    let names = |v: &[String]| v.join(", ");
+    if !report.machines_added.is_empty() {
+        lines.push(format!("New scans: {}", names(&report.machines_added)));
+    }
+    if !report.machines_unchanged.is_empty() {
+        lines.push(format!(
+            "Already up to date: {}",
+            names(&report.machines_unchanged)
+        ));
+    }
+    match report.golden {
+        GoldenImport::NotInBundle | GoldenImport::UpToDate => {}
+        GoldenImport::Imported(v) => {
+            let v: Vec<_> = v.iter().map(|n| format!("v{n}")).collect();
+            lines.push(format!("Golden Rig: added {}", v.join(", ")));
+        }
+        GoldenImport::Diverged => {
+            lines.push("Golden Rig: both machines changed it, so nothing was imported".to_owned())
+        }
+    }
+    if !report.profiles_added.is_empty() {
+        lines.push(format!("New profiles: {}", names(&report.profiles_added)));
+    }
+    if lines.is_empty() {
+        lines.push("Nothing new in that file".to_owned());
+    }
+    Ok(ImportSummary { lines })
+}
+
+const NO_GOLDEN: &str = "no Golden Rig yet";
+
+pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<MachinesView, String> {
+    let golden = store.golden(None).map_err(err)?;
+    let mut machines = Vec::new();
+    for info in store.machines().map_err(err)? {
+        let profile = store.machine_profile(&info.id).map_err(err)?;
+        let score = match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
+            (Some(g), Some(scan)) => {
+                Some(compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan).score)
+            }
+            _ => None,
+        };
+        machines.push(MachineCard {
+            scanned_at: scanned_at(store, &info.id)?,
+            is_this_machine: Some(info.id.as_str()) == this,
+            profile: profile.map(|p| ProfileRef {
+                id: p.id,
+                name: p.name,
+            }),
+            score,
+            id: info.id,
+            name: info.name,
+            os: info.os,
+        });
+    }
+    // This machine first, then by name (store order).
+    machines.sort_by_key(|m| !m.is_this_machine);
+    Ok(MachinesView {
+        golden_version: golden.map(|g| g.info.version),
+        machines,
+    })
+}
+
+pub(crate) fn comparison(
+    store: &Store,
+    id: &str,
+    this: Option<&str>,
+) -> Result<MachineComparison, String> {
+    let golden = store.golden(None).map_err(err)?.ok_or(NO_GOLDEN)?;
+    let info = store.machine(id).map_err(err)?;
+    let scan = store
+        .latest_manifest(id)
+        .map_err(err)?
+        .ok_or_else(|| format!("no saved scan of {}", info.name))?;
+    let profile = store.machine_profile(id).map_err(err)?;
+    let comparison = compare(
+        &golden.manifest,
+        &profile.clone().unwrap_or_default(),
+        &scan,
+    );
+    Ok(MachineComparison {
+        machine: MachineCard {
+            scanned_at: scanned_at(store, id)?,
+            is_this_machine: Some(id) == this,
+            profile: profile.map(|p| ProfileRef {
+                id: p.id,
+                name: p.name,
+            }),
+            score: Some(comparison.score),
+            id: info.id,
+            name: info.name,
+            os: info.os,
+        },
+        golden_version: golden.info.version,
+        comparison,
+    })
+}
+
+fn existing_store() -> Result<Option<Store>, String> {
+    let db = db_path()?;
+    if !db.exists() {
+        return Ok(None);
+    }
+    open(&db).map(Some)
+}
+
+fn this_machine() -> Result<Option<String>, String> {
+    let db = db_path()?;
+    patchpilot_store::read_machine_id(patchpilot_local::app_dir(&db)).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use patchpilot_core::Manifest;
+
+    fn load(rel: &str) -> Manifest {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures")
+            .join(rel);
+        Manifest::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn imported_machine_gets_a_score_with_reasons() {
+        let studio = load("parity/score/golden.json");
+        let laptop = load("parity/score/laptop.json");
+        let mut store = Store::open_in_memory().unwrap();
+        patchpilot_local::save_scan(&mut store, &studio).unwrap();
+        store
+            .save_golden(&studio, Some(&studio.machine.id), None, 1)
+            .unwrap();
+
+        // The laptop arrives from an export file.
+        let mut bundle = Bundle::new(2, Some("Laptop".into()));
+        bundle.machines.push(patchpilot_core::BundleMachine {
+            manifest: laptop.clone(),
+            profile_id: None,
+        });
+        store
+            .import_bundle(&bundle, Some(&studio.machine.id), 3)
+            .unwrap();
+
+        let view = machines_view(&store, Some(&studio.machine.id)).unwrap();
+        assert_eq!(view.golden_version, Some(1));
+        assert_eq!(view.machines.len(), 2);
+        assert!(view.machines[0].is_this_machine);
+        assert_eq!(view.machines[0].score, Some(100));
+        let lap = &view.machines[1];
+        assert_eq!(lap.name, laptop.machine.name);
+        assert!(lap.score.unwrap() < 100);
+
+        let c = comparison(&store, &laptop.machine.id, Some(&studio.machine.id)).unwrap();
+        assert_eq!(c.machine.score, lap.score);
+        assert!(!c.comparison.reasons.is_empty());
+
+        // With Travel assigned, the laptop is at parity.
+        store
+            .set_machine_profile(&laptop.machine.id, Some("travel"))
+            .unwrap();
+        let c = comparison(&store, &laptop.machine.id, None).unwrap();
+        assert_eq!(c.comparison.score, 100);
+        assert_eq!(c.machine.profile.unwrap().name, "Travel");
+    }
+}

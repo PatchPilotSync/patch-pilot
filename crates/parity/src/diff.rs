@@ -12,7 +12,8 @@ use patchpilot_core::{Item, Manifest, Os, PluginFormat, ProductId};
 use crate::version::{VersionOrder, compare_versions};
 
 /// Where a product stands on the machine relative to Golden.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ParityState {
     /// In Golden, not on the machine.
     Missing,
@@ -31,7 +32,7 @@ pub enum ParityState {
     InParity,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ProductDiff {
     pub product_id: ProductId,
     /// Display name from whichever manifest knows the product.
@@ -43,7 +44,7 @@ pub struct ProductDiff {
     pub missing_formats: Vec<PluginFormat>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct ManifestDiff {
     /// Sorted by state (most urgent first), then name.
     pub products: Vec<ProductDiff>,

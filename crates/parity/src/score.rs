@@ -65,7 +65,7 @@ fn credit(state: ParityState) -> Option<f64> {
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Reason {
     /// Plain-language summary, e.g. "2 plug-ins are missing".
     pub text: String,
@@ -74,7 +74,7 @@ pub struct Reason {
     pub points: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ParityScore {
     /// 0–100, rounded down so 99.6% never shows as 100.
     pub score: u8,

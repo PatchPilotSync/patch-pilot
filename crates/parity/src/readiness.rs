@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use patchpilot_core::{Manifest, ProductId};
 
 /// One template (or rack, or project) on a machine.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TemplateReadiness {
     pub product_id: ProductId,
     /// Display name, e.g. `TrackTemplates/Vocals/Lead Vocal.RTrackTemplate`.
