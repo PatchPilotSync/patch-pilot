@@ -24,7 +24,9 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -32,5 +34,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNCNURBQzA2MEREMjREQjQKUldTMFRkSU5CcXhkTzFsMEwwd2JIMWF6eXNVcDQrSnAzRWFQcC9FWGd6a2J5YS9IbDhhM0tvbUcK",
+      "endpoints": [
+        "https://github.com/PatchPilotSync/patch-pilot-releases/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

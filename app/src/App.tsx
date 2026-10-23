@@ -15,6 +15,7 @@ import { Compare } from "./screens/Compare";
 import { Rig } from "./screens/Rig";
 import { Scanning } from "./screens/Scanning";
 import { Welcome } from "./screens/Welcome";
+import { UpdateBar } from "./Update";
 
 type Tab = "rig" | "compare";
 
@@ -115,6 +116,7 @@ export default function App() {
           ))}
         </nav>
       )}
+      <UpdateBar />
       {error && (
         <div className="border-b border-red-200 bg-red-50 px-6 py-2 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           {error}

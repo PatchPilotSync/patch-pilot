@@ -23,6 +23,10 @@ fn app_version() -> AppVersion {
 
 pub fn run() {
     tauri::Builder::default()
+        // Self-update (decision #32): the UI checks once at launch and only
+        // installs when the user says so.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(rig::Scanning::default())
         .invoke_handler(tauri::generate_handler![
             app_version,
