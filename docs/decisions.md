@@ -16,7 +16,7 @@ Claude: never undo an Accepted decision without adding a new line that supersede
 | 8 | 2026-10-23 | Installer Vault lives on user-owned storage; we never host installers. | EULA/redistribution risk and storage cost. | Accepted |
 | 9 | 2026-10-23 | Patch Notes Hub, third-party preset sync and team features are out of MVP. | Scope; content-heavy. | Accepted |
 | 10 | 2026-10-23 | Repo lives in a shared GitHub org with both founders as owners. | Clean ownership; no single point of failure. | Accepted |
-| 11 | 2026-10-23 | Using React for UI framework | Claude writes React more reliably | Accepted |
+| 11 | 2026-10-23 | Using React for UI framework | Claude writes React more reliably | | Accepted |
 | 12 | 2026-10-23 | Relationship to RigSync - Might abandon RigSync if PatchPilot can do everything RigSync can | Accepted |
-| 13 | 2026-10-23 | Ownership split: 50/50, we'll decide as we go who handles what | Accepted |
-| 14 | 2026-10-23 | Does PatchPilot run through Sabins Sound LLC? The LLC hasn't been formed as of yet | Proposed |
+| 13 | 2026-10-23 | Ownership split: 50/50 | we'll decide as we go who handles what | Accepted |
+| 14 | 2026-10-23 | Does PatchPilot run through Sabins Sound LLC? | The LLC hasn't been formed as of yet | Proposed |
