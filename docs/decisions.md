@@ -20,3 +20,4 @@ Claude: never undo an Accepted decision without adding a new line that supersede
 | 12 | 2026-10-23 | Relationship to RigSync - Might abandon RigSync if PatchPilot can do everything RigSync can | Accepted |
 | 13 | 2026-10-23 | Ownership split: 50/50 | we'll decide as we go who handles what | Accepted |
 | 14 | 2026-10-23 | Does PatchPilot run through Sabins Sound LLC? | The LLC hasn't been formed as of yet | Proposed |
+| 15 | 2026-10-23 | Rust workspace at repo root, crates named `patchpilot-*`, edition 2024, stable toolchain, `Cargo.lock` committed, `unsafe_code` forbidden by default. CI = fmt + clippy `-D warnings` + tests on Windows and macOS. | Reproducible builds for an app; one place to change lints. | Proposed |
