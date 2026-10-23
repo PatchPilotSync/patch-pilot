@@ -31,6 +31,11 @@ impl BundleInfo {
 
 /// Read `Contents/Info.plist` of a bundle, if it has one.
 pub fn read_bundle_info(bundle: &Path) -> Result<Option<BundleInfo>, ReadError> {
+    Ok(read_plist_dict(bundle)?.map(|dict| BundleInfo::from_dict(&dict)))
+}
+
+/// The top-level dictionary of a bundle's `Contents/Info.plist`, if it has one.
+pub(crate) fn read_plist_dict(bundle: &Path) -> Result<Option<plist::Dictionary>, ReadError> {
     let path = bundle.join("Contents").join("Info.plist");
     if !path.is_file() {
         return Ok(None);
@@ -39,29 +44,32 @@ pub fn read_bundle_info(bundle: &Path) -> Result<Option<BundleInfo>, ReadError> 
         path: path.clone(),
         message: e.to_string(),
     })?;
-    let Some(dict) = value.as_dictionary() else {
-        return Err(ReadError::Plist {
+    match value.into_dictionary() {
+        Some(dict) => Ok(Some(dict)),
+        None => Err(ReadError::Plist {
             path,
             message: "top level is not a dictionary".into(),
-        });
+        }),
+    }
+}
+
+/// A plist value as a trimmed, non-empty string. Numbers are accepted because
+/// vendors sometimes write versions that way.
+pub(crate) fn plist_string(value: Option<&plist::Value>) -> Option<String> {
+    let s = match value? {
+        plist::Value::String(s) => s.clone(),
+        plist::Value::Integer(i) => i.to_string(),
+        plist::Value::Real(r) => r.to_string(),
+        _ => return None,
     };
-    Ok(Some(BundleInfo::from_dict(dict)))
+    let s = s.trim();
+    (!s.is_empty()).then(|| s.to_owned())
 }
 
 impl BundleInfo {
-    /// Read keys leniently: vendors sometimes write versions as numbers, and a
-    /// bad value for one key shouldn't lose the others.
+    /// Read keys leniently: a bad value for one key shouldn't lose the others.
     pub(crate) fn from_dict(dict: &plist::Dictionary) -> Self {
-        let get = |key: &str| -> Option<String> {
-            let s = match dict.get(key)? {
-                plist::Value::String(s) => s.clone(),
-                plist::Value::Integer(i) => i.to_string(),
-                plist::Value::Real(r) => r.to_string(),
-                _ => return None,
-            };
-            let s = s.trim();
-            (!s.is_empty()).then(|| s.to_owned())
-        };
+        let get = |key: &str| plist_string(dict.get(key));
         Self {
             name: get("CFBundleName"),
             display_name: get("CFBundleDisplayName"),
