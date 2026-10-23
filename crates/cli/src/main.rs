@@ -1,7 +1,8 @@
 //! `patchpilot`: scan this machine into a manifest, or diff two manifests.
 //!
 //! Alpha-tester tool; the desktop app replaces it. Read-only: it never
-//! changes plug-ins, DAW settings or any user file except `--out`.
+//! changes plug-ins, DAW settings or any user file except `--out`. `--save`
+//! and `history` use Patch Pilot's own database in the app-data folder.
 
 mod anonymize;
 mod report;
@@ -13,6 +14,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use patchpilot_core::{Arch, Manifest, Os, PluginFormat, TargetProfile};
 use patchpilot_scanner::{PluginRoot, ScanInput, SystemDirs, default_roots};
+use patchpilot_store::{SnapshotReason, Store};
 
 #[derive(Parser)]
 #[command(
@@ -21,20 +23,30 @@ use patchpilot_scanner::{PluginRoot, ScanInput, SystemDirs, default_roots};
     about = "Patch Pilot alpha: scan and compare rigs"
 )]
 struct Cli {
+    /// Database file. Defaults to $PATCHPILOT_DB, else the app-data folder
+    /// (%LOCALAPPDATA%\\PatchPilot or ~/Library/Application Support/PatchPilot).
+    #[arg(long, global = true, value_name = "PATH")]
+    db: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Scan this machine's plug-ins and vendor apps into a manifest file.
+    /// Scan this machine's plug-ins and vendor apps into a manifest file
+    /// and/or a snapshot in the local database.
+    #[command(group = clap::ArgGroup::new("dest").required(true).multiple(true).args(["out", "save"]))]
     Scan {
         /// Where to write the manifest JSON.
         #[arg(long, short)]
-        out: PathBuf,
-        /// A name for this machine, e.g. "Studio PC".
-        #[arg(long, default_value = "This machine")]
-        name: String,
+        out: Option<PathBuf>,
+        /// Save the scan as a snapshot in the local database (see `history`).
+        #[arg(long)]
+        save: bool,
+        /// A name for this machine, e.g. "Studio PC". Defaults to the name
+        /// saved by an earlier `--save` scan, else "This machine".
+        #[arg(long)]
+        name: Option<String>,
         /// Extra plug-in folder as FORMAT=PATH (vst2, vst3, au, aax, clap). Repeatable.
         #[arg(long = "folder", value_name = "FORMAT=PATH")]
         folders: Vec<String>,
@@ -60,19 +72,29 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// List the saved scans (snapshots) of this machine, newest first.
+    History {
+        /// Another machine's ID instead of this one.
+        #[arg(long)]
+        machine: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
-    let result = match Cli::parse().command {
+    let cli = Cli::parse();
+    let db = cli.db;
+    let result = match cli.command {
         Command::Scan {
             out,
+            save,
             name,
             folders,
             no_default_folders,
             no_vendor_apps,
             keep_paths,
         } => scan(
-            &out,
+            out.as_deref(),
+            save.then_some(db),
             name,
             &folders,
             no_default_folders,
@@ -85,6 +107,7 @@ fn main() -> ExitCode {
             profile,
             all,
         } => diff(&golden, &machine, profile.as_deref(), all),
+        Command::History { machine } => history(db, machine),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -95,9 +118,11 @@ fn main() -> ExitCode {
     }
 }
 
+/// `save` is `Some(--db)` when the scan goes to the database.
 fn scan(
-    out: &Path,
-    name: String,
+    out: Option<&Path>,
+    save: Option<Option<PathBuf>>,
+    name: Option<String>,
     folders: &[String],
     no_default_folders: bool,
     no_vendor_apps: bool,
@@ -127,8 +152,35 @@ fn scan(
         detect_vendor_apps(os, &dirs)
     };
 
+    // A saved scan needs this machine's stable ID. A file-only scan reuses
+    // it if it exists but never creates app-data files.
+    let mut store = None;
+    let id = match &save {
+        Some(db) => {
+            let path = db_path(db.clone())?;
+            let dir = app_dir(&path);
+            let id = patchpilot_store::load_or_create_machine_id(dir).map_err(|e| e.to_string())?;
+            store = Some((open_store(&path)?, path));
+            id
+        }
+        None => match db_path(None) {
+            Ok(path) => patchpilot_store::read_machine_id(app_dir(&path))
+                .ok()
+                .flatten()
+                .unwrap_or_else(random_id),
+            Err(_) => random_id(),
+        },
+    };
+    let saved_name = store
+        .as_ref()
+        .and_then(|(s, _)| s.machine(&id).ok())
+        .map(|m| m.name);
+    let name = name
+        .or(saved_name)
+        .unwrap_or_else(|| "This machine".to_owned());
+
     let output = patchpilot_scanner::scan_machine(ScanInput {
-        id: random_id(),
+        id,
         name,
         os,
         arch: current_arch(),
@@ -138,17 +190,7 @@ fn scan(
         clap_cache: reaper_clap_cache(os, &dirs),
         now: now(),
     });
-    let mut manifest = output.manifest;
-    if !keep_paths {
-        let home = home_dir();
-        let user = std::env::var("USERNAME")
-            .or_else(|_| std::env::var("USER"))
-            .ok();
-        anonymize::anonymize(&mut manifest, home.as_deref(), user.as_deref());
-    }
-
-    std::fs::write(out, manifest.to_json_pretty() + "\n")
-        .map_err(|e| format!("{}: {e}", out.display()))?;
+    let manifest = output.manifest;
     for w in &output.warnings {
         eprintln!("warning: {w}");
     }
@@ -157,13 +199,91 @@ fn scan(
         .iter()
         .filter(|i| i.kind == patchpilot_core::ItemKind::Plugin)
         .count();
-    println!(
-        "Wrote {} ({plugins} plug-ins, {} products, {} warnings)",
-        out.display(),
+    let counts = format!(
+        "{plugins} plug-ins, {} products, {} warnings",
         manifest.products.len(),
         output.warnings.len()
     );
+
+    // The local database keeps real paths; it never leaves this machine.
+    if let Some((mut store, path)) = store {
+        let first = store
+            .snapshots(&manifest.machine.id)
+            .map_err(|e| e.to_string())?
+            .is_empty();
+        let reason = if first {
+            SnapshotReason::FirstScan
+        } else {
+            SnapshotReason::Scan
+        };
+        let info = store
+            .save_manifest(&manifest, reason, now())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        if info.unchanged {
+            println!("No changes since snapshot #{} ({counts})", info.id);
+        } else {
+            println!(
+                "Saved snapshot #{} of {} ({counts})",
+                info.id, manifest.machine.name
+            );
+        }
+    }
+
+    if let Some(out) = out {
+        let mut manifest = manifest;
+        if !keep_paths {
+            let home = home_dir();
+            let user = std::env::var("USERNAME")
+                .or_else(|_| std::env::var("USER"))
+                .ok();
+            anonymize::anonymize(&mut manifest, home.as_deref(), user.as_deref());
+        }
+        std::fs::write(out, manifest.to_json_pretty() + "\n")
+            .map_err(|e| format!("{}: {e}", out.display()))?;
+        println!("Wrote {} ({counts})", out.display());
+    }
     Ok(())
+}
+
+fn history(db: Option<PathBuf>, machine: Option<String>) -> Result<(), String> {
+    let path = db_path(db)?;
+    let id = match machine {
+        Some(id) => id,
+        None => patchpilot_store::read_machine_id(app_dir(&path))
+            .map_err(|e| e.to_string())?
+            .ok_or("no saved scans on this machine yet; run `patchpilot scan --save`")?,
+    };
+    if !path.exists() {
+        return Err(format!("{}: no database yet", path.display()));
+    }
+    let store = open_store(&path)?;
+    let name = store.machine(&id).map_err(|e| e.to_string())?.name;
+    let snapshots = store.snapshots(&id).map_err(|e| e.to_string())?;
+    print!("{}", report::history(&name, &snapshots));
+    Ok(())
+}
+
+/// `--db`, else `$PATCHPILOT_DB`, else the app-data default.
+fn db_path(flag: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(p) = flag {
+        return Ok(p);
+    }
+    if let Some(p) = std::env::var_os("PATCHPILOT_DB").filter(|p| !p.is_empty()) {
+        return Ok(PathBuf::from(p));
+    }
+    let os = Os::current().ok_or("no default database on this OS; pass --db")?;
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    patchpilot_store::default_db_path(os, &local, &home_dir().unwrap_or_default())
+        .ok_or_else(|| "can't find the app-data folder; pass --db".to_owned())
+}
+
+/// The folder holding the database, where `machine-id` lives too.
+fn app_dir(db: &Path) -> &Path {
+    db.parent().unwrap_or(Path::new("."))
+}
+
+fn open_store(path: &Path) -> Result<Store, String> {
+    Store::open(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn diff(golden: &Path, machine: &Path, profile: Option<&Path>, all: bool) -> Result<(), String> {
@@ -239,7 +359,7 @@ fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-/// A random-enough per-scan machine ID. Not derived from hardware.
+/// A per-scan machine ID for file-only scans before any `--save`.
 fn random_id() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

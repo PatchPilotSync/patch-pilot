@@ -137,3 +137,50 @@ fn unknown_machine() {
         Err(StoreError::UnknownMachine(_))
     ));
 }
+
+#[test]
+fn rescan_with_a_new_time_is_unchanged() {
+    let manifest = fixture_manifest();
+    let mut store = Store::open_in_memory().unwrap();
+    let first = store
+        .save_manifest(&manifest, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    let mut rescan = manifest.clone();
+    rescan.generated_at += 3600;
+    let again = store
+        .save_manifest(&rescan, SnapshotReason::Scan, 2)
+        .unwrap();
+    assert!(again.unchanged);
+    assert_eq!(again.id, first.id);
+    assert_eq!(again.manifest_hash, first.manifest_hash);
+}
+
+#[test]
+fn history_lists_snapshots_newest_first_with_changes() {
+    let manifest = fixture_manifest();
+    let id = manifest.machine.id.clone();
+    let mut store = Store::open_in_memory().unwrap();
+    assert!(store.snapshots(&id).unwrap().is_empty());
+    store
+        .save_manifest(&manifest, SnapshotReason::FirstScan, 10)
+        .unwrap();
+    let mut changed = manifest.clone();
+    changed.items[0].version = Some("2.2.0".into());
+    changed.items.pop();
+    store
+        .save_manifest(&changed, SnapshotReason::Scan, 20)
+        .unwrap();
+
+    let history = store.snapshots(&id).unwrap();
+    assert_eq!(history.len(), 2);
+    let (newest, oldest) = (&history[0], &history[1]);
+    assert_eq!(newest.reason, SnapshotReason::Scan);
+    assert_eq!(newest.created_at, 20);
+    assert_eq!(newest.parent_id, Some(oldest.id));
+    assert_eq!(newest.items, manifest.items.len() as u64 - 1);
+    assert_eq!((newest.added, newest.removed), (1, 2));
+    assert_eq!(oldest.reason, SnapshotReason::FirstScan);
+    assert_eq!(oldest.parent_id, None);
+    assert_eq!(oldest.added, manifest.items.len() as u64);
+    assert_eq!(oldest.removed, 0);
+}
