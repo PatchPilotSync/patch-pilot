@@ -6,6 +6,14 @@ Patch Pilot compares each of your machines against a Golden Profile (your ideal 
 
 > Status: pre-alpha. Nothing to install yet.
 
+## Screenshots
+
+The desktop app, shown with demo data.
+
+| Your rig | Compare with the Golden Rig | Up To Speed |
+| --- | --- | --- |
+| ![This machine's plug-ins after a scan](docs/screenshots/rig.png) | ![Travel Laptop scored 40% against the Golden Rig, with reasons](docs/screenshots/compare.png) | ![Checklist to bring Travel Laptop back to parity](docs/screenshots/up-to-speed.png) |
+
 ## Docs
 
 - [CLAUDE.md](CLAUDE.md) — project rules and conventions (read by Claude Code every session)
