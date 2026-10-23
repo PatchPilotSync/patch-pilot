@@ -1,0 +1,30 @@
+<REAPER_PROJECT 0.1 "7.22/win64" 1729700000
+  TEMPO 120 4 4
+  <TRACK
+    NAME Drums
+    <FXCHAIN
+      BYPASS 0 0 0
+      <VST "VST3: Acme Verb (Acme Audio)" "Acme Verb.vst3" 0 "" 1997878177{5653544163654D6163726F7665726200} ""
+        YWJj
+      >
+      BYPASS 0 0 0
+      <CLAP "CLAP: Acme Delay (Acme Audio)" com.acmeaudio.delay ""
+        <STATE
+          ZGVsYXk=
+        >
+      >
+    >
+  >
+  <TRACK
+    NAME Keys
+    <FXCHAIN
+      BYPASS 0 0 0
+      <AU "AUi: Acme Synth (Acme Audio)" "Acme Audio: Acme Synth" "" 1635085685<...>
+        c3ludGg=
+      >
+      BYPASS 0 0 0
+      <VST "VST3i: Acme Piano (Acme Audio)" "Acme Piano.vst3" 0 "" 1234{5653544150494E4F4163656D6500AABB} ""
+      >
+    >
+  >
+>

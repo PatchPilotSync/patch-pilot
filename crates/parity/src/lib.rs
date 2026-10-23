@@ -1,14 +1,11 @@
 //! Identity resolution, manifest diff, parity scoring and plan generation.
 
-/// Manifest schema version this crate was built against.
-pub fn schema_version() -> u32 {
-    patchpilot_core::MANIFEST_SCHEMA_VERSION
-}
+pub mod reaper;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn links_against_core() {
-        assert_eq!(super::schema_version(), 1);
-    }
-}
+mod diff;
+mod score;
+mod version;
+
+pub use diff::{ManifestDiff, ParityState, ProductDiff, diff_manifests, format_available_on};
+pub use score::{ParityScore, Reason, ScoreWeights, apply_profile, score_machine};
+pub use version::{Version, VersionOrder, compare_versions};

@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "machine": {
+    "id": "travel-macbook",
+    "name": "Travel MacBook",
+    "os": "macos",
+    "arch": "aarch64",
+    "path_map": {
+      "os": "macos",
+      "roots": {
+        "VST3_SYSTEM": "/Library/Audio/Plug-Ins/VST3",
+        "AU_SYSTEM": "/Library/Audio/Plug-Ins/Components",
+        "REAPER_RESOURCES": "/Users/alice/Library/Application Support/REAPER"
+      }
+    }
+  },
+  "generated_at": 1792771200,
+  "products": [
+    {
+      "canonical_id": "acme-verb",
+      "vendor": "Acme Audio",
+      "name": "Acme Verb"
+    },
+    {
+      "canonical_id": "acme-comp",
+      "vendor": "Acme Audio",
+      "name": "Acme Comp"
+    },
+    {
+      "canonical_id": "acme-synth",
+      "vendor": "Acme Audio",
+      "name": "Acme Synth"
+    },
+    {
+      "canonical_id": "acme-delay",
+      "vendor": "Acme Audio",
+      "name": "Acme Delay"
+    },
+    {
+      "canonical_id": "acme-gate-jsfx",
+      "vendor": "Acme Audio",
+      "name": "Acme Gate JSFX"
+    },
+    {
+      "canonical_id": "acme-phaser",
+      "vendor": "Acme Audio",
+      "name": "Acme Phaser"
+    },
+    {
+      "canonical_id": "acme-tuner",
+      "vendor": "Acme Audio",
+      "name": "Acme Tuner"
+    }
+  ],
+  "items": [
+    {
+      "kind": "plugin",
+      "product_id": "acme-verb",
+      "format": "vst3",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Verb.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "2.1.0"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-verb",
+      "format": "au",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "AU_SYSTEM",
+          "rel": "Acme Verb.component"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "2.1.0"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-comp",
+      "format": "vst3",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Comp.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "3.0"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-synth",
+      "format": "vst3",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Synth.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "4.0.2"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-delay",
+      "format": "vst3",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Delay.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "1.5"
+    },
+    {
+      "kind": "daw_asset",
+      "product_id": "acme-gate-jsfx",
+      "format": "jsfx",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "REAPER_RESOURCES",
+          "rel": "Effects/Acme/gate.jsfx"
+        }
+      },
+      "platform_portable": true,
+      "confidence": "high",
+      "content_hash": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-phaser",
+      "format": "vst3",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Phaser.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "nightly"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-tuner",
+      "format": "au",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "AU_SYSTEM",
+          "rel": "Acme Tuner.component"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "1.0.0"
+    },
+    {
+      "kind": "plugin",
+      "format": "vst3",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Mystery Synth.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "low"
+    }
+  ]
+}
