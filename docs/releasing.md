@@ -12,13 +12,15 @@ When one exists they show what changed and install it only if the user clicks
 2. **Token.** Create a fine-grained personal access token with access to
    `patch-pilot-releases` only, permission *Contents: Read and write*. Save it in
    this repo as the Actions secret `RELEASES_TOKEN`.
-3. **Update signing key.** Save the private key and its password as the Actions
+3. **Update signing key.** On a founder's own computer (never in a cloud
+   session or chat), in `app/` after `npm ci`, run
+   `npx tauri signer generate -w ~/.tauri/patchpilot.key` and choose a password.
+   Save the contents of `~/.tauri/patchpilot.key` and the password as the Actions
    secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-   The matching public key is `plugins.updater.pubkey` in
-   `app/src-tauri/tauri.conf.json`. Keep a copy of both in a password manager:
-   if the key is lost, installed apps can't update and have to be reinstalled.
-   To replace it, run `npx tauri signer generate` in `app/` and update the
-   secrets and the public key together.
+   Put the contents of `~/.tauri/patchpilot.key.pub` in `plugins.updater.pubkey`
+   in `app/src-tauri/tauri.conf.json`. Keep the key and password in a password
+   manager: if they're lost, installed apps can't update and have to be
+   reinstalled.
 
 ## Each release
 
