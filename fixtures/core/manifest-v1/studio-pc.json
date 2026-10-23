@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "machine": {
+    "id": "6f1c2a9e-0d4b-4c57-9a43-1f0e8b7d2c11",
+    "name": "Studio PC",
+    "os": "windows",
+    "arch": "x86_64",
+    "os_version": "Windows 11 23H2",
+    "path_map": {
+      "os": "windows",
+      "roots": {
+        "AAX_SYSTEM": "C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins",
+        "REAPER_RESOURCES": "C:\\Users\\alice\\AppData\\Roaming\\REAPER",
+        "SAMPLES_ROOT": "D:\\Samples",
+        "VST3_SYSTEM": "C:\\Program Files\\Common Files\\VST3"
+      }
+    }
+  },
+  "generated_at": 1792771200,
+  "products": [
+    { "canonical_id": "vst3:5653544163654D6163726F7665726200", "vendor": "Acme Audio", "name": "Acme Verb" },
+    { "canonical_id": "reaper:jsfx/acme-gate", "vendor": "Acme Audio", "name": "Acme Gate (JSFX)" }
+  ],
+  "items": [
+    {
+      "kind": "plugin",
+      "product_id": "vst3:5653544163654D6163726F7665726200",
+      "format": "vst3",
+      "platform": "windows",
+      "arch": "x86_64",
+      "version": "2.1.0",
+      "path": { "logical": { "root": "VST3_SYSTEM", "rel": "Acme/Acme Verb.vst3" } },
+      "size": 18350080,
+      "mtime": 1789000000,
+      "platform_portable": false,
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "vst3:5653544163654D6163726F7665726200",
+      "format": "aax",
+      "platform": "windows",
+      "version": "2.1",
+      "path": { "logical": { "root": "AAX_SYSTEM", "rel": "Acme Verb.aaxplugin" } },
+      "platform_portable": false,
+      "confidence": "medium"
+    },
+    {
+      "kind": "daw_asset",
+      "product_id": "reaper:jsfx/acme-gate",
+      "format": "jsfx",
+      "platform": "windows",
+      "path": { "logical": { "root": "REAPER_RESOURCES", "rel": "Effects/Acme/gate.jsfx" } },
+      "content_hash": "blake3:af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "size": 2048,
+      "mtime": 1790000000,
+      "platform_portable": true,
+      "confidence": "high"
+    },
+    {
+      "kind": "vendor_app",
+      "platform": "windows",
+      "version": "1.14.2",
+      "path": { "absolute": "E:\\Tools\\Acme Hub\\AcmeHub.exe" },
+      "platform_portable": false,
+      "confidence": "low"
+    }
+  ]
+}
