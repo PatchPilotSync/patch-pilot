@@ -9,6 +9,7 @@ mod names;
 mod pe;
 mod plist_info;
 mod roots;
+mod scan;
 mod vendor_apps;
 mod vst2_aax;
 mod vst3;
@@ -20,6 +21,7 @@ pub use names::{Channels, NormalizedName, normalize_name};
 pub use pe::{PeVersion, read_pe_version};
 pub use plist_info::{BundleInfo, read_bundle_info};
 pub use roots::{PluginRoot, SystemDirs, default_roots, path_map};
+pub use scan::{ScanInput, ScanOutput, product_id, scan_machine, slug};
 #[cfg(windows)]
 pub use vendor_apps::read_uninstall_entries;
 pub use vendor_apps::{
