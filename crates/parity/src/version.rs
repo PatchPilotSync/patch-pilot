@@ -79,10 +79,10 @@ fn split_build(s: &str) -> (&str, Option<u64>) {
             return (s[..i].trim_end_matches([' ', '-', '_', ',']), Some(n));
         }
     }
-    if let Some(inner) = s.strip_suffix(')').and_then(|t| t.rsplit_once('(')) {
-        if let Ok(n) = inner.1.trim().parse() {
-            return (inner.0.trim_end(), Some(n));
-        }
+    if let Some(inner) = s.strip_suffix(')').and_then(|t| t.rsplit_once('('))
+        && let Ok(n) = inner.1.trim().parse()
+    {
+        return (inner.0.trim_end(), Some(n));
     }
     (s, None)
 }
@@ -139,10 +139,10 @@ pub fn compare_versions(ours: &str, theirs: &str) -> VersionOrder {
             (Some((ta, na)), Some((tb, nb))) => (pre_rank(ta), na).cmp(&(pre_rank(tb), nb)),
         };
     }
-    if ord.is_eq() {
-        if let (Some(x), Some(y)) = (a.build, b.build) {
-            ord = x.cmp(&y);
-        }
+    if ord.is_eq()
+        && let (Some(x), Some(y)) = (a.build, b.build)
+    {
+        ord = x.cmp(&y);
     }
     match ord {
         Ordering::Less => VersionOrder::Older,

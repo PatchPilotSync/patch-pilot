@@ -35,7 +35,7 @@ Rows **#14-#21** in `docs/decisions.md` are **Proposed**: the LLC question, work
 ## Loose ends from M1-2
 
 - **Reaper CLAP cache format is a guess.** The parser in `crates/scanner/src/clap_cache.rs` was written without a real `reaper-clap-*.ini`. If either of us has Reaper with CLAP plug-ins, grab the file and do issue #32.
-- **MSRV is wrong.** `json5 1.3` needs a newer compiler than the declared `rust-version = "1.85"`. Issue #31.
+- ~~**MSRV is wrong.**~~ Fixed in #31: MSRV is now 1.88 and CI checks it.
 - **Template readiness isn't in the score yet**, even though the parser and the ×3 weight exist. Issue #37.
 - **The store isn't wired up.** Scans only go to JSON files. Issue #34.
 - **Closed alpha** (30 Reaper users sending scans) hasn't started. The CLI is ready for it.
