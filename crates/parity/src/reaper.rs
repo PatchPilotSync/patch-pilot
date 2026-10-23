@@ -16,7 +16,9 @@
 
 use std::path::{Path, PathBuf};
 
-use patchpilot_core::{Os, PluginFormat};
+use patchpilot_core::{
+    Confidence, ContentHash, Item, ItemKind, Os, PluginFormat, PortablePath, Product, ProductId,
+};
 
 /// One plug-in reference in a template.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -237,6 +239,81 @@ pub fn scan_templates(resource_dir: &Path) -> Vec<TemplateDeps> {
             })
         })
         .collect()
+}
+
+/// Logical root for Reaper's resource folder in manifests.
+pub const REAPER_RESOURCES: &str = "REAPER_RESOURCES";
+
+/// Every template under a resource folder as a manifest item (#37).
+///
+/// Each template is a portable `daw_asset` product `reaper-template/<path>`
+/// at `REAPER_RESOURCES/<rel>`, with its content hash (templates are
+/// user-owned files) and `requires` set to the products it uses.
+/// `product_of` maps a plug-in reference to a product ID, or `None` to leave
+/// it out (e.g. stock JSFX that ship with Reaper). Unreadable files are
+/// skipped.
+pub fn template_items(
+    resource_dir: &Path,
+    os: Os,
+    product_of: impl Fn(&PluginRef) -> Option<ProductId>,
+) -> (Vec<Product>, Vec<Item>) {
+    let mut products = Vec::new();
+    let mut items = Vec::new();
+    for path in find_templates(resource_dir) {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(rel) = path.strip_prefix(resource_dir) else {
+            continue;
+        };
+        let rel: Vec<_> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let rel = rel.join("/");
+        let id = ProductId(format!("reaper-template/{}", slug(&rel)));
+        let mut requires: Vec<ProductId> = parse_template(&String::from_utf8_lossy(&bytes))
+            .iter()
+            .filter_map(&product_of)
+            .collect();
+        requires.sort();
+        requires.dedup();
+        let meta = std::fs::metadata(&path).ok();
+        let hash = format!("blake3:{}", blake3::hash(&bytes).to_hex());
+        products.push(Product {
+            canonical_id: id.clone(),
+            vendor: "REAPER".into(),
+            name: rel.clone(),
+        });
+        items.push(Item {
+            kind: ItemKind::DawAsset,
+            product_id: Some(id),
+            format: None,
+            platform: os,
+            arch: None,
+            version: None,
+            path: PortablePath::logical(REAPER_RESOURCES, rel),
+            content_hash: ContentHash::try_from(hash).ok(),
+            size: Some(bytes.len() as u64),
+            mtime: meta
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64),
+            platform_portable: true,
+            confidence: Confidence::High,
+            requires,
+        });
+    }
+    (products, items)
+}
+
+/// Lowercase ASCII alphanumeric words joined by `-`.
+fn slug(s: &str) -> String {
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 #[cfg(test)]

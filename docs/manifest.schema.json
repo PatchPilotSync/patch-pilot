@@ -113,6 +113,13 @@
           ],
           "description": "`None` until identity resolution places the item."
         },
+        "requires": {
+          "description": "Products this item needs to work, sorted and unique: for a DAW\ntemplate, rack or project, the plug-ins it uses (readiness, #37).",
+          "items": {
+            "$ref": "#/$defs/ProductId"
+          },
+          "type": "array"
+        },
         "size": {
           "description": "Bytes on disk; for bundles and folders, the total.",
           "format": "uint64",

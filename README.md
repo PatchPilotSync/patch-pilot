@@ -98,9 +98,14 @@ patchpilot diff                                   # same, for this machine
 `diff` with two files also uses the machine's stored profile when that machine
 is in the local database, unless `--profile` is given.
 
+Scans also read Reaper's track templates, project templates and FX chains
+(from the standard Reaper folder, or `--reaper-dir` for a portable install).
+`diff` then lists templates that aren't ready on the machine and weighs the
+plug-ins they need ×3 in the score.
+
 Known alpha limits: CLAP plug-ins get exact names and vendors only if Reaper has
 scanned them (otherwise name and version come from the file), product
-matching is by vendor and name, and template readiness isn't in the score yet.
+matching is by vendor and name, and JSFX used in templates aren't checked.
 
 ## Contributing
 

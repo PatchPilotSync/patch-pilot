@@ -410,6 +410,7 @@ dependencies = [
 name = "patchpilot-parity"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "patchpilot-core",
  "serde_json",
  "thiserror",

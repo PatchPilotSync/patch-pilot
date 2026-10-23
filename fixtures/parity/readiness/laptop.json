@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "machine": {
+    "id": "travel-macbook",
+    "name": "Travel MacBook",
+    "os": "macos",
+    "arch": "x86_64",
+    "path_map": {
+      "os": "macos",
+      "roots": {}
+    }
+  },
+  "generated_at": 1792778640,
+  "products": [
+    {
+      "canonical_id": "acme-audio/acme-verb",
+      "vendor": "Acme Audio",
+      "name": "Acme Verb"
+    },
+    {
+      "canonical_id": "acme-audio/acme-synth",
+      "vendor": "Acme Audio",
+      "name": "Acme Synth"
+    },
+    {
+      "canonical_id": "reaper-template/tracktemplates-vocals-lead-vocal-rtracktemplate",
+      "vendor": "REAPER",
+      "name": "TrackTemplates/Vocals/Lead Vocal.RTrackTemplate"
+    }
+  ],
+  "items": [
+    {
+      "kind": "plugin",
+      "product_id": "acme-audio/acme-verb",
+      "format": "vst3",
+      "platform": "macos",
+      "version": "2.1.0",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Verb.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-audio/acme-synth",
+      "format": "vst3",
+      "platform": "macos",
+      "version": "4.0.2",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Synth.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "daw_asset",
+      "product_id": "reaper-template/tracktemplates-vocals-lead-vocal-rtracktemplate",
+      "platform": "macos",
+      "path": {
+        "logical": {
+          "root": "REAPER_RESOURCES",
+          "rel": "TrackTemplates/Vocals/Lead Vocal.RTrackTemplate"
+        }
+      },
+      "content_hash": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 1200,
+      "platform_portable": true,
+      "confidence": "high",
+      "requires": [
+        "acme-audio/acme-comp",
+        "acme-audio/acme-verb"
+      ]
+    }
+  ]
+}

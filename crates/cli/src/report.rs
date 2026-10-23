@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use patchpilot_core::{GoldenVersionInfo, ItemKind, Manifest, TargetProfile};
-use patchpilot_parity::{ParityScore, ParityState};
+use patchpilot_parity::{ParityScore, ParityState, TemplateReadiness};
 use patchpilot_store::{SnapshotReason, SnapshotSummary};
 
 pub fn render(
@@ -11,6 +11,7 @@ pub fn render(
     machine: &Manifest,
     profile: &TargetProfile,
     score: &ParityScore,
+    readiness: &[TemplateReadiness],
     all: bool,
 ) -> String {
     let mut out = String::new();
@@ -63,6 +64,32 @@ pub fn render(
             score.diff.unresolved.len(),
             machine.machine.name
         );
+    }
+    if !readiness.is_empty() {
+        let ready = readiness.iter().filter(|t| t.is_ready()).count();
+        let _ = writeln!(
+            out,
+            "\nTemplates: {ready} of {} ready on {}",
+            readiness.len(),
+            machine.machine.name
+        );
+        for t in readiness.iter().filter(|t| !t.is_ready() || all) {
+            if t.is_ready() {
+                let _ = writeln!(out, "  {}  ready", t.name);
+                continue;
+            }
+            let names: Vec<_> = t
+                .missing
+                .iter()
+                .map(|id| {
+                    golden
+                        .product(id)
+                        .or_else(|| machine.product(id))
+                        .map_or_else(|| id.to_string(), |p| p.name.clone())
+                })
+                .collect();
+            let _ = writeln!(out, "  {}  needs {}", t.name, names.join(", "));
+        }
     }
     out
 }
