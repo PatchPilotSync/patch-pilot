@@ -1,0 +1,18 @@
+{
+  "id": "travel",
+  "name": "Travel",
+  "rules": [
+    {
+      "action": "exclude",
+      "match": {
+        "format": "aax"
+      }
+    },
+    {
+      "action": "exclude",
+      "match": {
+        "size_over": 20000000000
+      }
+    }
+  ]
+}

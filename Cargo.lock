@@ -35,6 +35,7 @@ name = "patchpilot-parity"
 version = "0.1.0"
 dependencies = [
  "patchpilot-core",
+ "serde_json",
 ]
 
 [[package]]

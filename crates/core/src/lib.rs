@@ -9,12 +9,14 @@
 
 mod manifest;
 mod path;
+mod profile;
 
 pub use manifest::{
     Arch, Confidence, ContentHash, Item, ItemKind, MachineInfo, Manifest, ManifestError, Os,
     PluginFormat, Product, ProductId,
 };
 pub use path::{PathMap, PortablePath};
+pub use profile::{Matcher, ProfileRule, RuleAction, TargetProfile};
 
 /// Version of the manifest JSON format this build reads and writes.
 ///
