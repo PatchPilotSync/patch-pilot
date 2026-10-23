@@ -102,7 +102,7 @@ export function UpdateBar() {
           </>
         )}
         {state.kind === "installing" && (
-          <span className="tabular-nums text-neutral-500">
+          <span className="tabular-nums text-dim">
             {state.total ? `Downloading ${Math.floor((100 * state.done) / state.total)}%` : "Downloading…"}
           </span>
         )}
@@ -111,7 +111,7 @@ export function UpdateBar() {
         )}
       </div>
       {state.kind === "failed" && (
-        <p className="mt-1 text-red-700 dark:text-red-300">The update didn't install: {state.error}</p>
+        <p className="mt-1 text-bad">The update didn't install: {state.error}</p>
       )}
       {((state.kind === "available" && state.open) || state.kind === "installing") && update.body && (
         <Notes text={update.body} />
@@ -122,7 +122,7 @@ export function UpdateBar() {
 
 function Bar({ children }: { children: ReactNode }) {
   return (
-    <div className="border-b border-sky-200 bg-sky-50 px-6 py-2 text-sm text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-100">
+    <div className="shrink-0 border-b border-line bg-accent/10 px-4 py-1.5">
       {children}
     </div>
   );
@@ -131,7 +131,7 @@ function Bar({ children }: { children: ReactNode }) {
 /** Release notes are the version's CHANGELOG.md section: headings and bullets. */
 export function Notes({ text }: { text: string }) {
   return (
-    <div className="mt-2 max-h-64 space-y-1 overflow-y-auto pb-1 text-[13px] leading-relaxed">
+    <div className="mt-2 max-h-64 space-y-1 overflow-y-auto rounded-md border border-line bg-panel px-3 py-2 leading-relaxed">
       {parseNotes(text).map((b, i) =>
         b.kind === "heading" ? (
           <h4 key={i} className="pt-1 font-semibold">
