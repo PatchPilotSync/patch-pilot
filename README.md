@@ -8,7 +8,9 @@ Patch Pilot compares each of your machines against a Golden Profile (your ideal 
 
 ## Screenshots
 
-The desktop app, shown with demo data.
+The desktop app, shown with demo data. It follows the system's light or dark setting and lives in the menu bar / tray; the popover expands into the full window.
+
+![The tray popover: every machine's parity and what the Travel Laptop needs](docs/screenshots/tray.png)
 
 | Your rig | Compare with the Golden Rig | Up To Speed |
 | --- | --- | --- |

@@ -17,6 +17,20 @@
         "height": 680,
         "minWidth": 760,
         "minHeight": 480
+      },
+      {
+        "label": "tray",
+        "title": "Patch Pilot",
+        "width": 340,
+        "height": 460,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false
       }
     ],
     "security": {
