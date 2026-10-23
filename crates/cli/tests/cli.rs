@@ -438,3 +438,78 @@ fn plan_prints_ordered_steps() {
     ]);
     assert!(ok && out.contains("Nothing to do"), "{out}");
 }
+
+#[test]
+fn export_and_import_a_bundle() {
+    let dir = tempfile::tempdir().unwrap();
+    let studio_db = dir.path().join("studio/patchpilot.db");
+    let mac_db = dir.path().join("mac/patchpilot.db");
+    {
+        let mut store = patchpilot_store::Store::open(&studio_db).unwrap();
+        for f in ["golden-studio-win.json", "laptop-mac.json"] {
+            let text = std::fs::read_to_string(fixtures(&format!("parity/diff/{f}"))).unwrap();
+            let m = patchpilot_core::Manifest::from_json(&text).unwrap();
+            store
+                .save_manifest(&m, patchpilot_store::SnapshotReason::FirstScan, 1)
+                .unwrap();
+        }
+    }
+    let run = |db: &PathBuf, args: &[&str]| {
+        let mut all: Vec<&std::ffi::OsStr> = vec!["--db".as_ref(), db.as_os_str()];
+        all.extend(args.iter().map(std::ffi::OsStr::new));
+        patchpilot(&all)
+    };
+    let bundle = dir.path().join("rig-bundle.json");
+    let bundle_s = bundle.to_str().unwrap();
+
+    // No machine ID here and nothing else saved yet.
+    let (ok, _, err) = run(&studio_db, &["export", "--out", bundle_s]);
+    assert!(!ok && err.contains("nothing to export"), "{err}");
+
+    let (ok, _, err) = run(&studio_db, &["golden", "init", "--machine", "studio-pc"]);
+    assert!(ok, "{err}");
+    let (ok, out, err) = run(
+        &studio_db,
+        &["export", "--out", bundle_s, "--machine", "Studio PC"],
+    );
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("(1 machine(s), 1 Golden version(s), 0 profile(s))"),
+        "{out}"
+    );
+
+    // A fresh Mac gets the studio PC and the Golden Rig.
+    let (ok, out, err) = run(&mac_db, &["import", bundle_s]);
+    assert!(ok, "{err}");
+    assert!(out.contains("New scans: Studio PC"), "{out}");
+    assert!(out.contains("Golden Rig: added v1"), "{out}");
+    let (ok, out, err) = run(&mac_db, &["golden", "history"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("Imported: v1"), "{out}");
+
+    let (ok, out, err) = run(&mac_db, &["import", bundle_s]);
+    assert!(ok, "{err}");
+    assert!(out.contains("Already up to date: Studio PC"), "{out}");
+    assert!(out.contains("Golden Rig: already up to date"), "{out}");
+
+    // Everything, then compare the Mac against the imported Golden.
+    let (ok, out, err) = run(&studio_db, &["export", "--out", bundle_s, "--all-machines"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("(2 machine(s)"), "{out}");
+    let (ok, out, err) = run(&mac_db, &["import", bundle_s]);
+    assert!(ok, "{err}");
+    assert!(out.contains("New scans: Travel MacBook"), "{out}");
+    let (ok, out, err) = run(&mac_db, &["diff", "--machine", "Travel MacBook"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("vs Golden Golden Rig v1"), "{out}");
+
+    // A bundle from a newer Patch Pilot is refused.
+    let text = std::fs::read_to_string(&bundle).unwrap().replacen(
+        "\"bundle_version\": 1",
+        "\"bundle_version\": 99",
+        1,
+    );
+    std::fs::write(&bundle, text).unwrap();
+    let (ok, _, err) = run(&mac_db, &["import", bundle_s]);
+    assert!(!ok && err.contains("99"), "{err}");
+}

@@ -1,7 +1,12 @@
 use std::path::PathBuf;
 
-use patchpilot_core::{Manifest, Matcher, PluginFormat, ProfileRule, RuleAction, TargetProfile};
-use patchpilot_store::{LATEST_VERSION, SnapshotReason, Store, StoreError};
+use patchpilot_core::{
+    BUNDLE_VERSION, Bundle, BundleMachine, Manifest, ManifestError, Matcher, PluginFormat,
+    PortablePath, ProfileRule, RuleAction, TargetProfile,
+};
+use patchpilot_store::{
+    GoldenImport, ImportReport, LATEST_VERSION, SnapshotReason, Store, StoreError,
+};
 
 fn fixture_manifest() -> Manifest {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -374,4 +379,216 @@ fn requires_round_trips() {
         .unwrap()
         .unwrap();
     assert_eq!(loaded, manifest);
+}
+
+fn mac_manifest() -> Manifest {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/parity/diff/laptop-mac.json");
+    Manifest::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn laptop_profile() -> TargetProfile {
+    TargetProfile {
+        id: "laptop".into(),
+        name: "Laptop".into(),
+        rules: vec![ProfileRule {
+            action: RuleAction::Exclude,
+            matcher: Matcher::Format(PluginFormat::Aax),
+        }],
+    }
+}
+
+#[test]
+fn bundle_moves_machines_golden_and_profiles_between_stores() {
+    let studio = fixture_manifest();
+    let mac = mac_manifest();
+
+    // Windows studio PC: its own scan, a Golden v1 and a custom profile
+    // assigned to the Mac it knows about.
+    let mut win = Store::open_in_memory().unwrap();
+    win.save_manifest(&studio, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    win.save_manifest(&mac, SnapshotReason::Imported, 1)
+        .unwrap();
+    win.save_golden(&studio, Some(&studio.machine.id), Some("first rig"), 2)
+        .unwrap();
+    win.save_target_profile(&laptop_profile()).unwrap();
+    win.set_machine_profile(&mac.machine.id, Some("laptop"))
+        .unwrap();
+
+    let ids = [studio.machine.id.clone(), mac.machine.id.clone()];
+    let bundle = win
+        .export_bundle(&ids, Some(&studio.machine.name), 10)
+        .unwrap();
+    assert_eq!(bundle.golden.len(), 1);
+    assert_eq!(
+        bundle.profiles,
+        [laptop_profile()],
+        "built-ins not exported"
+    );
+    let bundle = Bundle::from_json(&bundle.to_json_pretty()).unwrap();
+
+    // The Mac imports it: the studio PC and Golden arrive, its own scan is
+    // skipped, the profile and its own assignment come along.
+    let mut mac_store = Store::open_in_memory().unwrap();
+    mac_store
+        .save_manifest(&mac, SnapshotReason::FirstScan, 5)
+        .unwrap();
+    let report = mac_store
+        .import_bundle(&bundle, Some(&mac.machine.id), 20)
+        .unwrap();
+    assert_eq!(
+        report,
+        ImportReport {
+            machines_added: vec![studio.machine.name.clone()],
+            machines_unchanged: vec![],
+            skipped_own_machine: true,
+            golden: GoldenImport::Imported(vec![1]),
+            profiles_added: vec!["laptop".into()],
+            profiles_conflicting: vec![],
+        }
+    );
+    assert_eq!(
+        mac_store
+            .latest_manifest(&studio.machine.id)
+            .unwrap()
+            .unwrap()
+            .items,
+        studio.items
+    );
+    let history = mac_store.snapshots(&studio.machine.id).unwrap();
+    assert_eq!(history[0].reason, SnapshotReason::Imported);
+    let g = mac_store.golden(None).unwrap().unwrap();
+    assert_eq!(g.manifest.items, studio.items);
+    assert_eq!(
+        g.info.source_machine_id.as_deref(),
+        Some(&*studio.machine.id)
+    );
+    // The Mac's own assignment is the Mac's business: not imported.
+    assert_eq!(mac_store.machine_profile(&mac.machine.id).unwrap(), None);
+
+    // Importing again changes nothing.
+    let again = mac_store
+        .import_bundle(&bundle, Some(&mac.machine.id), 30)
+        .unwrap();
+    assert_eq!(
+        again.machines_unchanged,
+        std::slice::from_ref(&studio.machine.name)
+    );
+    assert!(again.machines_added.is_empty() && again.profiles_added.is_empty());
+    assert_eq!(again.golden, GoldenImport::UpToDate);
+    assert_eq!(mac_store.snapshots(&studio.machine.id).unwrap().len(), 1);
+
+    // A third machine with no scan of its own gets the Mac's assignment too.
+    let mut third = Store::open_in_memory().unwrap();
+    third.import_bundle(&bundle, None, 40).unwrap();
+    assert_eq!(
+        third.machine_profile(&mac.machine.id).unwrap(),
+        Some(laptop_profile())
+    );
+}
+
+#[test]
+fn golden_import_only_fast_forwards() {
+    let studio = fixture_manifest();
+    let mut v2 = studio.clone();
+    v2.items[0].version = Some("9.9.9".into());
+    let mut v3 = v2.clone();
+    v3.items.pop();
+
+    let mut source = Store::open_in_memory().unwrap();
+    for (m, t) in [(&studio, 1), (&v2, 2), (&v3, 3)] {
+        source.save_golden(m, None, None, t).unwrap();
+    }
+    let mut bundle = source.export_bundle(&[], Some("Studio PC"), 10).unwrap();
+    assert_eq!(bundle.golden.len(), 3);
+    // As if the username was removed on export: paths don't count.
+    for g in &mut bundle.golden {
+        for item in &mut g.manifest.items {
+            item.path = PortablePath::Absolute("~/elsewhere".into());
+        }
+    }
+
+    // Behind: has v1, gets v2 and v3 as its own v2 and v3.
+    let mut behind = Store::open_in_memory().unwrap();
+    behind.save_golden(&studio, None, None, 1).unwrap();
+    let report = behind.import_bundle(&bundle, None, 20).unwrap();
+    assert_eq!(report.golden, GoldenImport::Imported(vec![2, 3]));
+    let latest = behind.golden(None).unwrap().unwrap();
+    assert_eq!(latest.manifest.items, bundle.golden[2].manifest.items);
+    assert_eq!(
+        latest.info.note.as_deref(),
+        Some("Imported: v3 from Studio PC")
+    );
+
+    // Ahead: its latest is newer than anything in an older bundle.
+    let old = {
+        let mut b = bundle.clone();
+        b.golden.truncate(2);
+        b
+    };
+    assert_eq!(
+        behind.import_bundle(&old, None, 30).unwrap().golden,
+        GoldenImport::UpToDate
+    );
+
+    // Diverged: both sides changed v1 differently. Nothing is imported.
+    let mut other = studio.clone();
+    other.items.remove(0);
+    let mut diverged = Store::open_in_memory().unwrap();
+    diverged.save_golden(&studio, None, None, 1).unwrap();
+    diverged.save_golden(&other, None, None, 2).unwrap();
+    assert_eq!(
+        diverged.import_bundle(&bundle, None, 40).unwrap().golden,
+        GoldenImport::Diverged
+    );
+    assert_eq!(diverged.golden(None).unwrap().unwrap().info.version, 2);
+
+    // No Golden in the bundle.
+    let empty = Bundle::new(1, None);
+    assert_eq!(
+        diverged.import_bundle(&empty, None, 50).unwrap().golden,
+        GoldenImport::NotInBundle
+    );
+}
+
+#[test]
+fn import_never_overwrites_profiles() {
+    let mut store = Store::open_in_memory().unwrap();
+    let mut ours = laptop_profile();
+    ours.name = "Our laptop".into();
+    store.save_target_profile(&ours).unwrap();
+
+    let mut bundle = Bundle::new(1, None);
+    let travel = store.target_profile("travel").unwrap().unwrap();
+    let mut fake_travel = travel.clone();
+    fake_travel.rules.clear();
+    bundle.profiles = vec![laptop_profile(), fake_travel];
+    let report = store.import_bundle(&bundle, None, 2).unwrap();
+    assert_eq!(report.profiles_conflicting, ["laptop", "travel"]);
+    assert!(report.profiles_added.is_empty());
+    assert_eq!(store.target_profile("laptop").unwrap().unwrap(), ours);
+    assert_eq!(store.target_profile("travel").unwrap().unwrap(), travel);
+}
+
+#[test]
+fn newer_bundles_are_refused() {
+    let mut bundle = Bundle::new(1, None);
+    bundle.bundle_version = BUNDLE_VERSION + 1;
+    assert!(matches!(
+        Bundle::from_json(&bundle.to_json_pretty()),
+        Err(ManifestError::UnsupportedBundleVersion(v)) if v == BUNDLE_VERSION + 1
+    ));
+
+    let mut bundle = Bundle::new(1, None);
+    let mut m = fixture_manifest();
+    m.schema_version += 1;
+    bundle.machines.push(BundleMachine {
+        manifest: m,
+        profile_id: None,
+    });
+    assert!(matches!(
+        Bundle::from_json(&bundle.to_json_pretty()),
+        Err(ManifestError::UnsupportedVersion(_))
+    ));
 }

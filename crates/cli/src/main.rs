@@ -5,6 +5,7 @@
 //! and `history` use Patch Pilot's own database in the app-data folder.
 
 mod anonymize;
+mod exchange;
 mod golden;
 mod profile;
 mod report;
@@ -123,6 +124,32 @@ enum Command {
         #[command(subcommand)]
         command: golden::GoldenCommand,
     },
+    /// Write saved scans, every Golden version and your profiles to one file
+    /// for another machine's `patchpilot import`.
+    ///
+    /// Defaults to this machine's latest scan. Your username is removed from
+    /// paths unless `--keep-paths`.
+    Export {
+        #[arg(long, short)]
+        out: PathBuf,
+        /// Machine ID or name instead of this machine. Repeatable.
+        #[arg(
+            long = "machine",
+            value_name = "MACHINE",
+            conflicts_with = "all_machines"
+        )]
+        machines: Vec<String>,
+        /// Every machine in the database.
+        #[arg(long)]
+        all_machines: bool,
+        #[arg(long)]
+        keep_paths: bool,
+    },
+    /// Add what an `export` file holds to this machine's database.
+    ///
+    /// Never overwrites: scans become new snapshots, Golden versions are added
+    /// only if this machine's Golden Rig is behind, and your own profiles win.
+    Import { file: PathBuf },
 }
 
 fn main() -> ExitCode {
@@ -135,6 +162,13 @@ fn main() -> ExitCode {
         Command::History { machine } => history(db, machine),
         Command::Golden { command } => golden::run(db, command),
         Command::Profile { command } => profile::run(db, command),
+        Command::Export {
+            out,
+            machines,
+            all_machines,
+            keep_paths,
+        } => exchange::export(db, &out, machines, all_machines, keep_paths),
+        Command::Import { file } => exchange::import(db, &file),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

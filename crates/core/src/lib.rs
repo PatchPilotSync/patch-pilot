@@ -7,11 +7,13 @@
 //!
 //! Changes here are reviewed by both founders (CLAUDE.md, Ownership).
 
+mod bundle;
 mod golden;
 mod manifest;
 mod path;
 mod profile;
 
+pub use bundle::{BUNDLE_VERSION, Bundle, BundleGolden, BundleMachine};
 pub use golden::{GoldenVersion, GoldenVersionInfo, golden_machine_id, golden_name};
 pub use manifest::{
     Arch, Confidence, ContentHash, Item, ItemKind, MachineInfo, Manifest, ManifestError, Os,

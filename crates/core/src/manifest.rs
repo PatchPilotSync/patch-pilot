@@ -298,6 +298,11 @@ pub enum ManifestError {
         "manifest schema version {0} is newer than this build supports ({MANIFEST_SCHEMA_VERSION}); update Patch Pilot"
     )]
     UnsupportedVersion(u32),
+    #[error(
+        "bundle version {0} is newer than this build supports ({supported}); update Patch Pilot",
+        supported = crate::BUNDLE_VERSION
+    )]
+    UnsupportedBundleVersion(u32),
     #[error("invalid content hash {0:?}: expected blake3:<64 lowercase hex chars>")]
     InvalidHash(String),
     #[error("invalid manifest JSON: {0}")]
