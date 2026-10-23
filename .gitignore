@@ -1,0 +1,31 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node / UI
+node_modules/
+dist/
+build/
+.svelte-kit/
+
+# Tauri
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Local env / secrets
+.env
+.env.*
+*.pem
+*.p12
+
+# Local scan output (may contain personal paths)
+*.manifest.local.json
+scans/

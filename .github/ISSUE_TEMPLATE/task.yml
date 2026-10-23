@@ -1,0 +1,33 @@
+name: Task
+description: A focused piece of work sized for one Claude session and one PR
+labels: []
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be true when this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Files/crates involved, and what's explicitly out of scope.
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Checklist that makes this mergeable (tests, fixtures, docs, decisions.md entry if needed).
+      value: |
+        - [ ] Works on Windows
+        - [ ] Works on macOS (or explicitly N/A)
+        - [ ] Tests with fixtures
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Platforms
+      multiple: true
+      options: [Windows, macOS]
