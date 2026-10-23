@@ -3,7 +3,9 @@ name: Release
 # Builds the desktop app for macOS (Apple silicon and Intel) and Windows,
 # signs the update packages and publishes them, with latest.json for the
 # in-app updater, to the public PatchPilotSync/patch-pilot-releases repo
-# (decision #32). Push a tag `v<version>` to run it; see docs/releasing.md.
+# (decision #32). Run it from the Actions tab ("Run workflow" on main), which
+# releases the version in tauri.conf.json and tags it, or push a tag
+# `v<version>`; see docs/releasing.md.
 #
 # Secrets: RELEASES_TOKEN (contents: write on patch-pilot-releases),
 # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
@@ -11,6 +13,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 concurrency:
   group: release
@@ -25,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
       release_id: ${{ steps.release.outputs.id }}
       notes: ${{ steps.notes.outputs.notes }}
     steps:
@@ -32,17 +36,30 @@ jobs:
       - name: Tag matches the app version everywhere
         id: version
         run: |
-          version="${GITHUB_REF_NAME#v}"
           conf=$(jq -r .version app/src-tauri/tauri.conf.json)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            if [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error::Run releases from main"
+              exit 1
+            fi
+            version="$conf"
+            if git ls-remote --exit-code --tags origin "v$version" > /dev/null; then
+              echo "::error::v$version is already tagged; bump the version to release again"
+              exit 1
+            fi
+          fi
           npm=$(jq -r .version app/package.json)
           cargo=$(sed -n 's/^version = "\(.*\)"$/\1/p' app/src-tauri/Cargo.toml | head -1)
           for v in "$conf" "$npm" "$cargo"; do
             if [ "$v" != "$version" ]; then
-              echo "::error::Tag $GITHUB_REF_NAME, but tauri.conf.json=$conf package.json=$npm Cargo.toml=$cargo"
+              echo "::error::Releasing $version, but tauri.conf.json=$conf package.json=$npm Cargo.toml=$cargo"
               exit 1
             fi
           done
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
       - name: Release notes from app/CHANGELOG.md
         id: notes
         run: |
@@ -58,7 +75,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           id=$(gh api -X POST "repos/$RELEASES_REPO/releases" \
-            -f tag_name="$GITHUB_REF_NAME" \
+            -f tag_name="${{ steps.version.outputs.tag }}" \
             -f target_commitish=main \
             -f name="Patch Pilot ${{ steps.version.outputs.version }}" \
             -F body=@notes.md \
@@ -118,6 +135,8 @@ jobs:
     name: Publish release
     needs: [prepare, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       # Only now does latest.json become "latest", so installed apps never see
       # a release that is missing a platform. The build jobs merge their
@@ -136,3 +155,10 @@ jobs:
           done
           gh api -X PATCH "repos/$RELEASES_REPO/releases/${{ needs.prepare.outputs.release_id }}" \
             -F draft=false -f make_latest=true
+      - name: Tag this commit (when run from the Actions tab)
+        if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/tags/${{ needs.prepare.outputs.tag }}" -f sha="$GITHUB_SHA"

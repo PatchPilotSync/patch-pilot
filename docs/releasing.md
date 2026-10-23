@@ -30,8 +30,9 @@ When one exists they show what changed and install it only if the user clicks
 2. Add a `## <x.y.z> - <date>` section to `app/CHANGELOG.md`. This is what users
    see in the update prompt, so write it for them: what's new, what's fixed.
    Headings and `-` bullets are shown as such.
-3. Merge that PR, then tag the merge commit and push the tag:
-   `git tag v<x.y.z> && git push origin v<x.y.z>`.
+3. Merge that PR. Then on GitHub open **Actions**, choose **Release**, click
+   **Run workflow** (branch `main`) and confirm. It tags the commit `v<x.y.z>`
+   once the release is out. Pushing a `v<x.y.z>` tag yourself works too.
 4. The **Release** workflow checks the versions match the tag, builds macOS
    (Apple silicon and Intel) and Windows, and publishes the release with
    `latest.json`. Apps pick it up at their next launch.
