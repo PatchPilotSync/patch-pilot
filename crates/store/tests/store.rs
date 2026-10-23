@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use patchpilot_core::Manifest;
+use patchpilot_core::{Manifest, Matcher, PluginFormat, ProfileRule, RuleAction, TargetProfile};
 use patchpilot_store::{LATEST_VERSION, SnapshotReason, Store, StoreError};
 
 fn fixture_manifest() -> Manifest {
@@ -235,7 +235,7 @@ fn golden_versions_are_kept_and_chained() {
 }
 
 #[test]
-fn migrates_a_v1_database_to_v2() {
+fn migrates_a_v1_database_to_latest() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("patchpilot.db");
     {
@@ -245,9 +245,118 @@ fn migrates_a_v1_database_to_v2() {
         conn.pragma_update(None, "user_version", 1).unwrap();
     }
     let mut store = Store::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
+    assert!(store.target_profile("travel").unwrap().is_some());
     store
         .save_golden(&fixture_manifest(), None, None, 1)
         .unwrap();
     assert_eq!(store.golden(None).unwrap().unwrap().info.version, 1);
+}
+
+#[test]
+fn built_in_target_profiles() {
+    let store = Store::open_in_memory().unwrap();
+    let all = store.target_profiles().unwrap();
+    let ids: Vec<_> = all.iter().map(|p| p.profile.id.as_str()).collect();
+    assert_eq!(ids, ["studio-clone", "travel"]);
+    assert!(all.iter().all(|p| p.builtin && p.machines.is_empty()));
+    assert!(
+        all[0].profile.rules.is_empty(),
+        "studio clone excludes nothing"
+    );
+
+    // Travel matches the JSON profile alpha testers already use.
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/parity/score/travel-profile.json");
+    let file: TargetProfile =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(store.target_profile("travel").unwrap().unwrap(), file);
+    assert!(store.target_profile("golden").unwrap().is_none());
+}
+
+#[test]
+fn import_assign_and_protect_profiles() {
+    let manifest = fixture_manifest();
+    let id = manifest.machine.id.clone();
+    let mut store = Store::open_in_memory().unwrap();
+    store
+        .save_manifest(&manifest, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    assert_eq!(store.machine_profile(&id).unwrap(), None);
+
+    let mut custom = TargetProfile {
+        id: "laptop".into(),
+        name: "Laptop".into(),
+        rules: vec![ProfileRule {
+            action: RuleAction::Exclude,
+            matcher: Matcher::Format(PluginFormat::Aax),
+        }],
+    };
+    store.save_target_profile(&custom).unwrap();
+    custom.name = "Laptop (no AAX, no VST2)".into();
+    custom.rules.push(ProfileRule {
+        action: RuleAction::Exclude,
+        matcher: Matcher::Format(PluginFormat::Vst2),
+    });
+    store.save_target_profile(&custom).unwrap();
+    assert_eq!(store.target_profile("laptop").unwrap().unwrap(), custom);
+
+    store.set_machine_profile(&id, Some("laptop")).unwrap();
+    assert_eq!(store.machine_profile(&id).unwrap(), Some(custom.clone()));
+    let laptop = store
+        .target_profiles()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.profile.id == "laptop")
+        .unwrap();
+    assert_eq!((laptop.builtin, laptop.machines), (false, vec![id.clone()]));
+
+    // A rescan keeps the assignment.
+    let mut rescan = manifest.clone();
+    rescan.items.pop();
+    store
+        .save_manifest(&rescan, SnapshotReason::Scan, 2)
+        .unwrap();
+    assert_eq!(store.machine_profile(&id).unwrap(), Some(custom));
+
+    for bad in ["travel", "golden", ""] {
+        let p = TargetProfile {
+            id: bad.into(),
+            ..TargetProfile::default()
+        };
+        assert!(
+            matches!(
+                store.save_target_profile(&p),
+                Err(StoreError::BuiltinProfile(_))
+            ),
+            "{bad:?}"
+        );
+    }
+    assert!(matches!(
+        store.set_machine_profile(&id, Some("nope")),
+        Err(StoreError::UnknownProfile(_))
+    ));
+    assert!(matches!(
+        store.set_machine_profile("nope", Some("travel")),
+        Err(StoreError::UnknownMachine(_))
+    ));
+    store.set_machine_profile(&id, None).unwrap();
+    assert_eq!(store.machine_profile(&id).unwrap(), None);
+}
+
+#[test]
+fn machines_lists_scanned_machines_only() {
+    let manifest = fixture_manifest();
+    let mut store = Store::open_in_memory().unwrap();
+    store
+        .save_manifest(&manifest, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    store.save_golden(&manifest, None, None, 2).unwrap();
+    let ids: Vec<_> = store
+        .machines()
+        .unwrap()
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+    assert_eq!(ids, [manifest.machine.id]);
 }

@@ -270,3 +270,86 @@ fn saved_scans_build_history() {
     );
     assert!(lines[2].contains("first scan"), "{out}");
 }
+
+/// Stored target profiles drive `diff` from the database and from files.
+#[test]
+fn profiles_drive_diff() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("patchpilot.db");
+    {
+        let mut store = patchpilot_store::Store::open(&db).unwrap();
+        for f in ["golden-studio-win.json", "laptop-mac.json"] {
+            let text = std::fs::read_to_string(fixtures(&format!("parity/diff/{f}"))).unwrap();
+            let m = patchpilot_core::Manifest::from_json(&text).unwrap();
+            store
+                .save_manifest(&m, patchpilot_store::SnapshotReason::FirstScan, 1)
+                .unwrap();
+        }
+    }
+    let run = |args: &[&str]| {
+        let mut all: Vec<&std::ffi::OsStr> = vec!["--db".as_ref(), db.as_os_str()];
+        all.extend(args.iter().map(std::ffi::OsStr::new));
+        patchpilot(&all)
+    };
+
+    let (ok, out, err) = run(&["profile", "list"]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("studio-clone") && out.contains("Travel  (built-in)"),
+        "{out}"
+    );
+
+    let (ok, _, err) = run(&["diff", "--machine", "Travel MacBook"]);
+    assert!(!ok && err.contains("golden init"), "{err}");
+    assert!(run(&["golden", "init", "--machine", "studio-pc"]).0);
+
+    // Without a profile the laptop is marked down for the missing AAX.
+    let (ok, out, err) = run(&["diff", "--machine", "Travel MacBook"]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("missing AAX") && !out.contains("profile:"),
+        "{out}"
+    );
+
+    let (ok, out, err) = run(&["profile", "set", "travel macbook", "travel"]);
+    assert!(ok, "{err}");
+    assert_eq!(out, "Travel MacBook now uses profile travel\n");
+    let (ok, out, _) = run(&["profile", "list"]);
+    assert!(ok && out.contains("used by Travel MacBook"), "{out}");
+
+    let (ok, out, err) = run(&["diff", "--machine", "travel-macbook"]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("profile: Travel") && !out.contains("missing AAX"),
+        "{out}"
+    );
+
+    // File diffs pick up the stored profile of a known machine too.
+    let golden = dir.path().join("golden.json");
+    assert!(run(&["golden", "show", "--out", golden.to_str().unwrap()]).0);
+    let laptop = fixtures("parity/diff/laptop-mac.json");
+    let (ok, out, err) = run(&["diff", golden.to_str().unwrap(), laptop.to_str().unwrap()]);
+    assert!(ok, "{err}");
+    assert!(out.contains("profile: Travel"), "{out}");
+
+    // Import a custom profile; built-ins are protected.
+    let custom = dir.path().join("laptop.json");
+    std::fs::write(
+        &custom,
+        r#"{"id":"no-vst2","name":"No VST2","rules":[{"action":"exclude","match":{"format":"vst2"}}]}"#,
+    )
+    .unwrap();
+    let (ok, out, err) = run(&["profile", "import", custom.to_str().unwrap()]);
+    assert!(ok, "{err}");
+    assert_eq!(out, "Saved profile no-vst2 (1 rules)\n");
+    let (ok, out, _) = run(&["profile", "show", "no-vst2"]);
+    assert!(ok && out.contains("1. exclude format VST2"), "{out}");
+    std::fs::write(&custom, r#"{"id":"travel","name":"Mine","rules":[]}"#).unwrap();
+    let (ok, _, err) = run(&["profile", "import", custom.to_str().unwrap()]);
+    assert!(!ok && err.contains("built-in"), "{err}");
+
+    let (ok, out, _) = run(&["profile", "set", "travel-macbook", "none"]);
+    assert!(ok && out.contains("whole Golden Rig"), "{out}");
+    let (ok, _, err) = run(&["profile", "set", "nobody", "travel"]);
+    assert!(!ok && err.contains("no saved machine"), "{err}");
+}

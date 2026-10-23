@@ -6,6 +6,7 @@
 
 mod anonymize;
 mod golden;
+mod profile;
 mod report;
 
 use std::collections::BTreeSet;
@@ -62,11 +63,22 @@ enum Command {
         #[arg(long)]
         keep_paths: bool,
     },
-    /// Compare a machine's manifest against a Golden manifest.
+    /// Compare a machine against the Golden Rig.
+    ///
+    /// With no files: a machine's latest saved scan against the latest Golden
+    /// version, using the machine's stored target profile.
     Diff {
-        golden: PathBuf,
-        machine: PathBuf,
-        /// Target profile JSON (e.g. Travel: no AAX).
+        /// Golden manifest JSON.
+        #[arg(requires = "machine_file")]
+        golden: Option<PathBuf>,
+        /// Machine manifest JSON.
+        #[arg(id = "machine_file", value_name = "MACHINE")]
+        machine: Option<PathBuf>,
+        /// Saved machine (ID or name) when comparing from the database.
+        #[arg(long = "machine", value_name = "MACHINE", conflicts_with = "golden")]
+        saved_machine: Option<String>,
+        /// Target profile JSON (e.g. Travel: no AAX). Default: the machine's
+        /// stored profile (see `profile set`).
         #[arg(long)]
         profile: Option<PathBuf>,
         /// Also list products that are in parity.
@@ -78,6 +90,11 @@ enum Command {
         /// Another machine's ID instead of this one.
         #[arg(long)]
         machine: Option<String>,
+    },
+    /// List, show, import and assign target profiles.
+    Profile {
+        #[command(subcommand)]
+        command: profile::ProfileCommand,
     },
     /// Create, version and update the Golden Rig.
     Golden {
@@ -110,11 +127,19 @@ fn main() -> ExitCode {
         Command::Diff {
             golden,
             machine,
+            saved_machine,
             profile,
             all,
-        } => diff(&golden, &machine, profile.as_deref(), all),
+        } => diff(
+            db,
+            golden.zip(machine),
+            saved_machine,
+            profile.as_deref(),
+            all,
+        ),
         Command::History { machine } => history(db, machine),
         Command::Golden { command } => golden::run(db, command),
+        Command::Profile { command } => profile::run(db, command),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -313,15 +338,57 @@ fn open_store(path: &Path) -> Result<Store, String> {
     Store::open(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-fn diff(golden: &Path, machine: &Path, profile: Option<&Path>, all: bool) -> Result<(), String> {
+/// `files` = (golden, machine) JSON paths; `None` compares from the database.
+fn diff(
+    db: Option<PathBuf>,
+    files: Option<(PathBuf, PathBuf)>,
+    saved_machine: Option<String>,
+    profile: Option<&Path>,
+    all: bool,
+) -> Result<(), String> {
     let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()));
-    let mut golden_m =
-        Manifest::from_json(&read(golden)?).map_err(|e| format!("{}: {e}", golden.display()))?;
-    let mut machine_m =
-        Manifest::from_json(&read(machine)?).map_err(|e| format!("{}: {e}", machine.display()))?;
+    let (mut golden_m, mut machine_m, stored_profile) = match files {
+        Some((golden, machine)) => {
+            let golden_m = Manifest::from_json(&read(&golden)?)
+                .map_err(|e| format!("{}: {e}", golden.display()))?;
+            let machine_m = Manifest::from_json(&read(&machine)?)
+                .map_err(|e| format!("{}: {e}", machine.display()))?;
+            // Use the machine's stored profile if this machine is known here;
+            // never create a database just to look.
+            let stored = db_path(db)
+                .ok()
+                .filter(|p| p.exists())
+                .and_then(|p| open_store(&p).ok())
+                .and_then(|s| s.machine_profile(&machine_m.machine.id).ok().flatten());
+            (golden_m, machine_m, stored)
+        }
+        None => {
+            let path = db_path(db)?;
+            let store = open_existing_store(&path)?;
+            let machine = match saved_machine {
+                Some(q) => resolve_machine(&store, &q)?,
+                None => {
+                    let id = this_or(&path, None)?;
+                    store.machine(&id).map_err(|e| e.to_string())?
+                }
+            };
+            let golden = store
+                .golden(None)
+                .map_err(|e| e.to_string())?
+                .ok_or("no Golden Rig yet; run `patchpilot golden init`")?;
+            let scan = store
+                .latest_manifest(&machine.id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("no saved scan of {}", machine.name))?;
+            let stored = store
+                .machine_profile(&machine.id)
+                .map_err(|e| e.to_string())?;
+            (golden.manifest, scan, stored)
+        }
+    };
     let profile: TargetProfile = match profile {
         Some(p) => serde_json::from_str(&read(p)?).map_err(|e| format!("{}: {e}", p.display()))?,
-        None => TargetProfile::default(),
+        None => stored_profile.unwrap_or_default(),
     };
     patchpilot_parity::align_products(&mut golden_m, &mut machine_m);
     let score = patchpilot_parity::score_machine(
@@ -336,6 +403,24 @@ fn diff(golden: &Path, machine: &Path, profile: Option<&Path>, all: bool) -> Res
         report::render(&golden_m, &machine_m, &profile, &score, all)
     );
     Ok(())
+}
+
+/// A saved machine by ID, or by name (case-insensitive) if unambiguous.
+fn resolve_machine(store: &Store, query: &str) -> Result<patchpilot_core::MachineInfo, String> {
+    let machines = store.machines().map_err(|e| e.to_string())?;
+    if let Some(m) = machines.iter().find(|m| m.id == query) {
+        return Ok(m.clone());
+    }
+    let mut named = machines
+        .into_iter()
+        .filter(|m| m.name.eq_ignore_ascii_case(query.trim()));
+    match (named.next(), named.next()) {
+        (Some(m), None) => Ok(m),
+        (Some(_), Some(_)) => Err(format!(
+            "more than one machine is named {query:?}; use its ID"
+        )),
+        (None, _) => Err(format!("no saved machine {query:?}")),
+    }
 }
 
 #[cfg(windows)]
