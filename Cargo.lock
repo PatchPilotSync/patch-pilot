@@ -385,11 +385,10 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 name = "patchpilot-cli"
 version = "0.1.0"
 dependencies = [
- "blake3",
  "clap",
  "patchpilot-core",
+ "patchpilot-local",
  "patchpilot-parity",
- "patchpilot-scanner",
  "patchpilot-store",
  "serde",
  "serde_json",
@@ -407,11 +406,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "patchpilot-local"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "patchpilot-core",
+ "patchpilot-parity",
+ "patchpilot-scanner",
+ "patchpilot-store",
+ "tempfile",
+]
+
+[[package]]
 name = "patchpilot-parity"
 version = "0.1.0"
 dependencies = [
  "blake3",
  "patchpilot-core",
+ "serde",
  "serde_json",
  "thiserror",
  "walkdir",

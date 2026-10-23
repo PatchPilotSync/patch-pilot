@@ -2270,10 +2270,12 @@ name = "patchpilot-app"
 version = "0.1.0"
 dependencies = [
  "patchpilot-core",
+ "patchpilot-local",
  "patchpilot-parity",
  "patchpilot-scanner",
  "patchpilot-store",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]
@@ -2289,11 +2291,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "patchpilot-local"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "patchpilot-core",
+ "patchpilot-parity",
+ "patchpilot-scanner",
+ "patchpilot-store",
+]
+
+[[package]]
 name = "patchpilot-parity"
 version = "0.1.0"
 dependencies = [
  "blake3",
  "patchpilot-core",
+ "serde",
  "thiserror 2.0.21",
  "walkdir",
 ]
