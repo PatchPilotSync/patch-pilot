@@ -77,6 +77,7 @@ cargo test --workspace                              # all crates
 cargo test -p patchpilot-scanner                    # one crate
 cargo fmt --all                                     # CI runs --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p patchpilot-scanner --test bench -- --ignored --nocapture   # 500-plug-in scan budget
 ```
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on `windows-latest` and `macos-latest` for every PR, for the crates and (separately) for the app. Keep it green on both.
