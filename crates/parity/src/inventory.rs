@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use patchpilot_core::{Confidence, ItemKind, Manifest, PluginFormat, PortablePath};
 use serde::Serialize;
 
+use crate::comparison::confidence_rank;
 use crate::{VersionOrder, compare_versions};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -169,10 +170,9 @@ fn format_rank(f: PluginFormat) -> u8 {
 }
 
 fn weakest(a: Confidence, b: Confidence) -> Confidence {
-    let rank = |c: Confidence| match c {
-        Confidence::Low => 0,
-        Confidence::Medium => 1,
-        Confidence::High => 2,
-    };
-    if rank(a) <= rank(b) { a } else { b }
+    if confidence_rank(a) <= confidence_rank(b) {
+        a
+    } else {
+        b
+    }
 }

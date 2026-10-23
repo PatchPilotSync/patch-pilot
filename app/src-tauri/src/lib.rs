@@ -1,6 +1,7 @@
 //! Patch Pilot desktop shell (#33). Commands here are the UI's only way into
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
+mod compare;
 mod rig;
 
 use serde::Serialize;
@@ -28,6 +29,10 @@ pub fn run() {
             rig::overview,
             rig::scan_machine,
             rig::make_golden,
+            compare::machines,
+            compare::compare_machine,
+            compare::plan_machine,
+            compare::import_bundle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Patch Pilot");

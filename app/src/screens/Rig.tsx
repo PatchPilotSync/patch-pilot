@@ -190,7 +190,7 @@ function GoldenCard({
         <span className="text-neutral-600 dark:text-neutral-400">
           {golden.from_this_machine
             ? " was made from this machine."
-            : " comes from another machine. Comparing this one against it is next."}
+            : " comes from another machine. Open Compare to see how this one measures up."}
         </span>
       </section>
     );

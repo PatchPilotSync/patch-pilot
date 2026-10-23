@@ -169,11 +169,7 @@ fn load_overview(store: &Store, this: Option<&str>) -> Result<Overview, String> 
         None => None,
     };
     let scanned_at = match (this, &latest) {
-        (Some(id), Some(_)) => store
-            .snapshots(id)
-            .map_err(err)?
-            .first()
-            .map_or(0, |s| s.created_at),
+        (Some(id), Some(_)) => scanned_at(store, id)?,
         _ => 0,
     };
     let golden = store.golden(None).map_err(err)?.map(|g| GoldenSummary {
@@ -193,15 +189,24 @@ fn load_overview(store: &Store, this: Option<&str>) -> Result<Overview, String> 
     })
 }
 
-fn db_path() -> Result<PathBuf, String> {
+/// When the machine's latest snapshot was taken (Unix seconds), 0 if never.
+pub(crate) fn scanned_at(store: &Store, id: &str) -> Result<i64, String> {
+    Ok(store
+        .snapshots(id)
+        .map_err(err)?
+        .first()
+        .map_or(0, |s| s.created_at))
+}
+
+pub(crate) fn db_path() -> Result<PathBuf, String> {
     patchpilot_local::default_db_path()
 }
 
-fn open(db: &Path) -> Result<Store, String> {
+pub(crate) fn open(db: &Path) -> Result<Store, String> {
     Store::open(db).map_err(|e| format!("{}: {e}", db.display()))
 }
 
-fn err(e: StoreError) -> String {
+pub(crate) fn err(e: StoreError) -> String {
     e.to_string()
 }
 

@@ -2,6 +2,7 @@
 
 pub mod reaper;
 
+mod comparison;
 mod diff;
 mod golden;
 mod identity;
@@ -11,6 +12,7 @@ mod readiness;
 mod score;
 mod version;
 
+pub use comparison::{Comparison, ComparisonRow, ItemSide, compare};
 pub use diff::{ManifestDiff, ParityState, ProductDiff, diff_manifests, format_available_on};
 pub use golden::{ProposeError, find_product, propose_to_golden};
 pub use identity::align_products;

@@ -13,7 +13,8 @@ use crate::diff::{ParityState, ProductDiff, diff_manifests};
 use crate::score::apply_profile;
 
 /// Plan phases, in the order they run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Phase {
     /// Licensing tools and vendor apps that later steps depend on.
     Foundation,
@@ -33,7 +34,7 @@ impl Phase {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Step {
     /// 1-based, in plan order.
     pub number: usize,
@@ -46,7 +47,7 @@ pub struct Step {
     pub after: Vec<usize>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Plan {
     pub steps: Vec<Step>,
 }
