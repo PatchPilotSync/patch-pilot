@@ -4,7 +4,7 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
-## 0.1.0 - unreleased
+## 0.1.0 - 2026-10-23
 
 ### New
 
@@ -12,4 +12,5 @@ becomes its release notes, which the app shows when it offers that update
 - Make this machine your Golden Rig.
 - Compare machines against the Golden Rig, with a parity score, the reasons behind it and an Up To Speed checklist.
 - Drop a `patchpilot export` file on the window to add another machine.
+- A compact look with light and dark themes that follow your system, and the new Patch Pilot icon.
 - Automatic updates: Patch Pilot checks for a new version at launch and shows what changed before you install it.
