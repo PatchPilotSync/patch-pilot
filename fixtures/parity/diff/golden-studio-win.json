@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "machine": {
+    "id": "studio-pc",
+    "name": "Studio PC",
+    "os": "windows",
+    "arch": "x86_64",
+    "path_map": {
+      "os": "windows",
+      "roots": {
+        "VST3_SYSTEM": "C:\\Program Files\\Common Files\\VST3",
+        "AAX_SYSTEM": "C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins",
+        "REAPER_RESOURCES": "C:\\Users\\alice\\AppData\\Roaming\\REAPER"
+      }
+    }
+  },
+  "generated_at": 1792771200,
+  "products": [
+    {
+      "canonical_id": "acme-verb",
+      "vendor": "Acme Audio",
+      "name": "Acme Verb"
+    },
+    {
+      "canonical_id": "acme-comp",
+      "vendor": "Acme Audio",
+      "name": "Acme Comp"
+    },
+    {
+      "canonical_id": "acme-synth",
+      "vendor": "Acme Audio",
+      "name": "Acme Synth"
+    },
+    {
+      "canonical_id": "acme-gate",
+      "vendor": "Acme Audio",
+      "name": "Acme Gate"
+    },
+    {
+      "canonical_id": "acme-delay",
+      "vendor": "Acme Audio",
+      "name": "Acme Delay"
+    },
+    {
+      "canonical_id": "acme-gate-jsfx",
+      "vendor": "Acme Audio",
+      "name": "Acme Gate JSFX"
+    },
+    {
+      "canonical_id": "acme-phaser",
+      "vendor": "Acme Audio",
+      "name": "Acme Phaser"
+    }
+  ],
+  "items": [
+    {
+      "kind": "plugin",
+      "product_id": "acme-verb",
+      "format": "vst3",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Verb.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "2.1.0"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-verb",
+      "format": "aax",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "AAX_SYSTEM",
+          "rel": "Acme Verb.aaxplugin"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "2.1"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-comp",
+      "format": "vst3",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Comp.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "3.0.1"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-synth",
+      "format": "vst3",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Synth.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "4.02"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-gate",
+      "format": "vst3",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Gate.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "1.2"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-delay",
+      "format": "vst3",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Delay.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "1.4"
+    },
+    {
+      "kind": "daw_asset",
+      "product_id": "acme-gate-jsfx",
+      "format": "jsfx",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "REAPER_RESOURCES",
+          "rel": "Effects/Acme/gate.jsfx"
+        }
+      },
+      "platform_portable": true,
+      "confidence": "high",
+      "content_hash": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-phaser",
+      "format": "vst3",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Phaser.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high",
+      "version": "2.0"
+    }
+  ]
+}
