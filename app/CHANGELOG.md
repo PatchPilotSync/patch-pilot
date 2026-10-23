@@ -13,4 +13,5 @@ becomes its release notes, which the app shows when it offers that update
 - Compare machines against the Golden Rig, with a parity score, the reasons behind it and an Up To Speed checklist.
 - Drop a `patchpilot export` file on the window to add another machine.
 - A compact look with light and dark themes that follow your system, and the new Patch Pilot icon.
+- Patch Pilot lives in the menu bar (Mac) or system tray (Windows): click the icon for every machine's score and what the worst one needs.
 - Automatic updates: Patch Pilot checks for a new version at launch and shows what changed before you install it.
