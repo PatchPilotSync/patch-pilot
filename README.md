@@ -11,6 +11,7 @@ Patch Pilot compares each of your machines against a Golden Profile (your ideal 
 - [CLAUDE.md](CLAUDE.md) — project rules and conventions (read by Claude Code every session)
 - [docs/strategy.md](docs/strategy.md) — product strategy and architecture review
 - [docs/decisions.md](docs/decisions.md) — decisions log (authoritative)
+- [docs/handoff.md](docs/handoff.md) — what's built, open decisions and the next milestone
 - [docs/founders-agreement-checklist.md](docs/founders-agreement-checklist.md) — things to agree in writing
 
 ## MVP scope
