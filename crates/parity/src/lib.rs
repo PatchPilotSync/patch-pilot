@@ -1,5 +1,7 @@
 //! Identity resolution, manifest diff, parity scoring and plan generation.
 
+pub mod reaper;
+
 mod diff;
 mod score;
 mod version;

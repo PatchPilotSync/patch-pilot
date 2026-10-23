@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 patchpilot-core = { path = "../core" }
+walkdir = "2.5.0"
 
 [lints]
 workspace = true
