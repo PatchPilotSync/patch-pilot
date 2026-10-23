@@ -135,6 +135,7 @@ fn scan(
         os_version: None,
         roots,
         vendor_apps,
+        clap_cache: reaper_clap_cache(os, &dirs),
         now: now(),
     });
     let mut manifest = output.manifest;
@@ -207,6 +208,14 @@ fn detect_vendor_apps(os: Os, dirs: &SystemDirs) -> Vec<patchpilot_scanner::Vend
         }
         Os::Windows => Vec::new(),
     }
+}
+
+/// Reaper's CLAP cache gives real CLAP IDs without loading plug-ins (#8).
+fn reaper_clap_cache(os: Os, dirs: &SystemDirs) -> patchpilot_scanner::ClapCache {
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    patchpilot_parity::reaper::reaper_resource_dir(os, &appdata, &dirs.home)
+        .map(|dir| patchpilot_scanner::ClapCache::load_reaper(&dir))
+        .unwrap_or_default()
 }
 
 fn home_dir() -> Option<String> {

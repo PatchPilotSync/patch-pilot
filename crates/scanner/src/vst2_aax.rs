@@ -1,7 +1,10 @@
-//! VST2 and AAX identity without loading.
+//! VST2, AAX and CLAP file metadata without loading.
 //!
 //! - Windows VST2: a `.dll`; read its PE version resource.
 //! - macOS VST2: a `.vst` bundle; read `Info.plist`.
+//! - CLAP: a PE `.clap` file on Windows, a `.clap` bundle on macOS, read the
+//!   same way. The real CLAP IDs come from [`crate::ClapCache`] when Reaper
+//!   has scanned the file.
 //! - AAX: a `.aaxplugin` bundle on both OSes. macOS has `Info.plist`; Windows
 //!   keeps the PE at `Contents/x64/<name>.aaxplugin` (or `Contents/Win32/`).
 //!
@@ -23,7 +26,7 @@ pub enum MetaSource {
     FileName,
 }
 
-/// What a VST2 or AAX plug-in says about itself.
+/// What a VST2, AAX or CLAP plug-in file says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginMeta {
     pub format: PluginFormat,
@@ -43,6 +46,10 @@ pub struct PluginMeta {
 
 pub fn read_vst2(path: &Path) -> PluginMeta {
     read_meta(path, PluginFormat::Vst2, None)
+}
+
+pub fn read_clap(path: &Path) -> PluginMeta {
+    read_meta(path, PluginFormat::Clap, None)
 }
 
 pub fn read_aax(path: &Path) -> PluginMeta {

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use patchpilot_core::{Arch, Confidence, Os, PluginFormat, PortablePath};
-use patchpilot_scanner::{PluginRoot, ScanInput, scan_machine};
+use patchpilot_scanner::{ClapCache, PluginRoot, ScanInput, scan_machine};
 
 fn fixture(rel: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -26,6 +26,7 @@ fn scans_fixture_roots_into_a_manifest() {
             ),
         ],
         vendor_apps: Vec::new(),
+        clap_cache: ClapCache::default(),
         now: 1_800_000_000,
     });
     let m = out.manifest;
