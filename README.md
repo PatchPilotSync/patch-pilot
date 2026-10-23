@@ -43,6 +43,19 @@ It reads the standard VST2/VST3/AU/AAX/CLAP folders plus vendor apps
 `--folder vst2=D:\VSTPlugins` (repeatable). Your username is removed from
 paths by default, so the file is safe to send us; `--keep-paths` keeps it.
 
+Keep a history of scans on a machine with `--save` (with or without `--out`):
+
+```sh
+patchpilot scan --save --name "Studio PC"
+patchpilot history
+```
+
+Saved scans go to Patch Pilot's own database in the app-data folder
+(`%LOCALAPPDATA%\PatchPilot` on Windows, `~/Library/Application Support/PatchPilot`
+on macOS; `--db` or `PATCHPILOT_DB` picks another file). A rescan with no
+changes doesn't add a snapshot. The database keeps real paths because it never
+leaves the machine.
+
 Compare a machine against your Golden rig:
 
 ```sh

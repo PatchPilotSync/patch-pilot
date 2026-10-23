@@ -4,6 +4,7 @@
 //! never in user folders (CLAUDE.md rule 3). Schema changes are embedded SQL
 //! migrations tracked with `PRAGMA user_version`.
 
+mod machine_id;
 mod migrations;
 mod paths;
 
@@ -16,6 +17,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+pub use machine_id::{load_or_create_machine_id, read_machine_id};
 pub use migrations::{LATEST_VERSION, MIGRATIONS};
 pub use paths::default_db_path;
 
@@ -51,7 +53,7 @@ pub enum SnapshotReason {
 }
 
 impl SnapshotReason {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::FirstScan => "first_scan",
             Self::Scan => "scan",
@@ -60,16 +62,47 @@ impl SnapshotReason {
             Self::Manual => "manual",
         }
     }
+
+    fn parse(s: &str) -> Result<Self> {
+        Ok(match s {
+            "first_scan" => Self::FirstScan,
+            "scan" => Self::Scan,
+            "before_apply" => Self::BeforeApply,
+            "drift_accepted" => Self::DriftAccepted,
+            "manual" => Self::Manual,
+            _ => {
+                return Err(StoreError::BadValue {
+                    column: "snapshots.reason",
+                    value: s.to_owned(),
+                });
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotInfo {
     pub id: i64,
     pub parent_id: Option<i64>,
-    /// BLAKE3 of the manifest's canonical JSON, `blake3:<hex>`.
+    /// BLAKE3 of the manifest's JSON without `generated_at`, `blake3:<hex>`,
+    /// so rescanning an unchanged machine gives the same hash.
     pub manifest_hash: String,
     /// True when an identical snapshot already existed and was reused.
     pub unchanged: bool,
+}
+
+/// One row of a machine's snapshot history, see [`Store::snapshots`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotSummary {
+    pub id: i64,
+    pub parent_id: Option<i64>,
+    pub created_at: i64,
+    pub reason: SnapshotReason,
+    pub items: u64,
+    /// Items in this snapshot but not its parent (a changed item counts as
+    /// one added and one removed).
+    pub added: u64,
+    pub removed: u64,
 }
 
 pub struct Store {
@@ -114,15 +147,16 @@ impl Store {
     ///
     /// Upserts the machine, its path map and the products; inserts only items
     /// not already stored (items are immutable rows keyed by content hash).
-    /// If the manifest is identical to the machine's latest snapshot, that
-    /// snapshot is returned instead of creating a duplicate.
+    /// If the manifest matches the machine's latest snapshot (ignoring
+    /// `generated_at`), that snapshot is returned instead of creating a
+    /// duplicate.
     pub fn save_manifest(
         &mut self,
         manifest: &Manifest,
         reason: SnapshotReason,
         now: i64,
     ) -> Result<SnapshotInfo> {
-        let manifest_hash = hash_json(manifest);
+        let manifest_hash = manifest_hash(manifest);
         let tx = self.conn.transaction()?;
         let m = &manifest.machine;
         upsert_machine(&tx, m, now)?;
@@ -174,6 +208,45 @@ impl Store {
             manifest_hash,
             unchanged: false,
         })
+    }
+
+    /// A machine's snapshots, newest first.
+    pub fn snapshots(&self, machine_id: &str) -> Result<Vec<SnapshotSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.parent_id, s.created_at, s.reason,
+                    (SELECT count(*) FROM snapshot_items WHERE snapshot_id = s.id),
+                    (SELECT count(*) FROM snapshot_items c WHERE c.snapshot_id = s.id
+                        AND c.item_id NOT IN
+                            (SELECT item_id FROM snapshot_items WHERE snapshot_id = s.parent_id)),
+                    (SELECT count(*) FROM snapshot_items p WHERE p.snapshot_id = s.parent_id
+                        AND p.item_id NOT IN
+                            (SELECT item_id FROM snapshot_items WHERE snapshot_id = s.id))
+             FROM snapshots s WHERE s.machine_id = ?1 ORDER BY s.id DESC",
+        )?;
+        let rows = stmt.query_map([machine_id], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, i64>(6)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (id, parent_id, created_at, reason, items, added, removed) = row?;
+            Ok(SnapshotSummary {
+                id,
+                parent_id,
+                created_at,
+                reason: SnapshotReason::parse(&reason)?,
+                items: items as u64,
+                added: added as u64,
+                removed: removed as u64,
+            })
+        })
+        .collect()
     }
 
     /// The manifest of a machine's latest snapshot.
@@ -416,6 +489,14 @@ fn from_text<T: DeserializeOwned>(column: &'static str, s: &str) -> Result<T> {
             value: s.to_owned(),
         }
     })
+}
+
+fn manifest_hash(m: &Manifest) -> String {
+    let mut v = serde_json::to_value(m).expect("serializable");
+    if let Some(o) = v.as_object_mut() {
+        o.remove("generated_at");
+    }
+    hash_json(&v)
 }
 
 fn hash_json<T: Serialize>(v: &T) -> String {
