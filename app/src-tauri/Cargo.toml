@@ -1,0 +1,33 @@
+[package]
+name = "patchpilot-app"
+version = "0.1.0"
+description = "Patch Pilot desktop app"
+edition = "2024"
+rust-version = "1.88"
+license = "UNLICENSED"
+publish = false
+
+# Its own workspace: Tauri's dependency tree stays out of the core crates'
+# lockfile and CI jobs.
+[workspace]
+
+[lib]
+name = "patchpilot_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+patchpilot-core = { path = "../../crates/core" }
+patchpilot-scanner = { path = "../../crates/scanner" }
+patchpilot-parity = { path = "../../crates/parity" }
+patchpilot-store = { path = "../../crates/store" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

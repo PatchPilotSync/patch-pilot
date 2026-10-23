@@ -34,7 +34,7 @@ Full product thinking: `docs/strategy.md`. Decisions (authoritative): `docs/deci
 ## Stack (planned — see decisions.md for status)
 
 - Tauri 2 desktop shell, Rust core
-- UI: Svelte or React + Tailwind — **not decided yet**, don't pick one unilaterally
+- UI: React + TypeScript + Vite + Tailwind (decision #11; scaffold in #33)
 - SQLite via `rusqlite`; BLAKE3 hashing; content-addressed blob store
 - Later: small sync relay (E2E-encrypted, server can't read user data) + catalog service
 
@@ -46,7 +46,7 @@ crates/
   scanner/     # plugin + DAW + vendor-app scanners, per-OS modules
   parity/      # identity resolution, diff, scoring, plan generation
   store/       # SQLite schema + migrations, blob store
-app/           # Tauri app + UI
+app/           # Tauri app: React UI in src/, Rust shell in src-tauri/ (own Cargo workspace)
 docs/
 ```
 
@@ -78,8 +78,18 @@ cargo fmt --all                                     # CI runs --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on `windows-latest` and `macos-latest` for every PR. Keep it green on both.
+CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on `windows-latest` and `macos-latest` for every PR, for the crates and (separately) for the app. Keep it green on both.
 
 The alpha CLI is `crates/cli` (`cargo run -p patchpilot-cli -- scan --out rig.json`, `... -- diff golden.json machine.json`); see README.
 
-The Tauri app (`app/`) is not scaffolded yet.
+The desktop app lives in `app/` (Node 22). `app/src-tauri` is its own Cargo workspace with its own `Cargo.lock`, so Tauri's dependencies stay out of the core crates' builds; it depends on the crates by path. Keep the Tauri npm packages (`@tauri-apps/api`, `@tauri-apps/cli`) on the same minor version as the `tauri` crate in `Cargo.lock`, or `tauri build` refuses to run.
+
+```sh
+cd app
+npm ci
+npm run tauri dev                                  # window with hot reload
+npm run build                                      # front end only (tsc + vite)
+cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo test
+```
+
+Tauri commands (the UI's only way into Rust) live in `app/src-tauri/src/lib.rs`; keep them thin and put logic in `crates/`. On Linux, building the app needs the WebKitGTK 4.1 dev packages; CI only builds it on Windows and macOS.
