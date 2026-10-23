@@ -56,6 +56,18 @@ on macOS; `--db` or `PATCHPILOT_DB` picks another file). A rescan with no
 changes doesn't add a snapshot. The database keeps real paths because it never
 leaves the machine.
 
+Make a saved scan your Golden Rig, then evolve it in versions:
+
+```sh
+patchpilot golden init                         # this machine's latest saved scan becomes v1
+patchpilot golden propose --from <machine-id> --product "Pro-Q 3"   # take products from another machine
+patchpilot golden promote --machine <machine-id>                    # replace Golden with a machine's scan
+patchpilot golden history
+patchpilot golden show --out golden.json       # then: patchpilot diff golden.json laptop.json
+```
+
+Every change is a new version; old versions stay readable (`golden show --version 1`).
+
 Compare a machine against your Golden rig:
 
 ```sh

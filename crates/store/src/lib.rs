@@ -11,7 +11,8 @@ mod paths;
 use std::path::Path;
 
 use patchpilot_core::{
-    Confidence, ContentHash, Item, MachineInfo, Manifest, PathMap, PortablePath, Product,
+    Confidence, ContentHash, GoldenVersion, GoldenVersionInfo, Item, MachineInfo, Manifest,
+    PathMap, PortablePath, Product, golden_machine_id, golden_name,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
@@ -38,6 +39,8 @@ pub enum StoreError {
     },
     #[error("unknown machine {0:?}")]
     UnknownMachine(String),
+    #[error("nothing to save: the Golden Rig already matches v{0}")]
+    GoldenUnchanged(u32),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -50,6 +53,8 @@ pub enum SnapshotReason {
     BeforeApply,
     DriftAccepted,
     Manual,
+    /// A Golden Profile version (#35).
+    Golden,
 }
 
 impl SnapshotReason {
@@ -60,6 +65,7 @@ impl SnapshotReason {
             Self::BeforeApply => "before_apply",
             Self::DriftAccepted => "drift_accepted",
             Self::Manual => "manual",
+            Self::Golden => "golden",
         }
     }
 
@@ -70,6 +76,7 @@ impl SnapshotReason {
             "before_apply" => Self::BeforeApply,
             "drift_accepted" => Self::DriftAccepted,
             "manual" => Self::Manual,
+            "golden" => Self::Golden,
             _ => {
                 return Err(StoreError::BadValue {
                     column: "snapshots.reason",
@@ -156,58 +163,10 @@ impl Store {
         reason: SnapshotReason,
         now: i64,
     ) -> Result<SnapshotInfo> {
-        let manifest_hash = manifest_hash(manifest);
         let tx = self.conn.transaction()?;
-        let m = &manifest.machine;
-        upsert_machine(&tx, m, now)?;
-
-        let latest: Option<(i64, String)> = tx
-            .query_row(
-                "SELECT id, manifest_hash FROM snapshots WHERE machine_id = ?1 ORDER BY id DESC LIMIT 1",
-                [&m.id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        if let Some((id, hash)) = &latest
-            && *hash == manifest_hash
-        {
-            tx.commit()?;
-            return Ok(SnapshotInfo {
-                id: *id,
-                parent_id: None,
-                manifest_hash,
-                unchanged: true,
-            });
-        }
-
-        for p in &manifest.products {
-            tx.execute(
-                "INSERT INTO products (canonical_id, vendor, name) VALUES (?1, ?2, ?3)
-                 ON CONFLICT (canonical_id) DO UPDATE SET vendor = excluded.vendor, name = excluded.name",
-                params![p.canonical_id.0, p.vendor, p.name],
-            )?;
-        }
-        let parent_id = latest.map(|(id, _)| id);
-        tx.execute(
-            "INSERT INTO snapshots (machine_id, created_at, reason, parent_id, manifest_hash, generated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![m.id, now, reason.as_str(), parent_id, manifest_hash, manifest.generated_at],
-        )?;
-        let snapshot_id = tx.last_insert_rowid();
-        for (pos, item) in manifest.items.iter().enumerate() {
-            let (item_id, hash) = insert_item(&tx, &m.id, item)?;
-            tx.execute(
-                "INSERT INTO snapshot_items (snapshot_id, position, item_id, hash) VALUES (?1, ?2, ?3, ?4)",
-                params![snapshot_id, pos as i64, item_id, hash],
-            )?;
-        }
+        let info = save_manifest_tx(&tx, manifest, reason, now)?;
         tx.commit()?;
-        Ok(SnapshotInfo {
-            id: snapshot_id,
-            parent_id,
-            manifest_hash,
-            unchanged: false,
-        })
+        Ok(info)
     }
 
     /// A machine's snapshots, newest first.
@@ -247,6 +206,82 @@ impl Store {
             })
         })
         .collect()
+    }
+
+    /// Save `manifest` as the next Golden Profile version (v1 if none yet).
+    ///
+    /// The stored manifest's `machine` is renamed to the version
+    /// (`golden@<n>`, "Golden Rig v<n>"); everything else is kept. Fails with
+    /// [`StoreError::GoldenUnchanged`] if its products and items equal the
+    /// latest version's, so history only grows on real changes.
+    pub fn save_golden(
+        &mut self,
+        manifest: &Manifest,
+        source_machine_id: Option<&str>,
+        note: Option<&str>,
+        now: i64,
+    ) -> Result<GoldenVersionInfo> {
+        let parent = self.golden(None)?;
+        if let Some(p) = &parent
+            && p.manifest.items == manifest.items
+            && used_products(&p.manifest) == used_products(manifest)
+        {
+            return Err(StoreError::GoldenUnchanged(p.info.version));
+        }
+        let parent = parent.map(|p| p.info.version);
+        let version = parent.map_or(1, |v| v + 1);
+        let mut m = manifest.clone();
+        m.machine.id = golden_machine_id(version);
+        m.machine.name = golden_name(version);
+
+        let tx = self.conn.transaction()?;
+        let snapshot = save_manifest_tx(&tx, &m, SnapshotReason::Golden, now)?;
+        tx.execute(
+            "INSERT INTO golden_versions
+                 (golden_id, version, parent_version, snapshot_id, created_at, source_machine_id, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![GOLDEN_ID, version, parent, snapshot.id, now, source_machine_id, note],
+        )?;
+        tx.commit()?;
+        Ok(GoldenVersionInfo {
+            version,
+            parent,
+            created_at: now,
+            source_machine_id: source_machine_id.map(str::to_owned),
+            note: note.map(str::to_owned),
+        })
+    }
+
+    /// A Golden Profile version, or the latest when `version` is `None`.
+    /// `Ok(None)` if there is no such version.
+    pub fn golden(&self, version: Option<u32>) -> Result<Option<GoldenVersion>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT version, parent_version, created_at, source_machine_id, note, snapshot_id
+                 FROM golden_versions WHERE golden_id = ?1 AND (?2 IS NULL OR version = ?2)
+                 ORDER BY version DESC LIMIT 1",
+                params![GOLDEN_ID, version],
+                |r| Ok((golden_info(r)?, r.get::<_, i64>(5)?)),
+            )
+            .optional()?;
+        row.map(|(info, snapshot_id)| {
+            Ok(GoldenVersion {
+                info,
+                manifest: self.snapshot_manifest(snapshot_id)?,
+            })
+        })
+        .transpose()
+    }
+
+    /// Every Golden Profile version, newest first.
+    pub fn golden_history(&self) -> Result<Vec<GoldenVersionInfo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT version, parent_version, created_at, source_machine_id, note
+             FROM golden_versions WHERE golden_id = ?1 ORDER BY version DESC",
+        )?;
+        let rows = stmt.query_map([GOLDEN_ID], golden_info)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The manifest of a machine's latest snapshot.
@@ -357,6 +392,93 @@ impl Store {
             path_map,
         })
     }
+}
+
+/// The one Golden Profile per install (`profiles` row from migration 2).
+const GOLDEN_ID: &str = "golden";
+
+/// Products that items refer to, sorted: what a snapshot keeps of
+/// `manifest.products`.
+fn used_products(m: &Manifest) -> Vec<&Product> {
+    let mut v: Vec<&Product> = m
+        .products
+        .iter()
+        .filter(|p| {
+            m.items
+                .iter()
+                .any(|i| i.product_id.as_ref() == Some(&p.canonical_id))
+        })
+        .collect();
+    v.sort_by(|a, b| a.canonical_id.cmp(&b.canonical_id));
+    v
+}
+
+fn golden_info(r: &rusqlite::Row) -> rusqlite::Result<GoldenVersionInfo> {
+    Ok(GoldenVersionInfo {
+        version: r.get(0)?,
+        parent: r.get(1)?,
+        created_at: r.get(2)?,
+        source_machine_id: r.get(3)?,
+        note: r.get(4)?,
+    })
+}
+
+/// [`Store::save_manifest`] inside a caller's transaction.
+fn save_manifest_tx(
+    tx: &Transaction,
+    manifest: &Manifest,
+    reason: SnapshotReason,
+    now: i64,
+) -> Result<SnapshotInfo> {
+    let manifest_hash = manifest_hash(manifest);
+    let m = &manifest.machine;
+    upsert_machine(tx, m, now)?;
+
+    let latest: Option<(i64, String)> = tx
+        .query_row(
+            "SELECT id, manifest_hash FROM snapshots WHERE machine_id = ?1 ORDER BY id DESC LIMIT 1",
+            [&m.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((id, hash)) = &latest
+        && *hash == manifest_hash
+    {
+        return Ok(SnapshotInfo {
+            id: *id,
+            parent_id: None,
+            manifest_hash,
+            unchanged: true,
+        });
+    }
+
+    for p in &manifest.products {
+        tx.execute(
+            "INSERT INTO products (canonical_id, vendor, name) VALUES (?1, ?2, ?3)
+             ON CONFLICT (canonical_id) DO UPDATE SET vendor = excluded.vendor, name = excluded.name",
+            params![p.canonical_id.0, p.vendor, p.name],
+        )?;
+    }
+    let parent_id = latest.map(|(id, _)| id);
+    tx.execute(
+        "INSERT INTO snapshots (machine_id, created_at, reason, parent_id, manifest_hash, generated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![m.id, now, reason.as_str(), parent_id, manifest_hash, manifest.generated_at],
+    )?;
+    let snapshot_id = tx.last_insert_rowid();
+    for (pos, item) in manifest.items.iter().enumerate() {
+        let (item_id, hash) = insert_item(tx, &m.id, item)?;
+        tx.execute(
+            "INSERT INTO snapshot_items (snapshot_id, position, item_id, hash) VALUES (?1, ?2, ?3, ?4)",
+            params![snapshot_id, pos as i64, item_id, hash],
+        )?;
+    }
+    Ok(SnapshotInfo {
+        id: snapshot_id,
+        parent_id,
+        manifest_hash,
+        unchanged: false,
+    })
 }
 
 fn upsert_machine(tx: &Transaction, m: &MachineInfo, now: i64) -> Result<()> {
