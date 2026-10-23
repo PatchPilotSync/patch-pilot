@@ -52,6 +52,49 @@ fn parses_reaper_cache() {
     assert!(cache.lookup(&fixture("windows/Mystery Box.clap")).is_none());
 }
 
+/// A real `reaper-clap-win64.ini` from a Windows machine (#32).
+#[test]
+fn parses_real_windows_cache() {
+    let text = std::fs::read_to_string(fixture("reaper-real/reaper-clap-win64.ini")).unwrap();
+    assert!(text.contains("\r\n"), "fixture keeps Reaper's CRLF endings");
+    let cache = ClapCache::parse(&text, None);
+    let entry = |file: &str| {
+        let e = cache
+            .lookup(&PathBuf::from(file))
+            .unwrap_or_else(|| panic!("{file} not cached"));
+        assert_eq!(e.len(), 1, "{file}");
+        e[0].clone()
+    };
+    let q = entry("FabFilter Pro-Q 3.clap");
+    assert_eq!(q.id, "com.FabFilter.preset-discovery.Pro-Q.3");
+    assert_eq!(q.name, "Pro-Q 3");
+    assert_eq!(q.vendor.as_deref(), Some("FabFilter"));
+    // Instruments carry flag 1; the name parses the same.
+    assert_eq!(entry("FabFilter Twin 3.clap").name, "Twin 3");
+    let files = [
+        "Micro",
+        "One",
+        "Pro-C 2",
+        "Pro-DS",
+        "Pro-G",
+        "Pro-L 2",
+        "Pro-MB",
+        "Pro-Q 3",
+        "Pro-R 2",
+        "Saturn 2",
+        "Simplon",
+        "Timeless 3",
+        "Twin 3",
+        "Volcano 3",
+    ];
+    for f in files {
+        let e = entry(&format!("FabFilter {f}.clap"));
+        assert_eq!(e.name, f);
+        assert_eq!(e.vendor.as_deref(), Some("FabFilter"));
+        assert!(!e.id.contains('\r'), "{:?}", e.id);
+    }
+}
+
 #[test]
 fn stale_cache_is_ignored() {
     // A cache written before the plug-in file changed can't be trusted.

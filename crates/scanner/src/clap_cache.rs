@@ -5,18 +5,22 @@
 //! found to `reaper-clap-<platform>.ini` in its resource folder. Reading that
 //! file gives the IDs without Patch Pilot running any plug-in code.
 //!
-//! The format is undocumented. What we rely on, tolerantly:
+//! The format is undocumented by Cockos. Confirmed against a real Windows
+//! `reaper-clap-win64.ini` (#32, `fixtures/scanner/clap/reaper-real/`):
 //!
 //! ```ini
-//! [Acme Synth.clap]
-//! _=00F0A1B2C3D4E501
-//! com.acmeaudio.synth=1|Acme Synth (Acme Audio)
+//! [FabFilter Pro-Q 3.clap]
+//! _=001634CF0C58DA010696D9750F99DA01
+//! com.FabFilter.preset-discovery.Pro-Q.3=0|Pro-Q 3 (FabFilter)
 //! ```
 //!
-//! One section per file name, a `_` line Reaper uses for its own freshness
-//! check (ignored), then `<clap-id>=[<flags>|]<name> (<vendor>)`. Anything
-//! else is skipped. An entry is trusted only when the cache file is newer
-//! than the plug-in, since Reaper may not have rescanned an updated plug-in.
+//! One section per file name (CRLF line endings), a `_` line, then
+//! `<clap-id>=<flags>|<name> (<vendor>)`, where flags is `0` for an effect
+//! and `1` for an instrument. The `_` value is two little-endian Windows
+//! FILETIMEs: the plug-in file's mtime, then when Reaper scanned it. We
+//! ignore it for now. Anything else is skipped. An entry is trusted only
+//! when the cache file is newer than the plug-in, since Reaper may not have
+//! rescanned an updated plug-in. The macOS file is not yet confirmed.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
