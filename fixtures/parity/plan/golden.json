@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "machine": {
+    "id": "studio-pc",
+    "name": "Studio PC",
+    "os": "windows",
+    "arch": "x86_64",
+    "path_map": {
+      "os": "windows",
+      "roots": {}
+    }
+  },
+  "generated_at": 1792778640,
+  "products": [
+    {
+      "canonical_id": "app/pace-license-support",
+      "vendor": "",
+      "name": "PACE License Support"
+    },
+    {
+      "canonical_id": "app/ilok-license-manager",
+      "vendor": "",
+      "name": "iLok License Manager"
+    },
+    {
+      "canonical_id": "app/native-access",
+      "vendor": "",
+      "name": "Native Access"
+    },
+    {
+      "canonical_id": "app/waves-central",
+      "vendor": "",
+      "name": "Waves Central"
+    },
+    {
+      "canonical_id": "native-instruments/kontakt-7",
+      "vendor": "Native Instruments",
+      "name": "Kontakt 7"
+    },
+    {
+      "canonical_id": "native-instruments/massive-x",
+      "vendor": "Native Instruments",
+      "name": "Massive X"
+    },
+    {
+      "canonical_id": "waves/ssl-e-channel",
+      "vendor": "Waves",
+      "name": "SSL E-Channel"
+    },
+    {
+      "canonical_id": "acme-audio/acme-gate",
+      "vendor": "Acme Audio",
+      "name": "Acme Gate"
+    },
+    {
+      "canonical_id": "acme-audio/acme-verb",
+      "vendor": "Acme Audio",
+      "name": "Acme Verb"
+    },
+    {
+      "canonical_id": "fabfilter/pro-q-3",
+      "vendor": "FabFilter",
+      "name": "Pro-Q 3"
+    },
+    {
+      "canonical_id": "reaper-template/tracktemplates-drums-rtracktemplate",
+      "vendor": "REAPER",
+      "name": "TrackTemplates/Drums.RTrackTemplate"
+    }
+  ],
+  "items": [
+    {
+      "kind": "license_tool",
+      "product_id": "app/pace-license-support",
+      "platform": "windows",
+      "version": "5.6.1",
+      "path": {
+        "absolute": "C:\\Program Files\\PACE License Support"
+      },
+      "confidence": "medium"
+    },
+    {
+      "kind": "license_tool",
+      "product_id": "app/ilok-license-manager",
+      "platform": "windows",
+      "version": "5.9.0",
+      "path": {
+        "absolute": "C:\\Program Files\\iLok License Manager"
+      },
+      "confidence": "medium"
+    },
+    {
+      "kind": "vendor_app",
+      "product_id": "app/native-access",
+      "platform": "windows",
+      "version": "3.10.0",
+      "path": {
+        "absolute": "C:\\Program Files\\Native Access"
+      },
+      "confidence": "medium"
+    },
+    {
+      "kind": "vendor_app",
+      "product_id": "app/waves-central",
+      "platform": "windows",
+      "version": "14.0.0",
+      "path": {
+        "absolute": "C:\\Program Files\\Waves Central"
+      },
+      "confidence": "medium"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "native-instruments/kontakt-7",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "7.10.1",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Kontakt 7.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "native-instruments/massive-x",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "1.4.2",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Massive X.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "waves/ssl-e-channel",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "15.0",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "SSL E-Channel.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-audio/acme-gate",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "1.2",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme Gate.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-audio/acme-verb",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "2.1.0",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme Verb.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-audio/acme-verb",
+      "format": "aax",
+      "platform": "windows",
+      "version": "2.1.0",
+      "path": {
+        "logical": {
+          "root": "AAX_SYSTEM",
+          "rel": "Acme Verb.aaxplugin"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "fabfilter/pro-q-3",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "3.24",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Pro-Q 3.vst3"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "kind": "daw_asset",
+      "product_id": "reaper-template/tracktemplates-drums-rtracktemplate",
+      "platform": "windows",
+      "path": {
+        "logical": {
+          "root": "REAPER_RESOURCES",
+          "rel": "TrackTemplates/Drums.RTrackTemplate"
+        }
+      },
+      "content_hash": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "platform_portable": true,
+      "confidence": "high",
+      "requires": [
+        "native-instruments/kontakt-7"
+      ]
+    }
+  ]
+}

@@ -64,6 +64,25 @@ struct ScanArgs {
     reaper_dir: Option<PathBuf>,
 }
 
+/// What to compare: two manifest files, or a saved machine from the database.
+#[derive(clap::Args)]
+struct CompareArgs {
+    /// Golden manifest JSON.
+    #[arg(requires = "machine_file")]
+    golden: Option<PathBuf>,
+    /// Machine manifest JSON.
+    #[arg(id = "machine_file", value_name = "MACHINE")]
+    machine: Option<PathBuf>,
+    /// Saved machine (ID or name) when comparing from the database. Default:
+    /// this machine.
+    #[arg(long = "machine", value_name = "MACHINE", conflicts_with = "golden")]
+    saved_machine: Option<String>,
+    /// Target profile JSON (e.g. Travel: no AAX). Default: the machine's
+    /// stored profile (see `profile set`).
+    #[arg(long)]
+    profile: Option<PathBuf>,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Scan this machine's plug-ins and vendor apps into a manifest file
@@ -74,22 +93,19 @@ enum Command {
     /// With no files: a machine's latest saved scan against the latest Golden
     /// version, using the machine's stored target profile.
     Diff {
-        /// Golden manifest JSON.
-        #[arg(requires = "machine_file")]
-        golden: Option<PathBuf>,
-        /// Machine manifest JSON.
-        #[arg(id = "machine_file", value_name = "MACHINE")]
-        machine: Option<PathBuf>,
-        /// Saved machine (ID or name) when comparing from the database.
-        #[arg(long = "machine", value_name = "MACHINE", conflicts_with = "golden")]
-        saved_machine: Option<String>,
-        /// Target profile JSON (e.g. Travel: no AAX). Default: the machine's
-        /// stored profile (see `profile set`).
-        #[arg(long)]
-        profile: Option<PathBuf>,
+        #[command(flatten)]
+        cmp: CompareArgs,
         /// Also list products that are in parity.
         #[arg(long)]
         all: bool,
+    },
+    /// Plan the steps that bring a machine up to speed with the Golden Rig.
+    ///
+    /// A read-only checklist: nothing is installed or copied. Takes the same
+    /// inputs as `diff`.
+    Plan {
+        #[command(flatten)]
+        cmp: CompareArgs,
     },
     /// List the saved scans (snapshots) of this machine, newest first.
     History {
@@ -114,19 +130,8 @@ fn main() -> ExitCode {
     let db = cli.db;
     let result = match cli.command {
         Command::Scan(args) => scan(args, db),
-        Command::Diff {
-            golden,
-            machine,
-            saved_machine,
-            profile,
-            all,
-        } => diff(
-            db,
-            golden.zip(machine),
-            saved_machine,
-            profile.as_deref(),
-            all,
-        ),
+        Command::Diff { cmp, all } => diff(db, cmp, all),
+        Command::Plan { cmp } => plan(db, cmp),
         Command::History { machine } => history(db, machine),
         Command::Golden { command } => golden::run(db, command),
         Command::Profile { command } => profile::run(db, command),
@@ -347,16 +352,13 @@ fn open_store(path: &Path) -> Result<Store, String> {
     Store::open(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// `files` = (golden, machine) JSON paths; `None` compares from the database.
-fn diff(
+/// Load and align the two sides of a comparison and the profile to use.
+fn load_comparison(
     db: Option<PathBuf>,
-    files: Option<(PathBuf, PathBuf)>,
-    saved_machine: Option<String>,
-    profile: Option<&Path>,
-    all: bool,
-) -> Result<(), String> {
+    cmp: CompareArgs,
+) -> Result<(Manifest, Manifest, TargetProfile), String> {
     let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()));
-    let (mut golden_m, mut machine_m, stored_profile) = match files {
+    let (mut golden_m, mut machine_m, stored_profile) = match cmp.golden.zip(cmp.machine) {
         Some((golden, machine)) => {
             let golden_m = Manifest::from_json(&read(&golden)?)
                 .map_err(|e| format!("{}: {e}", golden.display()))?;
@@ -374,7 +376,7 @@ fn diff(
         None => {
             let path = db_path(db)?;
             let store = open_existing_store(&path)?;
-            let machine = match saved_machine {
+            let machine = match cmp.saved_machine {
                 Some(q) => resolve_machine(&store, &q)?,
                 None => {
                     let id = this_or(&path, None)?;
@@ -395,11 +397,16 @@ fn diff(
             (golden.manifest, scan, stored)
         }
     };
-    let profile: TargetProfile = match profile {
-        Some(p) => serde_json::from_str(&read(p)?).map_err(|e| format!("{}: {e}", p.display()))?,
+    let profile: TargetProfile = match cmp.profile {
+        Some(p) => serde_json::from_str(&read(&p)?).map_err(|e| format!("{}: {e}", p.display()))?,
         None => stored_profile.unwrap_or_default(),
     };
     patchpilot_parity::align_products(&mut golden_m, &mut machine_m);
+    Ok((golden_m, machine_m, profile))
+}
+
+fn diff(db: Option<PathBuf>, cmp: CompareArgs, all: bool) -> Result<(), String> {
+    let (golden_m, machine_m, profile) = load_comparison(db, cmp)?;
     // Plug-ins any template on either side uses weigh more (#37).
     let needed = patchpilot_parity::required_products(&[&golden_m, &machine_m]);
     let score = patchpilot_parity::score_machine(
@@ -414,6 +421,13 @@ fn diff(
         "{}",
         report::render(&golden_m, &machine_m, &profile, &score, &readiness, all)
     );
+    Ok(())
+}
+
+fn plan(db: Option<PathBuf>, cmp: CompareArgs) -> Result<(), String> {
+    let (golden_m, machine_m, profile) = load_comparison(db, cmp)?;
+    let plan = patchpilot_parity::up_to_speed(&golden_m, &profile, &machine_m);
+    print!("{}", report::plan(&golden_m, &machine_m, &profile, &plan));
     Ok(())
 }
 
