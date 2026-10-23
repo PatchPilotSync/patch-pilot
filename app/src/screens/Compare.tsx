@@ -14,7 +14,7 @@ import {
   type PluginFormat,
   type Step,
 } from "../api";
-import { Badge, Button, timeAgo } from "../ui";
+import { Badge, Button, inputClass, Pill, ScoreBar, scoreColor, timeAgo } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
   "missing",
@@ -28,12 +28,18 @@ const STATE_ORDER: ParityState[] = [
   "in_parity",
 ];
 
-export function scoreTone(score: number | null): string {
-  if (score === null) return "bg-neutral-100 text-neutral-500 dark:bg-neutral-800";
-  if (score >= 95) return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300";
-  if (score >= 75) return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300";
-  return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300";
-}
+/** Status dot colour for each parity state. */
+const STATE_DOT: Record<ParityState, string> = {
+  missing: "bg-bad",
+  incomplete: "bg-warn",
+  outdated: "bg-warn",
+  modified: "bg-warn",
+  version_unknown: "bg-warn",
+  newer_than_golden: "bg-ok",
+  extra: "bg-dim",
+  not_applicable: "bg-dim",
+  in_parity: "bg-ok",
+};
 
 interface Props {
   view: MachinesView;
@@ -59,19 +65,17 @@ export function Compare({ view, onError }: Props) {
   }, [selected, view, onError]);
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] min-h-0">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-800">
-        <div className="px-4 pb-2 pt-4 text-xs font-medium uppercase tracking-wide text-neutral-500">
-          Machines
-        </div>
-        <ul className="flex-1 overflow-auto px-2">
+    <div className="flex h-full min-h-0">
+      <aside className="flex w-52 shrink-0 flex-col border-r border-line bg-panel">
+        <div className="px-4 pb-1.5 pt-3 text-[11px] text-dim">Machines</div>
+        <ul className="flex flex-1 flex-col gap-0.5 overflow-auto px-2">
           {view.machines.map((m) => (
             <MachineItem key={m.id} m={m} active={m.id === selected} onClick={() => setSelected(m.id)} />
           ))}
         </ul>
-        <p className="border-t border-neutral-200 p-4 text-xs text-neutral-500 dark:border-neutral-800">
-          Add a machine: on it, run <code className="font-mono">patchpilot export</code>, then drop the
-          file on this window.
+        <p className="p-4 text-[11px] leading-relaxed text-dim">
+          Add a machine: on it, run <code className="font-mono">patchpilot export</code>, then drop the file on this
+          window.
         </p>
       </aside>
 
@@ -92,9 +96,9 @@ export function Compare({ view, onError }: Props) {
         )}
       </section>
 
-      <aside className="w-72 shrink-0 overflow-auto border-l border-neutral-200 dark:border-neutral-800">
+      <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel">
         {row && data ? <Detail row={row} machine={data.machine} /> : (
-          <p className="p-4 text-xs text-neutral-500">Select a product to see versions on both sides.</p>
+          <p className="p-4 text-xs text-dim">Select a product to see versions on both sides.</p>
         )}
       </aside>
     </div>
@@ -106,20 +110,19 @@ function MachineItem({ m, active, onClick }: { m: MachineCard; active: boolean; 
     <li>
       <button
         onClick={onClick}
-        className={`mb-1 flex w-full items-center gap-3 rounded-md px-2 py-2 text-left ${
-          active ? "bg-neutral-100 dark:bg-neutral-800" : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
+        className={`flex w-full flex-col gap-1.5 rounded-md px-2.5 py-2 text-left ${
+          active ? "bg-sel" : "hover:bg-sel/50"
         }`}
       >
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{m.name}</span>
-          <span className="block truncate text-xs text-neutral-500">
-            {m.os === "macos" ? "macOS" : "Windows"}
-            {m.is_this_machine ? " · this machine" : ""}
-            {m.profile ? ` · ${m.profile.name}` : ""}
-          </span>
+        <span className="flex w-full items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate font-medium">{m.name}</span>
+          <span className={`font-semibold tabular-nums ${scoreColor(m.score)}`}>{m.score ?? "–"}</span>
         </span>
-        <span className={`rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums ${scoreTone(m.score)}`}>
-          {m.score ?? "–"}
+        <ScoreBar score={m.score} className="w-full" />
+        <span className="block w-full truncate text-[11px] text-dim">
+          {m.os === "macos" ? "macOS" : "Windows"}
+          {m.is_this_machine ? " · this machine" : ""}
+          {m.profile ? ` · ${m.profile.name}` : ""}
         </span>
       </button>
     </li>
@@ -127,7 +130,7 @@ function MachineItem({ m, active, onClick }: { m: MachineCard; active: boolean; 
 }
 
 function Empty({ text }: { text: string }) {
-  return <p className="p-8 text-sm text-neutral-500">{text}</p>;
+  return <p className="p-6 text-dim">{text}</p>;
 }
 
 function Diff({
@@ -175,14 +178,14 @@ function Diff({
   const hasWork = c.rows.some((r) => ["missing", "incomplete", "outdated"].includes(r.state));
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <header className="flex items-start gap-4">
-        <div className={`rounded-lg px-3 py-2 text-3xl font-semibold tabular-nums ${scoreTone(c.score)}`}>
+    <div className="flex flex-col gap-3 px-5 py-4">
+      <header className="flex items-center gap-4">
+        <span className={`text-3xl font-semibold leading-none tracking-tight tabular-nums ${scoreColor(c.score)}`}>
           {c.score}
-        </div>
+        </span>
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold tracking-tight">{machine.name}</h1>
-          <p className="text-xs text-neutral-500">
+          <h1 className="truncate text-sm font-semibold">{machine.name}</h1>
+          <p className="truncate text-xs text-dim">
             vs Golden Rig v{data.golden_version} · {machine.profile ? `${machine.profile.name} profile` : "no profile"} ·
             scanned {timeAgo(machine.scanned_at)}
           </p>
@@ -191,54 +194,59 @@ function Diff({
       </header>
 
       {c.reasons.length > 0 ? (
-        <ul className="flex flex-col gap-1 text-sm">
-          {c.reasons.map((r) => (
-            <li key={r.text} className="flex gap-3">
-              <span className="w-12 shrink-0 text-right font-mono text-xs leading-5 text-red-600 dark:text-red-400">
-                −{Math.round(r.points)}
-              </span>
-              <span>{r.text}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex h-1.5 overflow-hidden rounded-full bg-track" aria-hidden="true">
+            <span className="bg-ok" style={{ width: `${c.score}%` }} />
+            {c.reasons.map((r, i) => (
+              <span
+                key={r.text}
+                className="bg-bad"
+                style={{ width: `${r.points}%`, opacity: Math.max(1 - i * 0.15, 0.35) }}
+              />
+            ))}
+          </div>
+          <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-dim">
+            {c.reasons.map((r) => (
+              <li key={r.text}>
+                <span className="tabular-nums text-fg">−{Math.round(r.points)}</span> {r.text}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : (
-        <p className="text-sm text-emerald-700 dark:text-emerald-400">At parity with the Golden Rig.</p>
+        <p className="text-xs text-ok">At parity with the Golden Rig.</p>
       )}
 
       {c.templates.some((t) => t.missing.length > 0) && (
-        <div className="rounded-lg border border-amber-200 px-4 py-3 text-sm dark:border-amber-900/60">
-          <div className="font-medium">Templates not ready</div>
-          <ul className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+        <div className="rounded-md bg-warn/10 px-3 py-2 text-xs">
+          <span className="font-medium text-warn">Templates not ready: </span>
+          <span className="text-dim">
             {c.templates
               .filter((t) => t.missing.length > 0)
-              .map((t) => (
-                <li key={t.product_id}>
-                  {t.name}: needs {t.missing.length} plug-in{t.missing.length === 1 ? "" : "s"}
-                </li>
-              ))}
-          </ul>
+              .map((t) => `${t.name} needs ${t.missing.length} plug-in${t.missing.length === 1 ? "" : "s"}`)
+              .join(" · ")}
+          </span>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-1 border-b border-line pb-2">
         {STATE_ORDER.filter((s) => counts.get(s)).map((s) => (
-          <button
-            key={s}
-            onClick={() => toggle(s)}
-            className={`rounded-full border px-2.5 py-1 ${
-              states.has(s)
-                ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                : "border-neutral-300 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
-            }`}
-          >
-            {STATE_LABEL[s]} <span className="tabular-nums">{counts.get(s)}</span>
-          </button>
+          <Pill key={s} active={states.has(s)} onClick={() => toggle(s)}>
+            {STATE_LABEL[s]} <span className="tabular-nums opacity-70">{counts.get(s)}</span>
+          </Pill>
         ))}
-        <span className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-800" />
+        <span className="flex-1" />
+        {!states.size && (
+          <label className="mr-2 flex items-center gap-1.5 text-xs text-dim">
+            <input type="checkbox" checked={showParity} onChange={(e) => setShowParity(e.target.checked)} />
+            Show in parity
+          </label>
+        )}
         <select
           value={vendor}
           onChange={(e) => setVendor(e.target.value)}
-          className="rounded-md border border-neutral-300 bg-transparent px-2 py-1 dark:border-neutral-700"
+          aria-label="Vendor"
+          className={`h-6 max-w-36 ${inputClass}`}
         >
           <option value="">All vendors</option>
           {vendors.map((v) => (
@@ -248,7 +256,8 @@ function Diff({
         <select
           value={format}
           onChange={(e) => setFormat(e.target.value as PluginFormat | "")}
-          className="rounded-md border border-neutral-300 bg-transparent px-2 py-1 dark:border-neutral-700"
+          aria-label="Format"
+          className={`h-6 ${inputClass}`}
         >
           <option value="">All formats</option>
           {formats.map((f) => (
@@ -257,44 +266,37 @@ function Diff({
             </option>
           ))}
         </select>
-        {!states.size && (
-          <label className="ml-auto flex items-center gap-1.5 text-neutral-500">
-            <input type="checkbox" checked={showParity} onChange={(e) => setShowParity(e.target.checked)} />
-            Show in parity
-          </label>
-        )}
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="-mx-2 flex flex-col gap-2">
         {STATE_ORDER.map((s) => {
           const group = rows.filter((r) => r.state === s);
           if (!group.length) return null;
           return (
             <div key={s}>
-              <h3 className="mb-1 text-xs font-medium text-neutral-500">
-                {STATE_LABEL[s]} <span className="tabular-nums text-neutral-400">{group.length}</span>
+              <h3 className="px-2 pb-0.5 text-[11px] text-dim">
+                {STATE_LABEL[s]} <span className="tabular-nums opacity-70">{group.length}</span>
               </h3>
-              <ul className="divide-y divide-neutral-100 rounded-lg border border-neutral-200 dark:divide-neutral-900 dark:border-neutral-800">
+              <ul>
                 {group.map((r) => (
                   <li key={r.product_id}>
                     <button
                       onClick={() => onSelect(r)}
-                      className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm ${
-                        selected?.product_id === r.product_id ? "bg-neutral-50 dark:bg-neutral-900" : ""
+                      className={`flex h-7 w-full items-center gap-2.5 rounded-[5px] px-2 text-left ${
+                        selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
                       }`}
                     >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[r.state]}`} aria-hidden="true" />
                       <span className="min-w-0 flex-1 truncate">
                         {r.name}
-                        {r.vendor && <span className="ml-2 text-xs text-neutral-500">{r.vendor}</span>}
+                        {r.vendor && <span className="ml-2 text-xs text-dim">{r.vendor}</span>}
                       </span>
                       {r.needed_by_templates && <Badge tone="amber">template</Badge>}
                       {r.confidence === "low" && <Badge tone="amber">name only</Badge>}
                       {r.missing_formats.map((f) => (
                         <Badge key={f}>no {FORMAT_LABEL[f]}</Badge>
                       ))}
-                      <span className="w-32 text-right font-mono text-xs text-neutral-500">
-                        {versionPair(r)}
-                      </span>
+                      <span className="w-28 shrink-0 text-right font-mono text-[11px] text-dim">{versionPair(r)}</span>
                     </button>
                   </li>
                 ))}
@@ -303,10 +305,10 @@ function Diff({
           );
         })}
         {!rows.length && (states.size > 0 || vendor || format) && (
-          <p className="text-sm text-neutral-500">Nothing to show with these filters.</p>
+          <p className="px-2 text-dim">Nothing to show with these filters.</p>
         )}
         {c.unresolved > 0 && (
-          <p className="text-xs text-neutral-500">
+          <p className="px-2 text-[11px] text-dim">
             {c.unresolved} file{c.unresolved === 1 ? "" : "s"} on this machine couldn't be identified and aren't
             compared.
           </p>
@@ -326,26 +328,25 @@ function versionPair(r: ComparisonRow): string {
 
 function Detail({ row, machine }: { row: ComparisonRow; machine: MachineCard }) {
   return (
-    <div className="flex flex-col gap-4 p-4 text-sm">
+    <div className="flex flex-col gap-4 p-4">
       <div>
-        <div className="font-semibold">{row.name}</div>
-        <div className="text-xs text-neutral-500">{row.vendor || "Unknown vendor"}</div>
+        <div className="text-sm font-semibold">{row.name}</div>
+        <div className="text-xs text-dim">{row.vendor || "Unknown vendor"}</div>
       </div>
-      <div>
-        <Badge>{STATE_LABEL[row.state]}</Badge>
-        <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">{STATE_HINT[row.state]}</p>
-      </div>
+      <p className="text-xs leading-relaxed">
+        <span className="mr-1.5 inline-flex items-center gap-1.5 font-medium">
+          <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[row.state]}`} aria-hidden="true" />
+          {STATE_LABEL[row.state]}.
+        </span>
+        <span className="text-dim">{STATE_HINT[row.state]}</span>
+      </p>
       <Side title="Golden Rig" items={row.golden_items} />
       <Side title={machine.name} items={row.machine_items} />
       {row.needed_by_templates && (
-        <p className="text-xs text-neutral-600 dark:text-neutral-400">
-          A template uses this plug-in, so it counts three times in the score.
-        </p>
+        <p className="text-xs text-dim">A template uses this plug-in, so it counts three times in the score.</p>
       )}
       {row.confidence === "low" && (
-        <p className="text-xs text-neutral-600 dark:text-neutral-400">
-          Identified from the file name only, so the match may be wrong.
-        </p>
+        <p className="text-xs text-dim">Identified from the file name only, so the match may be wrong.</p>
       )}
     </div>
   );
@@ -354,18 +355,18 @@ function Detail({ row, machine }: { row: ComparisonRow; machine: MachineCard }) 
 function Side({ title, items }: { title: string; items: ComparisonRow["golden_items"] }) {
   return (
     <div>
-      <div className="mb-1 text-xs font-medium text-neutral-500">{title}</div>
+      <div className="mb-1 text-[11px] text-dim">{title}</div>
       {items.length === 0 ? (
-        <p className="text-xs text-neutral-400">Not installed</p>
+        <p className="text-xs text-bad">Not installed</p>
       ) : (
         <ul className="flex flex-col gap-1">
           {items.map((i, n) => (
             <li key={n} className="flex items-center justify-between text-xs">
               <span>
                 {i.format ? FORMAT_LABEL[i.format] : "—"}{" "}
-                <span className="text-neutral-500">{i.platform === "macos" ? "macOS" : "Windows"}</span>
+                <span className="text-dim">{i.platform === "macos" ? "macOS" : "Windows"}</span>
               </span>
-              <span className="font-mono text-neutral-500">{i.version ?? "?"}</span>
+              <span className="font-mono text-[11px] text-dim">{i.version ?? "?"}</span>
             </li>
           ))}
         </ul>
@@ -377,31 +378,32 @@ function Side({ title, items }: { title: string; items: ComparisonRow["golden_it
 function PlanView({ name, steps, onBack }: { name: string; steps: Step[]; onBack: () => void }) {
   const [done, setDone] = useState<Set<number>>(new Set());
   return (
-    <div className="flex flex-col gap-5 p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Up To Speed: {name}</h1>
-          <p className="text-xs text-neutral-500">
+    <div className="flex flex-col gap-3 px-5 py-4">
+      <header className="flex items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold">Up To Speed: {name}</h1>
+          <p className="text-xs text-dim">
             A checklist. Patch Pilot doesn't install or copy anything; rescan when you're done.
           </p>
         </div>
+        <span className="text-xs tabular-nums text-dim">
+          {done.size} of {steps.length}
+        </span>
         <Button variant="quiet" onClick={onBack} className="shrink-0 whitespace-nowrap">
           Back to diff
         </Button>
       </header>
-      {steps.length === 0 && <p className="text-sm text-neutral-500">Nothing to do.</p>}
-      <ol className="flex flex-col gap-3">
+      {steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
+      <ol className="-mx-2 flex flex-col">
         {steps.map((s, i) => (
           <li key={s.number}>
             {(i === 0 || steps[i - 1].phase !== s.phase) && (
-              <h3 className="mb-2 mt-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
-                {PHASE_LABEL[s.phase]}
-              </h3>
+              <h3 className="px-2 pb-0.5 pt-3 text-[11px] text-dim">{PHASE_LABEL[s.phase]}</h3>
             )}
-            <label className="flex gap-3 rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+            <label className="flex gap-2.5 rounded-[5px] px-2 py-1.5 hover:bg-sel/50">
               <input
                 type="checkbox"
-                className="mt-1"
+                className="mt-0.5 accent-accent"
                 checked={done.has(s.number)}
                 onChange={() =>
                   setDone((d) => {
@@ -413,18 +415,18 @@ function PlanView({ name, steps, onBack }: { name: string; steps: Step[]; onBack
                 }
               />
               <span className="min-w-0 flex-1">
-                <span className={`text-sm ${done.has(s.number) ? "text-neutral-400 line-through" : ""}`}>
+                <span className={done.has(s.number) ? "text-dim line-through" : ""}>
                   {s.number}. {s.title}
                 </span>
                 {s.details.length > 0 && (
-                  <ul className="mt-1 text-xs text-neutral-500">
+                  <ul className="mt-0.5 text-xs text-dim">
                     {s.details.map((d) => (
                       <li key={d}>{d}</li>
                     ))}
                   </ul>
                 )}
                 {s.after.length > 0 && (
-                  <span className="mt-1 block text-[11px] text-neutral-400">
+                  <span className="mt-0.5 block text-[11px] text-dim opacity-80">
                     After step{s.after.length === 1 ? "" : "s"} {s.after.join(", ")}
                   </span>
                 )}

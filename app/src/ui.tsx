@@ -7,36 +7,70 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "quiet" }) {
   const look =
     variant === "primary"
-      ? "bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-      : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800";
+      ? "bg-accent text-on-accent font-semibold hover:brightness-110"
+      : "text-dim hover:bg-sel hover:text-fg";
   return (
     <button
-      className={`rounded-md px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${look} ${className}`}
+      className={`inline-flex h-7 items-center justify-center rounded-md px-3 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${look} ${className}`}
       {...props}
     />
   );
 }
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "amber" }) {
-  const look =
-    tone === "amber"
-      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-      : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300";
+  const look = tone === "amber" ? "bg-warn/15 text-warn" : "bg-sel text-dim";
   return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${look}`}>
+    <span className={`inline-flex shrink-0 items-center rounded px-1.5 py-px text-[11px] font-medium ${look}`}>
       {children}
     </span>
   );
 }
 
-export function Stat({ label, value }: { label: string; value: number }) {
+/** Text colour for a parity score. */
+export function scoreColor(score: number | null): string {
+  if (score === null) return "text-dim";
+  if (score >= 95) return "text-ok";
+  if (score >= 75) return "text-warn";
+  return "text-bad";
+}
+
+/** Background colour matching scoreColor, for bars and dots. */
+export function scoreFill(score: number | null): string {
+  if (score === null) return "bg-dim";
+  if (score >= 95) return "bg-ok";
+  if (score >= 75) return "bg-warn";
+  return "bg-bad";
+}
+
+/** A thin track filled to `score` percent. */
+export function ScoreBar({ score, className = "" }: { score: number | null; className?: string }) {
   return (
-    <div className="rounded-lg border border-neutral-200 px-4 py-3 dark:border-neutral-800">
-      <div className="text-2xl font-semibold tabular-nums">{value.toLocaleString()}</div>
-      <div className="text-xs text-neutral-500">{label}</div>
+    <div className={`h-[3px] overflow-hidden rounded-full bg-track ${className}`} aria-hidden="true">
+      <div className={`h-full rounded-full ${scoreFill(score)}`} style={{ width: `${score ?? 0}%` }} />
     </div>
   );
 }
+
+/** Small tab-like toggle used for filters and groupings. */
+export function Pill({
+  active,
+  children,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { active: boolean }) {
+  return (
+    <button
+      className={`h-6 rounded-[5px] px-2.5 text-xs transition-colors ${
+        active ? "bg-sel font-medium text-fg" : "text-dim hover:text-fg"
+      }`}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+export const inputClass =
+  "h-7 rounded-md border border-line bg-canvas px-2 text-xs text-fg outline-none placeholder:text-dim focus:border-accent";
 
 export function timeAgo(unixSeconds: number): string {
   const s = Math.max(0, Date.now() / 1000 - unixSeconds);

@@ -1,5 +1,82 @@
 @import "tailwindcss";
 
+/* Theme "Mica + Frost": Windows 11 flyout shapes in macOS frosted-glass colours.
+   Light and dark follow the OS setting. Components use the semantic colours
+   below (bg-canvas, text-dim, border-line, ...) rather than raw palette ones. */
+
 :root {
   color-scheme: light dark;
+
+  --pp-canvas: #ffffff;
+  --pp-panel: #f4f4f7;
+  --pp-fg: #1d1d1f;
+  --pp-dim: #6e6e73;
+  --pp-line: #e5e5ea;
+  --pp-sel: #e8e8ed;
+  --pp-track: #e8e8ed;
+  --pp-accent: #0a64f0;
+  --pp-on-accent: #ffffff;
+  --pp-accent-text: #0a64f0;
+  --pp-ok: #1e8e3e;
+  --pp-warn: #a15c00;
+  --pp-bad: #d70015;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pp-canvas: #1e1e22;
+    --pp-panel: #26262b;
+    --pp-fg: #f2f2f7;
+    --pp-dim: #a1a1a8;
+    --pp-line: #34343a;
+    --pp-sel: #34343a;
+    --pp-track: #3a3a40;
+    --pp-accent: #0a64f0;
+    --pp-on-accent: #ffffff;
+    --pp-accent-text: #6aa5ff;
+    --pp-ok: #32d74b;
+    --pp-warn: #ffd60a;
+    --pp-bad: #ff6961;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--pp-canvas);
+  --color-panel: var(--pp-panel);
+  --color-fg: var(--pp-fg);
+  --color-dim: var(--pp-dim);
+  --color-line: var(--pp-line);
+  --color-sel: var(--pp-sel);
+  --color-track: var(--pp-track);
+  --color-accent: var(--pp-accent);
+  --color-on-accent: var(--pp-on-accent);
+  --color-accent-text: var(--pp-accent-text);
+  --color-ok: var(--pp-ok);
+  --color-warn: var(--pp-warn);
+  --color-bad: var(--pp-bad);
+}
+
+@theme {
+  /* The OS's own UI font: Segoe UI Variable on Windows, SF on macOS. Nothing to bundle. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--pp-canvas);
+  color: var(--pp-fg);
+  font-size: 12.5px;
+  -webkit-font-smoothing: antialiased;
+}
+
+:where(button, a, summary, select, input[type="checkbox"]):focus-visible {
+  outline: 2px solid var(--pp-accent);
+  outline-offset: 1px;
 }
