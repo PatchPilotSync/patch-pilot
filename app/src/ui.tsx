@@ -26,6 +26,18 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
   );
 }
 
+/** The pixel-plane logo (docs/brand/mark-mono.svg), tinted by the text colour. Keep sizes whole pixels. */
+export function Mark({ size = 16, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" shapeRendering="crispEdges" aria-hidden="true" className={className}>
+      <path
+        fill="currentColor"
+        d="M7 2h2v1h-2zM7 3h2v1h-2zM7 5h2v1h-2zM6 6h4v1h-4zM4 7h8v1h-8zM1 8h14v1h-14zM0 9h1v1h-1zM1 9h6v1h-6zM7 9h2v1h-2zM9 9h6v1h-6zM15 9h1v1h-1zM7 10h2v1h-2zM7 11h2v1h-2zM7 12h2v1h-2zM5 13h6v1h-6zM4 14h1v1h-1zM5 14h2v1h-2zM7 14h2v1h-2zM9 14h2v1h-2zM11 14h1v1h-1z"
+      />
+    </svg>
+  );
+}
+
 /** Text colour for a parity score. */
 export function scoreColor(score: number | null): string {
   if (score === null) return "text-dim";

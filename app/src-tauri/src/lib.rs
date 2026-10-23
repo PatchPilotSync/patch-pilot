@@ -3,6 +3,7 @@
 
 mod compare;
 mod rig;
+mod tray;
 
 use serde::Serialize;
 
@@ -24,6 +25,8 @@ fn app_version() -> AppVersion {
 pub fn run() {
     tauri::Builder::default()
         .manage(rig::Scanning::default())
+        .manage(tray::LastHidden::default())
+        .setup(|app| Ok(tray::setup(app.handle())?))
         .invoke_handler(tauri::generate_handler![
             app_version,
             rig::overview,
@@ -33,9 +36,17 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            tray::open_main_window,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Patch Pilot");
+        .build(tauri::generate_context!())
+        .expect("error while building Patch Pilot")
+        .run(|_app, _event| {
+            // macOS: clicking the Dock icon brings back a closed (hidden) window.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                tray::show_main(_app);
+            }
+        });
 }
 
 #[cfg(test)]

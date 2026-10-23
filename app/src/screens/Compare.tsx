@@ -41,16 +41,38 @@ const STATE_DOT: Record<ParityState, string> = {
   in_parity: "bg-ok",
 };
 
+/** A request, from the tray popover, to show one machine (and maybe its plan). */
+export interface Focus {
+  id: string;
+  plan: boolean;
+  /** Makes repeated requests for the same machine distinct. */
+  at: number;
+}
+
 interface Props {
   view: MachinesView;
+  focus: Focus | null;
   onError: (e: string) => void;
 }
 
-export function Compare({ view, onError }: Props) {
-  const [selected, setSelected] = useState<string | null>(view.machines[0]?.id ?? null);
+export function Compare({ view, focus, onError }: Props) {
+  const [selected, setSelected] = useState<string | null>(focus?.id ?? view.machines[0]?.id ?? null);
   const [data, setData] = useState<MachineComparison | null>(null);
   const [plan, setPlan] = useState<Step[] | null>(null);
   const [row, setRow] = useState<ComparisonRow | null>(null);
+  const [wantPlan, setWantPlan] = useState(focus?.plan ?? false);
+
+  useEffect(() => {
+    if (!focus) return;
+    setSelected(focus.id);
+    setWantPlan(focus.plan);
+  }, [focus]);
+
+  useEffect(() => {
+    if (!wantPlan || !data || data.machine.id !== selected) return;
+    setWantPlan(false);
+    planMachine(data.machine.id).then((p) => setPlan(p.steps), (e) => onError(String(e)));
+  }, [wantPlan, data, selected, onError]);
 
   useEffect(() => {
     if (!view.machines.some((m) => m.id === selected)) setSelected(view.machines[0]?.id ?? null);
