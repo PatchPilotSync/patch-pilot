@@ -134,16 +134,16 @@ impl Store {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
-        if let Some((id, hash)) = &latest {
-            if *hash == manifest_hash {
-                tx.commit()?;
-                return Ok(SnapshotInfo {
-                    id: *id,
-                    parent_id: None,
-                    manifest_hash,
-                    unchanged: true,
-                });
-            }
+        if let Some((id, hash)) = &latest
+            && *hash == manifest_hash
+        {
+            tx.commit()?;
+            return Ok(SnapshotInfo {
+                id: *id,
+                parent_id: None,
+                manifest_hash,
+                unchanged: true,
+            });
         }
 
         for p in &manifest.products {
