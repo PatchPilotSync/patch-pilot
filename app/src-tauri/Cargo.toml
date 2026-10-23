@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 patchpilot-core = { path = "../../crates/core" }
+patchpilot-local = { path = "../../crates/local" }
 patchpilot-scanner = { path = "../../crates/scanner" }
 patchpilot-parity = { path = "../../crates/parity" }
 patchpilot-store = { path = "../../crates/store" }
@@ -31,3 +32,6 @@ unsafe_code = "forbid"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
+
+[dev-dependencies]
+serde_json = "1"

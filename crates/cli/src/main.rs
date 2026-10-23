@@ -4,7 +4,6 @@
 //! changes plug-ins, DAW settings or any user file except `--out`. `--save`
 //! and `history` use Patch Pilot's own database in the app-data folder.
 
-mod anonymize;
 mod exchange;
 mod golden;
 mod profile;
@@ -14,9 +13,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use patchpilot_core::{Arch, Manifest, Os, PluginFormat, TargetProfile};
-use patchpilot_scanner::{PluginRoot, ScanInput, SystemDirs, default_roots};
-use patchpilot_store::{SnapshotReason, Store};
+use patchpilot_core::{Manifest, TargetProfile};
+use patchpilot_local::ScanOptions;
+pub(crate) use patchpilot_local::{anonymize_for_sharing, app_dir, now};
+use patchpilot_store::Store;
 
 #[derive(Parser)]
 #[command(
@@ -193,37 +193,13 @@ fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
     let out = out.as_deref();
     // `Some(--db)` when the scan goes to the database.
     let save = save.then_some(db);
-    let os = Os::current().ok_or("scanning is supported on Windows and macOS only")?;
-    let dirs = SystemDirs::from_env().ok_or("unsupported OS")?;
-
-    let mut roots = if no_default_folders {
-        Vec::new()
-    } else {
-        default_roots(&dirs)
-    };
-    for (i, spec) in folders.iter().enumerate() {
-        let (format, path) = spec
-            .split_once('=')
-            .ok_or_else(|| format!("--folder {spec:?}: expected FORMAT=PATH"))?;
-        let format: PluginFormat =
-            serde_json::from_value(serde_json::Value::String(format.to_lowercase()))
-                .map_err(|_| format!("--folder {spec:?}: unknown format {format:?}"))?;
-        roots.push(PluginRoot::new(format!("EXTRA_{}", i + 1), format, path));
-    }
-
-    let reaper_dir = reaper_dir.or_else(|| {
-        if no_default_folders {
-            None
-        } else {
-            default_reaper_dir(os, &dirs)
-        }
-    });
-
-    let vendor_apps = if no_vendor_apps {
-        Vec::new()
-    } else {
-        detect_vendor_apps(os, &dirs)
-    };
+    let extra_roots = folders
+        .iter()
+        .enumerate()
+        .map(|(i, spec)| {
+            patchpilot_local::extra_root(i + 1, spec).map_err(|e| format!("--folder {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     // A saved scan needs this machine's stable ID. A file-only scan reuses
     // it if it exists but never creates app-data files.
@@ -240,8 +216,8 @@ fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
             Ok(path) => patchpilot_store::read_machine_id(app_dir(&path))
                 .ok()
                 .flatten()
-                .unwrap_or_else(random_id),
-            Err(_) => random_id(),
+                .unwrap_or_else(patchpilot_local::random_id),
+            Err(_) => patchpilot_local::random_id(),
         },
     };
     let saved_name = store
@@ -252,52 +228,32 @@ fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
         .or(saved_name)
         .unwrap_or_else(|| "This machine".to_owned());
 
-    let output = patchpilot_scanner::scan_machine(ScanInput {
-        id,
-        name,
-        os,
-        arch: current_arch(),
-        os_version: None,
-        roots,
-        vendor_apps,
-        clap_cache: reaper_dir
-            .as_deref()
-            .map(patchpilot_scanner::ClapCache::load_reaper)
-            .unwrap_or_default(),
-        now: now(),
-    });
-    let mut manifest = output.manifest;
-    let templates = match &reaper_dir {
-        Some(dir) => add_templates(&mut manifest, dir),
-        None => 0,
-    };
-    for w in &output.warnings {
+    let scan = patchpilot_local::scan_this_machine(
+        ScanOptions {
+            id,
+            name,
+            default_folders: !no_default_folders,
+            extra_roots,
+            vendor_apps: !no_vendor_apps,
+            reaper_dir,
+        },
+        |_| {},
+    )?;
+    for w in &scan.warnings {
         eprintln!("warning: {w}");
     }
-    let plugins = manifest
-        .items
-        .iter()
-        .filter(|i| i.kind == patchpilot_core::ItemKind::Plugin)
-        .count();
     let counts = format!(
-        "{plugins} plug-ins, {templates} templates, {} products, {} warnings",
-        manifest.products.len(),
-        output.warnings.len()
+        "{} plug-ins, {} templates, {} products, {} warnings",
+        scan.plugins(),
+        scan.templates,
+        scan.manifest.products.len(),
+        scan.warnings.len()
     );
+    let manifest = scan.manifest;
 
     // The local database keeps real paths; it never leaves this machine.
     if let Some((mut store, path)) = store {
-        let first = store
-            .snapshots(&manifest.machine.id)
-            .map_err(|e| e.to_string())?
-            .is_empty();
-        let reason = if first {
-            SnapshotReason::FirstScan
-        } else {
-            SnapshotReason::Scan
-        };
-        let info = store
-            .save_manifest(&manifest, reason, now())
+        let info = patchpilot_local::save_scan(&mut store, &manifest)
             .map_err(|e| format!("{}: {e}", path.display()))?;
         if info.unchanged {
             println!("No changes since snapshot #{} ({counts})", info.id);
@@ -354,32 +310,12 @@ fn open_existing_store(path: &Path) -> Result<Store, String> {
     open_store(path)
 }
 
-/// Strip home folder and username from paths before a manifest is written.
-fn anonymize_for_sharing(m: &mut patchpilot_core::Manifest) {
-    let home = home_dir();
-    let user = std::env::var("USERNAME")
-        .or_else(|_| std::env::var("USER"))
-        .ok();
-    anonymize::anonymize(m, home.as_deref(), user.as_deref());
-}
-
 /// `--db`, else `$PATCHPILOT_DB`, else the app-data default.
 fn db_path(flag: Option<PathBuf>) -> Result<PathBuf, String> {
-    if let Some(p) = flag {
-        return Ok(p);
+    match flag {
+        Some(p) => Ok(p),
+        None => patchpilot_local::default_db_path().map_err(|e| format!("{e}; pass --db")),
     }
-    if let Some(p) = std::env::var_os("PATCHPILOT_DB").filter(|p| !p.is_empty()) {
-        return Ok(PathBuf::from(p));
-    }
-    let os = Os::current().ok_or("no default database on this OS; pass --db")?;
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    patchpilot_store::default_db_path(os, &local, &home_dir().unwrap_or_default())
-        .ok_or_else(|| "can't find the app-data folder; pass --db".to_owned())
-}
-
-/// The folder holding the database, where `machine-id` lives too.
-fn app_dir(db: &Path) -> &Path {
-    db.parent().unwrap_or(Path::new("."))
 }
 
 fn open_store(path: &Path) -> Result<Store, String> {
@@ -481,86 +417,4 @@ fn resolve_machine(store: &Store, query: &str) -> Result<patchpilot_core::Machin
         )),
         (None, _) => Err(format!("no saved machine {query:?}")),
     }
-}
-
-#[cfg(windows)]
-fn detect_vendor_apps(_os: Os, _dirs: &SystemDirs) -> Vec<patchpilot_scanner::VendorAppStatus> {
-    patchpilot_scanner::detect_windows(&patchpilot_scanner::read_uninstall_entries())
-}
-
-#[cfg(not(windows))]
-fn detect_vendor_apps(os: Os, dirs: &SystemDirs) -> Vec<patchpilot_scanner::VendorAppStatus> {
-    match os {
-        Os::Macos => {
-            let mut roots = vec![PathBuf::from("/")];
-            if !dirs.home.is_empty() {
-                roots.push(PathBuf::from(&dirs.home));
-            }
-            patchpilot_scanner::detect_macos(&roots)
-        }
-        Os::Windows => Vec::new(),
-    }
-}
-
-/// Reaper's standard resource folder, if it exists. It holds the CLAP cache
-/// (real CLAP IDs without loading plug-ins, #8) and the templates (#37).
-fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
-    let appdata = std::env::var("APPDATA").unwrap_or_default();
-    patchpilot_parity::reaper::reaper_resource_dir(os, &appdata, &dirs.home).filter(|d| d.is_dir())
-}
-
-/// Add Reaper templates under `dir` as items that require their plug-ins.
-/// Returns how many were added.
-fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
-    use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};
-    let (products, items) = template_items(dir, manifest.machine.os, |r| {
-        // Stock JSFX ship with Reaper; user JSFX aren't scanned yet.
-        (r.format != PluginFormat::Jsfx).then(|| {
-            patchpilot_scanner::product_id(
-                r.vendor.as_deref(),
-                &patchpilot_scanner::normalize_name(&r.name).name,
-            )
-        })
-    });
-    if items.is_empty() {
-        return 0;
-    }
-    manifest.machine.path_map.roots.insert(
-        REAPER_RESOURCES.to_owned(),
-        dir.to_string_lossy().into_owned(),
-    );
-    manifest.products.extend(products);
-    let n = items.len();
-    manifest.items.extend(items);
-    n
-}
-
-fn home_dir() -> Option<String> {
-    std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .ok()
-        .filter(|h| !h.is_empty())
-}
-
-fn current_arch() -> Arch {
-    if cfg!(target_arch = "aarch64") {
-        Arch::Aarch64
-    } else {
-        Arch::X86_64
-    }
-}
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
-
-/// A per-scan machine ID for file-only scans before any `--save`.
-fn random_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let seed = format!("{nanos}-{}-{:p}", std::process::id(), &nanos);
-    blake3::hash(seed.as_bytes()).to_hex()[..16].to_owned()
 }

@@ -1,6 +1,8 @@
 //! Patch Pilot desktop shell (#33). Commands here are the UI's only way into
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
+mod rig;
+
 use serde::Serialize;
 
 /// What `app_version` returns; mirrored by `AppVersion` in `src/api.ts`.
@@ -20,7 +22,13 @@ fn app_version() -> AppVersion {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![app_version])
+        .manage(rig::Scanning::default())
+        .invoke_handler(tauri::generate_handler![
+            app_version,
+            rig::overview,
+            rig::scan_machine,
+            rig::make_golden,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Patch Pilot");
 }
