@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "machine": {
+    "id": "travel-laptop",
+    "name": "Travel Laptop",
+    "os": "windows",
+    "arch": "x86_64",
+    "path_map": {
+      "os": "windows",
+      "roots": {
+        "VST3_SYSTEM": "C:\\Program Files\\Common Files\\VST3",
+        "AAX_SYSTEM": "C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins",
+        "SAMPLES_ROOT": "D:\\Samples"
+      }
+    }
+  },
+  "generated_at": 1792771200,
+  "products": [
+    {
+      "canonical_id": "acme-verb",
+      "vendor": "Acme Audio",
+      "name": "Acme Verb"
+    },
+    {
+      "canonical_id": "acme-comp",
+      "vendor": "Acme Audio",
+      "name": "Acme Comp"
+    },
+    {
+      "canonical_id": "big-strings",
+      "vendor": "Orchestral Co",
+      "name": "Big Strings Library"
+    },
+    {
+      "canonical_id": "ilok",
+      "vendor": "PACE",
+      "name": "iLok License Manager"
+    }
+  ],
+  "items": [
+    {
+      "kind": "plugin",
+      "product_id": "acme-verb",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "2.1.0",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Verb.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high"
+    },
+    {
+      "kind": "plugin",
+      "product_id": "acme-comp",
+      "format": "vst3",
+      "platform": "windows",
+      "version": "3.0.1",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "Acme/Acme Comp.vst3"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high"
+    },
+    {
+      "kind": "license_tool",
+      "product_id": "ilok",
+      "platform": "windows",
+      "version": "5.9.1",
+      "path": {
+        "logical": {
+          "root": "VST3_SYSTEM",
+          "rel": "iLok License Manager"
+        }
+      },
+      "platform_portable": false,
+      "confidence": "high"
+    }
+  ]
+}
