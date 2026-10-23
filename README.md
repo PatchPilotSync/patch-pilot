@@ -84,6 +84,20 @@ A profile is a small JSON file; rules are checked in order and the last match wi
 ] }
 ```
 
+Profiles can also live in the database and be assigned per machine. Two are
+built in: `studio-clone` (everything) and `travel` (no AAX, nothing over 20 GB).
+
+```sh
+patchpilot profile list
+patchpilot profile import my-laptop.json          # your own rules; built-ins can't be replaced
+patchpilot profile set "Travel MacBook" travel    # machine ID or name; `none` clears it
+patchpilot diff --machine "Travel MacBook"        # latest saved scan vs latest Golden, with its profile
+patchpilot diff                                   # same, for this machine
+```
+
+`diff` with two files also uses the machine's stored profile when that machine
+is in the local database, unless `--profile` is given.
+
 Known alpha limits: CLAP plug-ins get exact names and vendors only if Reaper has
 scanned them (otherwise name and version come from the file), product
 matching is by vendor and name, and template readiness isn't in the score yet.

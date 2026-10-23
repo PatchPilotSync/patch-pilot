@@ -18,6 +18,7 @@ patchpilot-core = { path = "../core" }
 patchpilot-parity = { path = "../parity" }
 patchpilot-scanner = { path = "../scanner" }
 patchpilot-store = { path = "../store" }
+serde = "1.0.229"
 serde_json = "1.0.154"
 
 [lints]

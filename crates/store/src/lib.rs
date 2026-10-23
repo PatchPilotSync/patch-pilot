@@ -12,7 +12,7 @@ use std::path::Path;
 
 use patchpilot_core::{
     Confidence, ContentHash, GoldenVersion, GoldenVersionInfo, Item, MachineInfo, Manifest,
-    PathMap, PortablePath, Product, golden_machine_id, golden_name,
+    PathMap, PortablePath, Product, ProfileRule, TargetProfile, golden_machine_id, golden_name,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
@@ -41,6 +41,10 @@ pub enum StoreError {
     UnknownMachine(String),
     #[error("nothing to save: the Golden Rig already matches v{0}")]
     GoldenUnchanged(u32),
+    #[error("unknown target profile {0:?}")]
+    UnknownProfile(String),
+    #[error("{0:?} is a built-in profile and can't be changed; import it under another id")]
+    BuiltinProfile(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -96,6 +100,15 @@ pub struct SnapshotInfo {
     pub manifest_hash: String,
     /// True when an identical snapshot already existed and was reused.
     pub unchanged: bool,
+}
+
+/// A target profile as stored: rules, whether it's a built-in preset, and
+/// the machines it is assigned to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredProfile {
+    pub profile: TargetProfile,
+    pub builtin: bool,
+    pub machines: Vec<String>,
 }
 
 /// One row of a machine's snapshot history, see [`Store::snapshots`].
@@ -282,6 +295,166 @@ impl Store {
         )?;
         let rows = stmt.query_map([GOLDEN_ID], golden_info)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every machine with saved scans (not Golden versions), by name.
+    pub fn machines(&self) -> Result<Vec<MachineInfo>> {
+        let ids: Vec<String> = self
+            .conn
+            .prepare(
+                "SELECT id FROM machines WHERE id NOT IN
+                     (SELECT s.machine_id FROM golden_versions g JOIN snapshots s ON s.id = g.snapshot_id)
+                 ORDER BY name, id",
+            )?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        ids.iter().map(|id| self.machine(id)).collect()
+    }
+
+    /// Every target profile, built-ins first, then by name.
+    pub fn target_profiles(&self) -> Result<Vec<StoredProfile>> {
+        let rows: Vec<(String, bool)> = self
+            .conn
+            .prepare(
+                "SELECT id, builtin FROM profiles WHERE kind = 'target'
+                 ORDER BY builtin DESC, name, id",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        rows.into_iter()
+            .map(|(id, builtin)| {
+                let profile = self
+                    .target_profile(&id)?
+                    .ok_or_else(|| StoreError::UnknownProfile(id.clone()))?;
+                let machines = self
+                    .conn
+                    .prepare("SELECT id FROM machines WHERE target_profile_id = ?1 ORDER BY name")?
+                    .query_map([&id], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                Ok(StoredProfile {
+                    profile,
+                    builtin,
+                    machines,
+                })
+            })
+            .collect()
+    }
+
+    /// A target profile with its rules in order.
+    pub fn target_profile(&self, id: &str) -> Result<Option<TargetProfile>> {
+        let name: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT name FROM profiles WHERE id = ?1 AND kind = 'target'",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(name) = name else {
+            return Ok(None);
+        };
+        let mut stmt = self.conn.prepare(
+            "SELECT action, matcher FROM profile_rules WHERE profile_id = ?1 ORDER BY position",
+        )?;
+        let rules = stmt
+            .query_map([id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .map(|row| {
+                let (action, matcher) = row?;
+                Ok(ProfileRule {
+                    action: from_text("profile_rules.action", &action)?,
+                    matcher: serde_json::from_str(&matcher).map_err(|_| StoreError::BadValue {
+                        column: "profile_rules.matcher",
+                        value: matcher,
+                    })?,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(Some(TargetProfile {
+            id: id.to_owned(),
+            name,
+            rules,
+        }))
+    }
+
+    /// Create or replace a user target profile (rules replaced wholesale).
+    /// Built-in presets and the Golden profile can't be overwritten.
+    pub fn save_target_profile(&mut self, profile: &TargetProfile) -> Result<()> {
+        let existing: Option<(String, bool)> = self
+            .conn
+            .query_row(
+                "SELECT kind, builtin FROM profiles WHERE id = ?1",
+                [&profile.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if profile.id.trim().is_empty()
+            || existing.is_some_and(|(kind, builtin)| builtin || kind != "target")
+        {
+            return Err(StoreError::BuiltinProfile(profile.id.clone()));
+        }
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO profiles (id, name, kind, golden_id) VALUES (?1, ?2, 'target', ?3)
+             ON CONFLICT (id) DO UPDATE SET name = excluded.name",
+            params![profile.id, profile.name, GOLDEN_ID],
+        )?;
+        tx.execute(
+            "DELETE FROM profile_rules WHERE profile_id = ?1",
+            [&profile.id],
+        )?;
+        for (pos, rule) in profile.rules.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO profile_rules (profile_id, position, action, matcher) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    profile.id,
+                    pos as i64,
+                    to_text(&rule.action),
+                    serde_json::to_string(&rule.matcher).expect("serializable"),
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Assign a target profile to a machine (`None` clears it).
+    pub fn set_machine_profile(
+        &mut self,
+        machine_id: &str,
+        profile_id: Option<&str>,
+    ) -> Result<()> {
+        if let Some(p) = profile_id
+            && self.target_profile(p)?.is_none()
+        {
+            return Err(StoreError::UnknownProfile(p.to_owned()));
+        }
+        let n = self.conn.execute(
+            "UPDATE machines SET target_profile_id = ?2 WHERE id = ?1",
+            params![machine_id, profile_id],
+        )?;
+        if n == 0 {
+            return Err(StoreError::UnknownMachine(machine_id.to_owned()));
+        }
+        Ok(())
+    }
+
+    /// The target profile assigned to a machine, if any.
+    pub fn machine_profile(&self, machine_id: &str) -> Result<Option<TargetProfile>> {
+        let id: Option<Option<String>> = self
+            .conn
+            .query_row(
+                "SELECT target_profile_id FROM machines WHERE id = ?1",
+                [machine_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match id {
+            None => Err(StoreError::UnknownMachine(machine_id.to_owned())),
+            Some(None) => Ok(None),
+            Some(Some(id)) => self.target_profile(&id),
+        }
     }
 
     /// The manifest of a machine's latest snapshot.
