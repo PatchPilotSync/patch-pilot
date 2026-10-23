@@ -4,3 +4,6 @@
 *.png binary
 *.icns binary
 *.ico binary
+*.dll binary
+*.vst3 binary
+*.aaxplugin binary

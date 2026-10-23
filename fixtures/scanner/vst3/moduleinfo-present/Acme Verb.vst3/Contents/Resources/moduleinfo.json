@@ -1,0 +1,38 @@
+{
+  // Written by the VST3 SDK moduleinfotool; JSON5 allows comments and trailing commas.
+  "Name": "Acme Verb",
+  "Version": "2.1.0",
+  "Factory Info": {
+    "Vendor": "Acme Audio",
+    "URL": "https://example.com",
+    "E-Mail": "mailto:support@example.com",
+    "Flags": { "Unicode": true, "Classes Discardable": false, "Component Non Discardable": false },
+  },
+  "Compatibility": [],
+  "Classes": [
+    {
+      "CID": "5653544163654D6163726F7665726200",
+      "Category": "Audio Module Class",
+      "Name": "Acme Verb",
+      "Vendor": "Acme Audio",
+      "Version": "2.1.0",
+      "SDKVersion": "VST 3.7.9",
+      "Sub Categories": ["Fx", "Reverb"],
+      "Class Flags": 1,
+      "Cardinality": 2147483647,
+      "Snapshots": [],
+    },
+    {
+      "CID": "5653454163654D6163726F7665726200",
+      "Category": "Component Controller Class",
+      "Name": "Acme VerbController",
+      "Vendor": "Acme Audio",
+      "Version": "2.1.0",
+      "SDKVersion": "VST 3.7.9",
+      "Sub Categories": [],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [],
+    },
+  ],
+}
