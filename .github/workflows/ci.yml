@@ -44,3 +44,41 @@ jobs:
       - name: Check
         # `+1.88` beats rust-toolchain.toml, which pins stable. Keep in sync with Cargo.toml.
         run: cargo +1.88 check --workspace --all-targets --locked
+
+  app:
+    name: App (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - name: Front end
+        run: |
+          npm ci
+          npm run build
+      - name: Format
+        working-directory: app/src-tauri
+        run: cargo fmt --check
+      - name: Clippy
+        # Needs dist/ from the front-end step: generate_context! embeds it.
+        working-directory: app/src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        working-directory: app/src-tauri
+        run: cargo test --locked
