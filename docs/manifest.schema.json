@@ -1,0 +1,348 @@
+{
+  "$defs": {
+    "Arch": {
+      "oneOf": [
+        {
+          "enum": [
+            "x86_64",
+            "aarch64"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "universal",
+          "description": "macOS universal binary, or a Windows bundle carrying both.",
+          "type": "string"
+        }
+      ]
+    },
+    "Confidence": {
+      "description": "How sure a scanner is that an item belongs to its product.",
+      "oneOf": [
+        {
+          "const": "low",
+          "description": "Guessed from a file or folder name.",
+          "type": "string"
+        },
+        {
+          "const": "medium",
+          "description": "From a version resource or bundle plist.",
+          "type": "string"
+        },
+        {
+          "const": "high",
+          "description": "From a stable identifier: VST3 class ID, AU type/subtype/manufacturer, CLAP ID.",
+          "type": "string"
+        }
+      ]
+    },
+    "ContentHash": {
+      "description": "A BLAKE3 hash of a user-owned file, written `blake3:<64 hex chars>`.",
+      "pattern": "^blake3:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "Item": {
+      "description": "One thing installed on a machine: a plug-in binary in one format, a vendor\napp, a template, a folder. Metadata only.",
+      "properties": {
+        "arch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Arch"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence",
+          "default": "medium"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContentHash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only for user-owned files that may sync. Plug-ins and libraries are never hashed."
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set for [`ItemKind::Plugin`] items."
+        },
+        "kind": {
+          "$ref": "#/$defs/ItemKind"
+        },
+        "mtime": {
+          "description": "Last modification, Unix seconds UTC.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/PortablePath"
+        },
+        "platform": {
+          "$ref": "#/$defs/Os"
+        },
+        "platform_portable": {
+          "default": false,
+          "description": "True when the same file works on every OS (JSFX, Reaper themes, most presets).",
+          "type": "boolean"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProductId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`None` until identity resolution places the item."
+        },
+        "size": {
+          "description": "Bytes on disk; for bundles and folders, the total.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "The version string exactly as the vendor wrote it. Compared in `patchpilot-parity`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "platform",
+        "path"
+      ],
+      "type": "object"
+    },
+    "ItemKind": {
+      "description": "What kind of thing an [`Item`] is.",
+      "oneOf": [
+        {
+          "enum": [
+            "plugin",
+            "vendor_app",
+            "folder",
+            "config"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "daw_asset",
+          "description": "A DAW template, rack, preset, script, theme or project.",
+          "type": "string"
+        },
+        {
+          "const": "license_tool",
+          "description": "iLok License Manager, PACE and similar. Detected, never authenticated.",
+          "type": "string"
+        }
+      ]
+    },
+    "MachineInfo": {
+      "description": "The machine a manifest describes.",
+      "properties": {
+        "arch": {
+          "$ref": "#/$defs/Arch"
+        },
+        "id": {
+          "description": "Stable random ID, generated once per install. Not derived from hardware.",
+          "type": "string"
+        },
+        "name": {
+          "description": "User-chosen name, e.g. \"Studio PC\" or \"Travel MacBook\".",
+          "type": "string"
+        },
+        "os": {
+          "$ref": "#/$defs/Os"
+        },
+        "os_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path_map": {
+          "$ref": "#/$defs/PathMap",
+          "description": "How this machine's logical roots map to folders."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "os",
+        "arch",
+        "path_map"
+      ],
+      "type": "object"
+    },
+    "Os": {
+      "description": "Operating system of a machine or item.",
+      "enum": [
+        "windows",
+        "macos"
+      ],
+      "type": "string"
+    },
+    "PathMap": {
+      "description": "Maps logical roots to physical folders on one machine.\n\nWorks on path strings rather than `std::path::Path` so a Windows map can be\nbuilt and tested on macOS and vice versa.",
+      "properties": {
+        "os": {
+          "$ref": "#/$defs/Os"
+        },
+        "roots": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Logical root name to physical folder, as the OS spells it.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "os",
+        "roots"
+      ],
+      "type": "object"
+    },
+    "PluginFormat": {
+      "enum": [
+        "vst2",
+        "vst3",
+        "au",
+        "aax",
+        "clap",
+        "jsfx"
+      ],
+      "type": "string"
+    },
+    "PortablePath": {
+      "description": "A path as stored in a manifest.\n\nPrefer [`PortablePath::Logical`]: a named root such as `SAMPLES_ROOT` plus a\n`/`-separated relative path, resolved per machine through a [`PathMap`].\n[`PortablePath::Absolute`] is the fallback for paths outside every root, and\nis only meaningful on the machine that wrote it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "logical": {
+              "properties": {
+                "rel": {
+                  "description": "Path below the root, `/`-separated on every OS. Empty for the root itself.",
+                  "type": "string"
+                },
+                "root": {
+                  "description": "Logical root name, e.g. `VST3_SYSTEM` or `SAMPLES_ROOT`.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "root",
+                "rel"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "logical"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A machine-specific absolute path, as the OS spells it.",
+          "properties": {
+            "absolute": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "absolute"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Product": {
+      "description": "A product as the user thinks of it (\"FabFilter Pro-Q 4\"), across formats and OSes.",
+      "properties": {
+        "canonical_id": {
+          "$ref": "#/$defs/ProductId"
+        },
+        "name": {
+          "type": "string"
+        },
+        "vendor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "canonical_id",
+        "vendor",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ProductId": {
+      "description": "Canonical product identifier, shared by every format and OS of one product.\n\nStable once assigned; identity resolution (in `patchpilot-parity`) decides\nwhich items share one.",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Everything one machine has, at one point in time.",
+  "properties": {
+    "generated_at": {
+      "description": "When the scan finished, Unix seconds UTC.",
+      "format": "int64",
+      "type": "integer"
+    },
+    "items": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Item"
+      },
+      "type": "array"
+    },
+    "machine": {
+      "$ref": "#/$defs/MachineInfo"
+    },
+    "products": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Product"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "description": "Always [`MANIFEST_SCHEMA_VERSION`] when written by this build.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "machine",
+    "generated_at"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}
