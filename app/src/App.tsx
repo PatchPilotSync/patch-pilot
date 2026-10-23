@@ -17,6 +17,7 @@ import { Rig } from "./screens/Rig";
 import { Scanning } from "./screens/Scanning";
 import { Welcome } from "./screens/Welcome";
 import { Mark } from "./ui";
+import { UpdateBar } from "./Update";
 
 type Tab = "rig" | "compare";
 
@@ -128,6 +129,7 @@ export default function App() {
           ))}
         </nav>
       )}
+      <UpdateBar />
       {error && (
         <div className="flex shrink-0 items-start gap-3 border-b border-line bg-bad/10 px-4 py-1.5 text-bad">
           <span className="flex-1">{error}</span>

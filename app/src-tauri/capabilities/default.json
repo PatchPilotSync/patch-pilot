@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window and the tray popover: core events and app commands only.",
-  "windows": ["main", "tray"],
-  "permissions": ["core:default"]
+  "description": "The main window: core events, app commands, update check and restart.",
+  "windows": ["main"],
+  "permissions": ["core:default", "updater:default", "process:allow-restart"]
 }
