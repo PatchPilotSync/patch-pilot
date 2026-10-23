@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   importBundle,
@@ -11,10 +12,11 @@ import {
   type Overview,
   type Progress,
 } from "./api";
-import { Compare } from "./screens/Compare";
+import { Compare, type Focus } from "./screens/Compare";
 import { Rig } from "./screens/Rig";
 import { Scanning } from "./screens/Scanning";
 import { Welcome } from "./screens/Welcome";
+import { Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
 type Tab = "rig" | "compare";
@@ -29,6 +31,7 @@ export default function App() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string[] | null>(null);
+  const [focus, setFocus] = useState<Focus | null>(null);
 
   const refresh = useCallback(() => {
     loadOverview().then(setOverview, (e) => setError(String(e)));
@@ -54,7 +57,16 @@ export default function App() {
       }
       refresh();
     });
+    // The tray popover's Expand / Up To Speed buttons land here.
+    const unlistenShow = listen<{ id: string; plan: boolean }>("show-machine", (e) => {
+      setFocus({ ...e.payload, at: Date.now() });
+      setTab("compare");
+    });
+    // A rescan from the tray popover.
+    const unlistenChanged = listen("data-changed", refresh);
     return () => {
+      unlistenShow.then((f) => f());
+      unlistenChanged.then((f) => f());
       unlistenProgress.then((f) => f());
       unlistenDrop.then((f) => f());
     };
@@ -96,9 +108,7 @@ export default function App() {
       {overview?.machine && !scanning && (
         <nav className="flex h-10 shrink-0 items-center gap-4 border-b border-line bg-panel px-3">
           <span className="flex items-center gap-1.5 font-semibold">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-              <path d="M4 12h3l2-6 4 12 2-6h5" />
-            </svg>
+            <Mark className="text-accent-text" />
             Patch Pilot
           </span>
           {(
@@ -146,7 +156,7 @@ export default function App() {
         ) : !overview.machine ? (
           <Welcome onScan={(name) => scan(name)} />
         ) : tab === "compare" && view && canCompare ? (
-          <Compare view={view} onError={onError} />
+          <Compare view={view} focus={focus} onError={onError} />
         ) : (
           <Rig
             overview={overview}

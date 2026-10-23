@@ -201,3 +201,7 @@ export const PHASE_LABEL: Record<Phase, string> = {
   vendor_handoff: "Vendor apps",
   manual: "Manual steps",
 };
+
+/** Shows the main window (from the tray popover), optionally on one machine's comparison or plan. */
+export const openMainWindow = (machine: string | null = null, plan = false) =>
+  invoke<void>("open_main_window", { machine, plan });
