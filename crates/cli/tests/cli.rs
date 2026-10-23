@@ -411,3 +411,30 @@ fn scan_records_reaper_templates() {
         m.items.iter().map(|i| &i.requires).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn plan_prints_ordered_steps() {
+    let (ok, out, err) = patchpilot(&[
+        "plan".as_ref(),
+        fixtures("parity/plan/golden.json").as_os_str(),
+        fixtures("parity/plan/laptop.json").as_os_str(),
+    ]);
+    assert!(ok, "{err}");
+    for needle in [
+        "Bring New Laptop up to speed with Studio PC\n6 step(s).",
+        "\nFoundation\n  1. Install iLok License Manager\n",
+        "  2. Install Native Access  (after 1)\n",
+        "\nVendor apps\n  3. Open Native Access and install 1 and update 1  (after 1, 2)\n",
+        "       Kontakt 7 7.10.1 (you have 7.9.0)\n",
+        "\nManual steps\n",
+    ] {
+        assert!(out.contains(needle), "{needle:?} not in:\n{out}");
+    }
+
+    let (ok, out, _) = patchpilot(&[
+        "plan".as_ref(),
+        fixtures("parity/plan/golden.json").as_os_str(),
+        fixtures("parity/plan/golden.json").as_os_str(),
+    ]);
+    assert!(ok && out.contains("Nothing to do"), "{out}");
+}

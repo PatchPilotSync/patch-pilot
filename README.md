@@ -98,6 +98,17 @@ patchpilot diff                                   # same, for this machine
 `diff` with two files also uses the machine's stored profile when that machine
 is in the local database, unless `--profile` is given.
 
+Get an ordered checklist to bring a machine up to speed (same inputs as `diff`):
+
+```sh
+patchpilot plan studio.json laptop.json
+patchpilot plan --machine "Travel MacBook"
+```
+
+It lists licensing tools and vendor apps first, then "Open Native Access and
+install these 2", then manual installs and DAW files to copy. It never installs
+or copies anything itself, and it never suggests copying plug-ins between machines.
+
 Scans also read Reaper's track templates, project templates and FX chains
 (from the standard Reaper folder, or `--reaper-dir` for a portable install).
 `diff` then lists templates that aren't ready on the machine and weighs the

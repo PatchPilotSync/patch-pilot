@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use patchpilot_core::{GoldenVersionInfo, ItemKind, Manifest, TargetProfile};
-use patchpilot_parity::{ParityScore, ParityState, TemplateReadiness};
+use patchpilot_parity::{ParityScore, ParityState, Plan, TemplateReadiness};
 use patchpilot_store::{SnapshotReason, SnapshotSummary};
 
 pub fn render(
@@ -89,6 +89,48 @@ pub fn render(
                 })
                 .collect();
             let _ = writeln!(out, "  {}  needs {}", t.name, names.join(", "));
+        }
+    }
+    out
+}
+
+/// The Up To Speed checklist, grouped by phase.
+pub fn plan(golden: &Manifest, machine: &Manifest, profile: &TargetProfile, plan: &Plan) -> String {
+    let mut out = String::new();
+    let profile_note = if profile.name.is_empty() {
+        String::new()
+    } else {
+        format!(", profile: {}", profile.name)
+    };
+    let _ = writeln!(
+        out,
+        "Bring {} up to speed with {}{profile_note}",
+        machine.machine.name, golden.machine.name
+    );
+    if plan.steps.is_empty() {
+        let _ = writeln!(out, "Nothing to do: it already matches.");
+        return out;
+    }
+    let _ = writeln!(
+        out,
+        "{} step(s). Nothing is installed or copied for you.",
+        plan.steps.len()
+    );
+    let mut phase = None;
+    for s in &plan.steps {
+        if phase != Some(s.phase) {
+            phase = Some(s.phase);
+            let _ = writeln!(out, "\n{}", s.phase.title());
+        }
+        let after = if s.after.is_empty() {
+            String::new()
+        } else {
+            let n: Vec<_> = s.after.iter().map(|a| a.to_string()).collect();
+            format!("  (after {})", n.join(", "))
+        };
+        let _ = writeln!(out, "  {}. {}{after}", s.number, s.title);
+        for d in &s.details {
+            let _ = writeln!(out, "       {d}");
         }
     }
     out
