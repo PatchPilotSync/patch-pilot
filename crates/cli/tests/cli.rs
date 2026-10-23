@@ -353,3 +353,61 @@ fn profiles_drive_diff() {
     let (ok, _, err) = run(&["profile", "set", "nobody", "travel"]);
     assert!(!ok && err.contains("no saved machine"), "{err}");
 }
+
+#[test]
+fn diff_reports_template_readiness() {
+    let (ok, out, err) = patchpilot(&[
+        "diff".as_ref(),
+        fixtures("parity/readiness/golden.json").as_os_str(),
+        fixtures("parity/readiness/laptop.json").as_os_str(),
+    ]);
+    assert!(ok, "{err}");
+    for needle in [
+        "1 plug-in your templates need is missing",
+        "\nTemplates: 0 of 1 ready on Travel MacBook\n",
+        "TrackTemplates/Vocals/Lead Vocal.RTrackTemplate  needs Acme Comp",
+    ] {
+        assert!(out.contains(needle), "{needle:?} not in:\n{out}");
+    }
+    // Both sides have the template itself.
+    assert!(!out.contains("DAW file"), "{out}");
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn scan_records_reaper_templates() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("rig.json");
+    let (ok, stdout, err) = patchpilot(&[
+        "scan".as_ref(),
+        "--out".as_ref(),
+        out.as_os_str(),
+        "--no-default-folders".as_ref(),
+        "--no-vendor-apps".as_ref(),
+        "--reaper-dir".as_ref(),
+        fixtures("parity/reaper/REAPER").as_os_str(),
+    ]);
+    assert!(ok, "{err}");
+    assert!(stdout.contains(", 3 templates,"), "{stdout}");
+    let m = patchpilot_core::Manifest::from_json(&std::fs::read_to_string(&out).unwrap()).unwrap();
+    assert!(m.machine.path_map.roots.contains_key("REAPER_RESOURCES"));
+    let lead = m
+        .items
+        .iter()
+        .find(|i| {
+            i.product_id.as_ref().is_some_and(|p| {
+                p.0 == "reaper-template/tracktemplates-vocals-lead-vocal-rtracktemplate"
+            })
+        })
+        .expect("lead vocal template");
+    let req: Vec<_> = lead.requires.iter().map(|p| p.0.as_str()).collect();
+    assert_eq!(req, ["acme-audio/acme-comp", "acme-audio/acme-verb"]);
+    // Bus Glue's "Acme EQ (Mono)" normalizes like the scanner's VST2 names.
+    assert!(
+        m.items
+            .iter()
+            .any(|i| i.requires.contains(&"acme-audio/acme-eq".into())),
+        "{:?}",
+        m.items.iter().map(|i| &i.requires).collect::<Vec<_>>()
+    );
+}

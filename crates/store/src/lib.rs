@@ -482,7 +482,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT i.kind, i.product_id, i.format, i.platform, i.arch, i.version, i.path_root,
                     i.path_rel, i.path_absolute, i.content_hash, i.size, i.mtime,
-                    i.platform_portable, i.confidence
+                    i.platform_portable, i.confidence, i.id
              FROM snapshot_items s JOIN items i ON i.id = s.item_id
              WHERE s.snapshot_id = ?1 ORDER BY s.position",
         )?;
@@ -502,9 +502,24 @@ impl Store {
                 mtime: r.get(11)?,
                 platform_portable: r.get(12)?,
                 confidence: r.get(13)?,
+                id: r.get(14)?,
             })
         })?;
-        let items = rows.map(|r| r?.into_item()).collect::<Result<Vec<_>>>()?;
+        let raw = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut deps = self.conn.prepare(
+            "SELECT product_id FROM dependencies WHERE asset_item_id = ?1 ORDER BY product_id",
+        )?;
+        let items = raw
+            .into_iter()
+            .map(|r| {
+                let requires = deps
+                    .query_map([r.id], |row| row.get(0).map(patchpilot_core::ProductId))?
+                    .collect::<rusqlite::Result<_>>()?;
+                let mut item = r.into_item()?;
+                item.requires = requires;
+                Ok(item)
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         // Products referenced by this snapshot, in first-use order.
         let mut products: Vec<Product> = Vec::new();
@@ -702,15 +717,22 @@ fn insert_item(tx: &Transaction, machine_id: &str, item: &Item) -> Result<(i64, 
             to_text(&item.confidence),
         ],
     )?;
-    let id = tx.query_row(
+    let id: i64 = tx.query_row(
         "SELECT id FROM items WHERE machine_id = ?1 AND item_hash = ?2",
         params![machine_id, hash],
         |r| r.get(0),
     )?;
+    for p in &item.requires {
+        tx.execute(
+            "INSERT OR IGNORE INTO dependencies (asset_item_id, product_id) VALUES (?1, ?2)",
+            params![id, p.0],
+        )?;
+    }
     Ok((id, hash))
 }
 
 struct RawItem {
+    id: i64,
     kind: String,
     product_id: Option<String>,
     format: Option<String>,
@@ -764,6 +786,7 @@ impl RawItem {
             mtime: self.mtime,
             platform_portable: self.platform_portable,
             confidence: from_text::<Confidence>("items.confidence", &self.confidence)?,
+            requires: Vec::new(),
         })
     }
 }

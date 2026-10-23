@@ -109,6 +109,7 @@ pub fn scan_machine(input: ScanInput) -> ScanOutput {
             mtime: None,
             platform_portable: false,
             confidence: Confidence::Medium,
+            requires: Vec::new(),
         });
     }
 

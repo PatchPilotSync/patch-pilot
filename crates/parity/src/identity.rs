@@ -29,14 +29,22 @@ pub fn align_products(a: &mut Manifest, b: &mut Manifest) -> usize {
             }
         }
     }
-    let renames: BTreeMap<ProductId, ProductId> = a
+    // Unknown IDs come from products and from what templates require.
+    let unknown: Vec<ProductId> = a
         .products
         .iter()
         .chain(&b.products)
-        .filter_map(|p| {
-            let name = p.canonical_id.0.strip_prefix(UNKNOWN)?;
+        .map(|p| &p.canonical_id)
+        .chain(a.items.iter().chain(&b.items).flat_map(|i| &i.requires))
+        .filter(|id| id.0.starts_with(UNKNOWN))
+        .cloned()
+        .collect();
+    let renames: BTreeMap<ProductId, ProductId> = unknown
+        .into_iter()
+        .filter_map(|id| {
+            let name = id.0.strip_prefix(UNKNOWN)?;
             match known.get(name).map(Vec::as_slice) {
-                Some([only]) => Some((p.canonical_id.clone(), only.clone())),
+                Some([only]) => Some((id.clone(), only.clone())),
                 _ => None,
             }
         })
@@ -51,6 +59,15 @@ fn rename(m: &mut Manifest, renames: &BTreeMap<ProductId, ProductId>) {
     for item in &mut m.items {
         if let Some(new) = item.product_id.as_ref().and_then(|id| renames.get(id)) {
             item.product_id = Some(new.clone());
+        }
+        if item.requires.iter().any(|id| renames.contains_key(id)) {
+            for id in &mut item.requires {
+                if let Some(new) = renames.get(id) {
+                    *id = new.clone();
+                }
+            }
+            item.requires.sort();
+            item.requires.dedup();
         }
     }
     let mut products = std::mem::take(&mut m.products);

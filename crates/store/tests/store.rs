@@ -360,3 +360,18 @@ fn machines_lists_scanned_machines_only() {
         .collect();
     assert_eq!(ids, [manifest.machine.id]);
 }
+
+#[test]
+fn requires_round_trips() {
+    let mut manifest = fixture_manifest();
+    manifest.items[0].requires = vec!["acme/a".into(), "acme/b".into()];
+    let mut store = Store::open_in_memory().unwrap();
+    store
+        .save_manifest(&manifest, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    let loaded = store
+        .latest_manifest(&manifest.machine.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded, manifest);
+}

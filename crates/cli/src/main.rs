@@ -9,7 +9,6 @@ mod golden;
 mod profile;
 mod report;
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -33,36 +32,43 @@ struct Cli {
     command: Command,
 }
 
+#[derive(clap::Args)]
+#[command(group = clap::ArgGroup::new("dest").required(true).multiple(true).args(["out", "save"]))]
+struct ScanArgs {
+    /// Where to write the manifest JSON.
+    #[arg(long, short)]
+    out: Option<PathBuf>,
+    /// Save the scan as a snapshot in the local database (see `history`).
+    #[arg(long)]
+    save: bool,
+    /// A name for this machine, e.g. "Studio PC". Defaults to the name
+    /// saved by an earlier `--save` scan, else "This machine".
+    #[arg(long)]
+    name: Option<String>,
+    /// Extra plug-in folder as FORMAT=PATH (vst2, vst3, au, aax, clap). Repeatable.
+    #[arg(long = "folder", value_name = "FORMAT=PATH")]
+    folders: Vec<String>,
+    /// Skip the standard plug-in folders (only scan --folder ones).
+    #[arg(long)]
+    no_default_folders: bool,
+    /// Skip vendor app and iLok detection.
+    #[arg(long)]
+    no_vendor_apps: bool,
+    /// Keep real paths, including your username. Off by default so the
+    /// file is safe to share.
+    #[arg(long)]
+    keep_paths: bool,
+    /// Reaper resource folder for templates and the CLAP cache. Default: the
+    /// standard install location (skipped with --no-default-folders).
+    #[arg(long, value_name = "DIR")]
+    reaper_dir: Option<PathBuf>,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Scan this machine's plug-ins and vendor apps into a manifest file
     /// and/or a snapshot in the local database.
-    #[command(group = clap::ArgGroup::new("dest").required(true).multiple(true).args(["out", "save"]))]
-    Scan {
-        /// Where to write the manifest JSON.
-        #[arg(long, short)]
-        out: Option<PathBuf>,
-        /// Save the scan as a snapshot in the local database (see `history`).
-        #[arg(long)]
-        save: bool,
-        /// A name for this machine, e.g. "Studio PC". Defaults to the name
-        /// saved by an earlier `--save` scan, else "This machine".
-        #[arg(long)]
-        name: Option<String>,
-        /// Extra plug-in folder as FORMAT=PATH (vst2, vst3, au, aax, clap). Repeatable.
-        #[arg(long = "folder", value_name = "FORMAT=PATH")]
-        folders: Vec<String>,
-        /// Skip the standard plug-in folders (only scan --folder ones).
-        #[arg(long)]
-        no_default_folders: bool,
-        /// Skip vendor app and iLok detection.
-        #[arg(long)]
-        no_vendor_apps: bool,
-        /// Keep real paths, including your username. Off by default so the
-        /// file is safe to share.
-        #[arg(long)]
-        keep_paths: bool,
-    },
+    Scan(ScanArgs),
     /// Compare a machine against the Golden Rig.
     ///
     /// With no files: a machine's latest saved scan against the latest Golden
@@ -107,23 +113,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let db = cli.db;
     let result = match cli.command {
-        Command::Scan {
-            out,
-            save,
-            name,
-            folders,
-            no_default_folders,
-            no_vendor_apps,
-            keep_paths,
-        } => scan(
-            out.as_deref(),
-            save.then_some(db),
-            name,
-            &folders,
-            no_default_folders,
-            no_vendor_apps,
-            keep_paths,
-        ),
+        Command::Scan(args) => scan(args, db),
         Command::Diff {
             golden,
             machine,
@@ -150,16 +140,20 @@ fn main() -> ExitCode {
     }
 }
 
-/// `save` is `Some(--db)` when the scan goes to the database.
-fn scan(
-    out: Option<&Path>,
-    save: Option<Option<PathBuf>>,
-    name: Option<String>,
-    folders: &[String],
-    no_default_folders: bool,
-    no_vendor_apps: bool,
-    keep_paths: bool,
-) -> Result<(), String> {
+fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
+    let ScanArgs {
+        out,
+        save,
+        name,
+        folders,
+        no_default_folders,
+        no_vendor_apps,
+        keep_paths,
+        reaper_dir,
+    } = args;
+    let out = out.as_deref();
+    // `Some(--db)` when the scan goes to the database.
+    let save = save.then_some(db);
     let os = Os::current().ok_or("scanning is supported on Windows and macOS only")?;
     let dirs = SystemDirs::from_env().ok_or("unsupported OS")?;
 
@@ -177,6 +171,14 @@ fn scan(
                 .map_err(|_| format!("--folder {spec:?}: unknown format {format:?}"))?;
         roots.push(PluginRoot::new(format!("EXTRA_{}", i + 1), format, path));
     }
+
+    let reaper_dir = reaper_dir.or_else(|| {
+        if no_default_folders {
+            None
+        } else {
+            default_reaper_dir(os, &dirs)
+        }
+    });
 
     let vendor_apps = if no_vendor_apps {
         Vec::new()
@@ -219,10 +221,17 @@ fn scan(
         os_version: None,
         roots,
         vendor_apps,
-        clap_cache: reaper_clap_cache(os, &dirs),
+        clap_cache: reaper_dir
+            .as_deref()
+            .map(patchpilot_scanner::ClapCache::load_reaper)
+            .unwrap_or_default(),
         now: now(),
     });
-    let manifest = output.manifest;
+    let mut manifest = output.manifest;
+    let templates = match &reaper_dir {
+        Some(dir) => add_templates(&mut manifest, dir),
+        None => 0,
+    };
     for w in &output.warnings {
         eprintln!("warning: {w}");
     }
@@ -232,7 +241,7 @@ fn scan(
         .filter(|i| i.kind == patchpilot_core::ItemKind::Plugin)
         .count();
     let counts = format!(
-        "{plugins} plug-ins, {} products, {} warnings",
+        "{plugins} plug-ins, {templates} templates, {} products, {} warnings",
         manifest.products.len(),
         output.warnings.len()
     );
@@ -391,16 +400,19 @@ fn diff(
         None => stored_profile.unwrap_or_default(),
     };
     patchpilot_parity::align_products(&mut golden_m, &mut machine_m);
+    // Plug-ins any template on either side uses weigh more (#37).
+    let needed = patchpilot_parity::required_products(&[&golden_m, &machine_m]);
     let score = patchpilot_parity::score_machine(
         &golden_m,
         &profile,
         &machine_m,
-        &BTreeSet::new(),
+        &needed,
         &patchpilot_parity::ScoreWeights::default(),
     );
+    let readiness = patchpilot_parity::template_readiness(&machine_m);
     print!(
         "{}",
-        report::render(&golden_m, &machine_m, &profile, &score, all)
+        report::render(&golden_m, &machine_m, &profile, &score, &readiness, all)
     );
     Ok(())
 }
@@ -442,12 +454,37 @@ fn detect_vendor_apps(os: Os, dirs: &SystemDirs) -> Vec<patchpilot_scanner::Vend
     }
 }
 
-/// Reaper's CLAP cache gives real CLAP IDs without loading plug-ins (#8).
-fn reaper_clap_cache(os: Os, dirs: &SystemDirs) -> patchpilot_scanner::ClapCache {
+/// Reaper's standard resource folder, if it exists. It holds the CLAP cache
+/// (real CLAP IDs without loading plug-ins, #8) and the templates (#37).
+fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
     let appdata = std::env::var("APPDATA").unwrap_or_default();
-    patchpilot_parity::reaper::reaper_resource_dir(os, &appdata, &dirs.home)
-        .map(|dir| patchpilot_scanner::ClapCache::load_reaper(&dir))
-        .unwrap_or_default()
+    patchpilot_parity::reaper::reaper_resource_dir(os, &appdata, &dirs.home).filter(|d| d.is_dir())
+}
+
+/// Add Reaper templates under `dir` as items that require their plug-ins.
+/// Returns how many were added.
+fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
+    use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};
+    let (products, items) = template_items(dir, manifest.machine.os, |r| {
+        // Stock JSFX ship with Reaper; user JSFX aren't scanned yet.
+        (r.format != PluginFormat::Jsfx).then(|| {
+            patchpilot_scanner::product_id(
+                r.vendor.as_deref(),
+                &patchpilot_scanner::normalize_name(&r.name).name,
+            )
+        })
+    });
+    if items.is_empty() {
+        return 0;
+    }
+    manifest.machine.path_map.roots.insert(
+        REAPER_RESOURCES.to_owned(),
+        dir.to_string_lossy().into_owned(),
+    );
+    manifest.products.extend(products);
+    let n = items.len();
+    manifest.items.extend(items);
+    n
 }
 
 fn home_dir() -> Option<String> {

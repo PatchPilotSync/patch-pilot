@@ -23,7 +23,14 @@ Item fields: `kind` (`plugin`, `daw_asset`, `vendor_app`, `license_tool`,
 `format` (`vst2`, `vst3`, `au`, `aax`, `clap`, `jsfx`), `platform`, `arch`,
 `version` (raw vendor string), `path`, `content_hash` (`blake3:<hex>`, only for
 user-owned files that may sync), `size`, `mtime` (Unix seconds),
-`platform_portable`, `confidence` (`low`, `medium`, `high`).
+`platform_portable`, `confidence` (`low`, `medium`, `high`), `requires`
+(product IDs the item needs, sorted and unique; set on DAW templates, #37).
+
+Reaper templates are `daw_asset` items under the `REAPER_RESOURCES` root, one
+product each (`reaper-template/<path slug>`, vendor `REAPER`), portable and
+content-hashed. Their `requires` lists the plug-ins they use, keyed the same
+way the scanner keys products (`<vendor>/<name>`), so a template can require a
+product the machine doesn't have.
 
 ## Paths
 
@@ -45,6 +52,7 @@ Well-known roots are defined by the scanner (#5); user roots such as
 
 ## Changing the format
 
-Additive optional fields don't need a version bump. Anything an older build
+Additive optional fields don't need a version bump (`requires` was added this
+way in #37; older builds ignore it). Anything an older build
 could misread (renames, new required fields, changed meaning) bumps
 `MANIFEST_SCHEMA_VERSION` and gets a note here. Both founders review changes.

@@ -203,6 +203,10 @@ pub struct Item {
     pub platform_portable: bool,
     #[serde(default)]
     pub confidence: Confidence,
+    /// Products this item needs to work, sorted and unique: for a DAW
+    /// template, rack or project, the plug-ins it uses (readiness, #37).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<ProductId>,
 }
 
 impl Item {
@@ -221,6 +225,7 @@ impl Item {
             mtime: None,
             platform_portable: false,
             confidence: Confidence::default(),
+            requires: Vec::new(),
         }
     }
 }
