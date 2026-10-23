@@ -33,3 +33,14 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+
+  msrv:
+    name: MSRV (rust-version in Cargo.toml)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        # `+1.88` beats rust-toolchain.toml, which pins stable. Keep in sync with Cargo.toml.
+        run: cargo +1.88 check --workspace --all-targets --locked
