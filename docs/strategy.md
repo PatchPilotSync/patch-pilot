@@ -269,6 +269,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | New machine | Guided setup of a new machine from the Golden Rig (migration workflow v1) | In progress |
 | Golden Rig | "Propose this to Golden" from any machine, and alerts when a machine drifts | In progress |
 | Catalog | Plug-in catalog service and update alerts | In progress |
+| Presets | Find presets in the top 30 vendors' preset locations | In progress |
 
 ### Not started
 
@@ -277,7 +278,6 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Testers | Closed alpha (30 Reaper users), then public beta | Needs a decision on who and when |
 | Business | Pro launch: pricing, accounts, payments | Pricing ideas in section 18 |
 | Studios | Studio design partners | Original M10–12 |
-| Presets | Top-30 preset locations | Original M10–12; Bring over covers DAW files first |
 | Apple signing | Developer ID signing and notarization so macOS stops warning | $99 a year; not decided |
 | LAN exchange | Swap manifests over the local network without the relay | Probably not needed now that live sync works; file export still exists in the CLI |
 
