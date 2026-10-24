@@ -23,9 +23,9 @@ const TOKEN = /^[0-9a-f]{64}$/;
 const OBJECT = /^[a-z0-9-]+(\/[a-z0-9-]+)*$/;
 const MAILBOX_NAME = /^[0-9A-HJKMNP-TV-Z]{4}$/;
 /** Durable Object SQLite rows top out at 2 MB. */
-export const MAX_OBJECT_BYTES = 2_000_000;
+const MAX_OBJECT_BYTES = 2_000_000;
 /** How long a link attempt may stay open. */
-export const LINK_TTL_MS = 10 * 60 * 1000;
+const LINK_TTL_MS = 10 * 60 * 1000;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -53,6 +53,8 @@ export class Rig extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
+    // Keep-alive pings are answered without waking the object.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS objects (
@@ -191,6 +193,9 @@ export class Mailbox extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const ws = pair[1];
     ws.accept();
+    // Link messages are binary; the default here is Blob, which send() would
+    // turn into the text "[object Blob]".
+    ws.binaryType = "arraybuffer";
     this.peers.push(ws);
     if (this.peers.length === 1) {
       await this.ctx.storage.setAlarm(Date.now() + LINK_TTL_MS);
