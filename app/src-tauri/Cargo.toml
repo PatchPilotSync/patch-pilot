@@ -42,6 +42,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+# Quiet drift alerts (decision #48); sent from Rust only, so no JS permission.
+tauri-plugin-notification = "2"
 # The Rig Report's Save dialog. Rust writes the file, so no fs permissions.
 tauri-plugin-dialog = "2"
 

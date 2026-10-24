@@ -39,7 +39,7 @@ slugs) at `REAPACK/<repo>/<category>/<package>` with the package version;
 only native extensions are per-OS. Reaper folder settings are `config` items
 (`reaper-folder/<ini key>`, or `reaper-folder/explorer/<label slug>` for Media
 Explorer shortcuts) whose path is the folder, portable through the `HOME` and
-`REAPER_RESOURCES` roots where possible (decision #48).
+`REAPER_RESOURCES` roots where possible (decision #49).
 
 ## Paths
 
@@ -65,7 +65,9 @@ Well-known roots are defined by the scanner (#5); user roots such as
 `bundle_version` 1): `machines` (each a manifest plus optional `profile_id`),
 `golden` (versions oldest first, each with `version`, `created_at`, optional
 `source_machine_id` and `note`, and a manifest) and `profiles` (user target
-profiles). The bundle version bumps by the same rules as the manifest's, and
+profiles), plus optional `ignored` (Golden suggestions the user ignored:
+`product_id`, optional `version`, `ignored_at`; added in M9 without a bump,
+older builds ignore it). The bundle version bumps by the same rules as the manifest's, and
 a reader refuses a newer bundle or any newer manifest inside it. See decision #28.
 
 ## Changing the format

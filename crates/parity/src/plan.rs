@@ -247,7 +247,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
 
     // ReaPack installs its own packages once its repositories are there, and
     // Reaper's folder settings are pointed at this machine's folders; both
-    // are one click in the app (decision #48).
+    // are one click in the app (decision #49).
     let reapack: Vec<&ProductDiff> = todo
         .iter()
         .copied()

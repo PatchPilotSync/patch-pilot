@@ -9,6 +9,7 @@ mod ini;
 
 mod comparison;
 mod diff;
+mod drift;
 mod golden;
 mod history;
 mod identity;
@@ -22,6 +23,7 @@ mod version;
 
 pub use comparison::{Comparison, ComparisonRow, ItemSide, compare};
 pub use diff::{ManifestDiff, ParityState, ProductDiff, diff_manifests, format_available_on};
+pub use drift::{Alert, Observed, Seen, alerts, gaps, suggestion_key, suggestions};
 pub use golden::{ProposeError, find_product, propose_to_golden};
 pub use history::{Change, ProductChange, plugin_changes};
 pub use identity::align_products;
