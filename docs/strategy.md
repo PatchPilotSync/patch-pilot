@@ -235,6 +235,54 @@ Tray/menu-bar app + Cmd/Ctrl+K palette. Three-pane window (Machines · Diff · D
 
 ## 22. 12-month roadmap
 
+_Updated 2026-10-24 to match what is built and what the founders have asked for since the original plan; the original table is kept at the end of this section. Work has run well ahead of the month numbers, and live sync between machines came forward from M9 because linking a Mac and a PC by export file was too clumsy to use._
+
+Status: **Shipped** = in a published release. **On main** = merged, goes out in the next release. **In progress** = being built now. **Not started** = in the plan, nobody is working on it yet.
+
+### Done
+
+| Area | What | Status |
+|---|---|---|
+| Scanning | Rust scanners for Windows + macOS, VST2/VST3/AU/AAX/CLAP, metadata only; identity v1; SQLite index; 500 plug-ins under 60 s | Shipped (v0.1.0) |
+| Golden Rig | Golden Profile (versioned, promote), target profiles per machine, comparison with parity score and reasons | Shipped (v0.1.0) |
+| Readiness | Reaper template / FX chain plug-in checks in the score; "templates not ready" grouped by app and plug-in, Reaper's own plug-ins ignored | Shipped (v0.1.0); compact view on main |
+| Up To Speed | Guided checklist: licensing tools first, then vendor apps, then the rest | Shipped (v0.1.0) |
+| App | Tauri desktop app, compact "Mica + Frost" look in light and dark, pixel-plane logo | Shipped (v0.1.0) |
+| App | Tray / menu bar popover that expands into the main window | Shipped (v0.1.0) |
+| App | Self-update with release notes; one-click release workflow to the public releases repo | Shipped (v0.1.0) |
+| App | First-run tour (5 steps, reopen from "How it works"); plain-language copy on every screen | Shipped (v0.2.0) |
+| Always on | Opens at login hidden in the tray; rescans by itself when plug-in folders change (OS watchers, no polling) | Shipped (v0.2.0) |
+| Live sync | Link machines with a short code; live view of every machine in Compare; end-to-end encrypted relay on Cloudflare (server can't read anything); no accounts | Shipped (v0.2.0) |
+| Docs | README in plain language | On main |
+
+### Now
+
+| Area | What | Status |
+|---|---|---|
+| Up To Speed | Rename the button to "Get up to speed" | In progress (in review) |
+| Bring over | One click to bring Reaper templates, FX chains, scripts, themes, toolbars and keymaps from a linked machine, grouped by app | In progress |
+| Ableton | Bring over Collections, User Library, templates and Options.txt; check racks and sets for missing plug-ins | In progress |
+| Safety | Snapshots before every write, with rollback | In progress |
+| Reaper | ReaPack restore and path remap between Windows and macOS | In progress |
+| Installer Vault | Keep installers for each plug-in version; detect vendor apps and iLok (never sign in to them) | In progress |
+| Rig Report | Shareable report of a rig | In progress |
+| New machine | Guided setup of a new machine from the Golden Rig (migration workflow v1) | In progress |
+| Golden Rig | "Propose this to Golden" from any machine, and alerts when a machine drifts | In progress |
+| Catalog | Plug-in catalog service and update alerts | In progress |
+| Presets | Find presets in the top 30 vendors' preset locations | In progress |
+
+### Not started
+
+| Area | What | Notes |
+|---|---|---|
+| Testers | Closed alpha (30 Reaper users), then public beta | Needs a decision on who and when |
+| Business | Pro launch: pricing, accounts, payments | Pricing ideas in section 18 |
+| Studios | Studio design partners | Original M10–12 |
+| Apple signing | Developer ID signing and notarization so macOS stops warning | $99 a year; not decided |
+| LAN exchange | Swap manifests over the local network without the relay | Probably not needed now that live sync works; file export still exists in the CLI |
+
+### Original plan (October 2026)
+
 | When | Milestone |
 |---|---|
 | M1–2 | Rust scanners (Win + Mac, all formats), identity v1, SQLite index, first-scan UI. Closed alpha, 30 Reaper users. |
