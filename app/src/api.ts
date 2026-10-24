@@ -327,7 +327,7 @@ export const rigReportPreview = (options: ReportOptions) =>
 export const saveRigReport = (path: string, options: ReportOptions) =>
   invoke<void>("save_rig_report", { path, options });
 
-// History (decision #44): src-tauri/src/history.rs and patchpilot_parity::ProductChange.
+// History (decision #45): src-tauri/src/history.rs and patchpilot_parity::ProductChange.
 
 export type Change = "added" | "removed" | "updated" | "downgraded";
 

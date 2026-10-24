@@ -319,7 +319,12 @@ pub fn add_ableton(manifest: &mut Manifest, dirs: &AbletonDirs) -> usize {
                 .insert(root.to_owned(), dir.to_string_lossy().into_owned());
         }
     }
-    let (products, items) = settings_items(user_library, prefs, manifest.machine.os);
+    let (products, items) = settings_items(user_library, prefs, manifest.machine.os, |r| {
+        Some(patchpilot_scanner::product_id(
+            r.vendor.as_deref(),
+            &patchpilot_scanner::normalize_name(&r.name).name,
+        ))
+    });
     let n = items.len();
     manifest.products.extend(products);
     manifest.items.extend(items);

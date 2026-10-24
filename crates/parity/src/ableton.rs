@@ -15,16 +15,31 @@
 //! `Library.cfg` holds the Collection names but also machine paths (User
 //! Library, Packs, Places), so it is only read to find the User Library.
 //!
+//! Sets (`.als`) and racks (`.adg`) are gzipped XML; the plug-ins they use
+//! are read from their `<VstPluginInfo>`, `<Vst3PluginInfo>` and
+//! `<AuPluginInfo>` elements for readiness, like Reaper templates:
+//!
+//! ```text
+//! <VstPluginInfo Id="0"> ... <PlugName Value="Acme Comp x64" /> <UniqueId Value="1094807365" />
+//! <Vst3PluginInfo Id="0"> ... <Name Value="Acme Verb" /> <Uid> <Fields.0 Value="-1" /> ... </Uid>
+//! <AuPluginInfo Id="0"> ... <Name Value="Acme Synth" /> <Manufacturer Value="Acme Audio" />
+//! ```
+//!
+//! Each element's `<Preset>` child (saved plug-in state) is skipped.
+//!
 //! Live's preferences live in one folder per version: macOS
 //! `~/Library/Preferences/Ableton/Live 12.1.5/`, Windows
 //! `%APPDATA%\Ableton\Live 12.1.5\Preferences\`. The newest one wins.
 
 use std::path::{Path, PathBuf};
 
+use std::io::Read;
+
 use patchpilot_core::{
-    Confidence, ContentHash, Item, ItemKind, Os, PortablePath, Product, ProductId,
+    Confidence, ContentHash, Item, ItemKind, Os, PluginFormat, PortablePath, Product, ProductId,
 };
 
+use crate::reaper::PluginRef;
 use crate::version::{VersionOrder, compare_versions};
 
 /// Logical root for the Ableton User Library in manifests.
@@ -149,6 +164,120 @@ fn xml_value(xml: &str, tag: &str) -> Option<String> {
         return Some(unescape(&elem[v..v + end]));
     }
     None
+}
+
+/// The insides of every `<tag ...>...</tag>` (not nested in itself).
+fn xml_blocks<'a>(xml: &'a str, tag: &str) -> Vec<&'a str> {
+    let (open, close) = (format!("<{tag}"), format!("</{tag}>"));
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = xml[from..].find(&open) {
+        let start = from + at + open.len();
+        from = start;
+        if !xml[start..].starts_with(|c: char| c.is_whitespace() || c == '>') {
+            continue;
+        }
+        let Some(end) = xml[start..].find(&close) else {
+            break;
+        };
+        out.push(&xml[start..start + end]);
+        from = start + end + close.len();
+    }
+    out
+}
+
+/// `block` without its `<Preset>...</Preset>` child, which holds saved
+/// plug-in state with names of its own.
+fn without_preset(block: &str) -> std::borrow::Cow<'_, str> {
+    match (block.find("<Preset>"), block.find("</Preset>")) {
+        (Some(a), Some(b)) if a < b => {
+            format!("{}{}", &block[..a], &block[b + "</Preset>".len()..]).into()
+        }
+        _ => block.into(),
+    }
+}
+
+/// Live sets and racks are gzipped XML; files bigger than this unpacked are
+/// skipped rather than read into memory.
+const MAX_XML_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The plug-ins a Live set (`.als`) or rack (`.adg`) uses, unique and
+/// sorted. Takes the file as Live writes it (gzipped) or plain XML;
+/// anything else gives nothing.
+pub fn parse_live_file(bytes: &[u8]) -> Vec<PluginRef> {
+    if !bytes.starts_with(&[0x1f, 0x8b]) {
+        return parse_live_xml(&String::from_utf8_lossy(bytes));
+    }
+    let mut xml = Vec::new();
+    let read = flate2::read::MultiGzDecoder::new(bytes)
+        .take(MAX_XML_BYTES + 1)
+        .read_to_end(&mut xml);
+    match read {
+        Ok(n) if (n as u64) <= MAX_XML_BYTES => parse_live_xml(&String::from_utf8_lossy(&xml)),
+        _ => Vec::new(),
+    }
+}
+
+/// The plug-ins in Live's XML, unique and sorted. Malformed entries are
+/// skipped.
+pub fn parse_live_xml(xml: &str) -> Vec<PluginRef> {
+    let mut out = Vec::new();
+    for block in xml_blocks(xml, "VstPluginInfo") {
+        let block = without_preset(block);
+        if let Some(name) = xml_value(&block, "PlugName").filter(|n| !n.is_empty()) {
+            out.push(PluginRef {
+                format: PluginFormat::Vst2,
+                key: xml_value(&block, "UniqueId").unwrap_or_else(|| name.clone()),
+                name,
+                vendor: None,
+            });
+        }
+    }
+    for block in xml_blocks(xml, "Vst3PluginInfo") {
+        let block = without_preset(block);
+        if let Some(name) = xml_value(&block, "Name").filter(|n| !n.is_empty()) {
+            out.push(PluginRef {
+                format: PluginFormat::Vst3,
+                key: vst3_class_id(&block).unwrap_or_else(|| name.clone()),
+                name,
+                vendor: None,
+            });
+        }
+    }
+    for block in xml_blocks(xml, "AuPluginInfo") {
+        let block = without_preset(block);
+        if let Some(name) = xml_value(&block, "Name").filter(|n| !n.is_empty()) {
+            let vendor = xml_value(&block, "Manufacturer").filter(|v| !v.is_empty());
+            out.push(PluginRef {
+                format: PluginFormat::Au,
+                key: match &vendor {
+                    Some(v) => format!("{v}: {name}"),
+                    None => name.clone(),
+                },
+                name,
+                vendor,
+            });
+        }
+    }
+    out.sort_by(|a, b| (a.format as u8, &a.key).cmp(&(b.format as u8, &b.key)));
+    out.dedup_by(|a, b| a.format == b.format && a.key == b.key);
+    out
+}
+
+/// The 32-hex-digit VST3 class ID from `<Uid><Fields.0 Value="..."/>`...
+/// (four signed 32-bit words), as Reaper and the VST3 reader write it.
+fn vst3_class_id(block: &str) -> Option<String> {
+    let uid = xml_blocks(block, "Uid").into_iter().next()?;
+    (0..4)
+        .map(|i| {
+            let v: i64 = xml_value(uid, &format!("Fields.{i}"))?.parse().ok()?;
+            let word = i32::try_from(v)
+                .map(|w| w as u32)
+                .or_else(|_| u32::try_from(v))
+                .ok()?;
+            Some(format!("{word:08X}"))
+        })
+        .collect()
 }
 
 fn unescape(s: &str) -> String {
@@ -282,13 +411,16 @@ pub fn is_ableton_item(item: &Item) -> bool {
 /// Every shareable Ableton file as a manifest item.
 ///
 /// Each is a portable product `ableton/<root>/<path>` with vendor
-/// [`VENDOR`], its content hash (user-owned files) and no `requires` yet.
+/// [`VENDOR`] and its content hash (user-owned files). Sets and racks
+/// require the products their plug-ins map to through `product_of`
+/// (`None` leaves a plug-in out).
 /// `.xmp` (Collections) and preferences are [`ItemKind::Config`]; the rest
 /// [`ItemKind::DawAsset`]. Unreadable files are skipped.
 pub fn settings_items(
     user_library: Option<&Path>,
     prefs: Option<&Path>,
     os: Os,
+    product_of: impl Fn(&PluginRef) -> Option<ProductId>,
 ) -> (Vec<Product>, Vec<Item>) {
     let mut files: Vec<(&str, &Path, PathBuf)> = Vec::new();
     if let Some(lib) = user_library {
@@ -332,6 +464,16 @@ pub fn settings_items(
         } else {
             ItemKind::DawAsset
         };
+        let mut requires: Vec<ProductId> = if has_plugins(&rel) {
+            parse_live_file(&bytes)
+                .iter()
+                .filter_map(&product_of)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        requires.sort();
+        requires.dedup();
         let meta = std::fs::metadata(base.join(&rel)).ok();
         let hash = format!("blake3:{}", blake3::hash(&bytes).to_hex());
         products.push(Product {
@@ -355,10 +497,16 @@ pub fn settings_items(
                 .map(|d| d.as_secs() as i64),
             platform_portable: true,
             confidence: Confidence::High,
-            requires: Vec::new(),
+            requires,
         });
     }
     (products, items)
+}
+
+/// Sets and racks can hold plug-ins; presets of Live's own devices can't.
+fn has_plugins(rel: &str) -> bool {
+    let lower = rel.to_lowercase();
+    lower.ends_with(".als") || lower.ends_with(".adg")
 }
 
 /// A relative path as `/`-separated UTF-8, or `None` if it isn't valid UTF-8.
@@ -476,5 +624,18 @@ mod tests {
     fn slugs_keep_folders_apart() {
         assert_eq!(slug("Presets/A B.adg"), "presets/a-b-adg");
         assert_ne!(slug("Presets/A B.adg"), slug("Presets-A/B.adg"));
+    }
+
+    #[test]
+    fn gzipped_sets_are_read_and_junk_gives_nothing() {
+        use std::io::Write;
+        let xml = r#"<Ableton><VstPluginInfo Id="0"><PlugName Value="Acme &amp; Co" /></VstPluginInfo></Ableton>"#;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(xml.as_bytes()).unwrap();
+        let refs = parse_live_file(&gz.finish().unwrap());
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].name, "Acme & Co");
+        assert!(parse_live_file(&[0x1f, 0x8b, 0, 1, 2]).is_empty());
+        assert!(parse_live_file(b"fake rack").is_empty());
     }
 }
