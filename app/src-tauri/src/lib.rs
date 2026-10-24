@@ -4,6 +4,7 @@
 mod background;
 mod bring;
 mod compare;
+mod history;
 mod report;
 mod rig;
 mod sync;
@@ -72,6 +73,11 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            history::history,
+            history::undo_preview,
+            history::undo_change,
+            history::go_back_plan,
+            history::go_back,
             bring::files_to_bring,
             bring::bring_files,
             report::rig_report_preview,

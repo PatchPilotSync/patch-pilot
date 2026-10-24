@@ -1,5 +1,6 @@
 //! Bring over (decision #45): the Golden Rig's templates, scripts and themes
-//! that this machine lacks, fetched from the relay and written with a backup.
+//! that this machine lacks, fetched from the relay and written as a restore
+//! point History can undo.
 //! What to bring and how it's written live in `patchpilot_local::bring`.
 
 use std::collections::BTreeMap;
@@ -24,8 +25,8 @@ pub struct BringView {
 #[derive(Debug, Default, Serialize)]
 pub struct BringResult {
     pub written: usize,
+    /// Replaced files, saved first: History can undo the bring-over.
     pub backed_up: usize,
-    pub backup_dir: Option<String>,
     /// Paths no linked machine has uploaded yet (open Patch Pilot on the
     /// Golden machine), or too large to travel.
     pub unavailable: Vec<String>,
@@ -79,18 +80,32 @@ pub async fn bring_files(
             None => result.unavailable.push(f.rel),
         }
     }
-    let backups = bring::backup_dir(&app_dir()?, patchpilot_local::now());
+    let app_dir = app_dir()?;
+    let blobs = app_dir.join("blobs");
+    let mut store = open(&db_path()?)?;
     for ((root, app_name), files) in by_root {
         let dir = bring::root_dir(machine.as_ref(), &root).ok_or_else(|| {
             format!("Can't find {app_name}'s folder on this machine. Open {app_name} once, then try again.")
         })?;
-        let report = bring::write_files(&root, &dir, &backups, &files)?;
+        let label = format!(
+            "Brought over {} {app_name} file{} from the Golden Rig",
+            files.len(),
+            if files.len() == 1 { "" } else { "s" }
+        );
+        let report = bring::write_files(
+            &mut store,
+            &blobs,
+            &this,
+            &label,
+            &root,
+            &dir,
+            &files,
+            patchpilot_local::now(),
+        )?;
         result.written += report.written;
         result.backed_up += report.backed_up;
-        if let Some(d) = report.backup_dir {
-            result.backup_dir = Some(d.to_string_lossy().into_owned());
-        }
     }
+    drop(store);
 
     // Rescan so Compare shows the new files at once; if a scan is already
     // running, the folder watcher picks them up.

@@ -70,7 +70,7 @@ const STEPS: Step[] = [
       <>
         Click the plane in the {TRAY} for every machine's score. Expand, or double-click the popover, to open this
         window. It opens when your computer starts and rescans on its own when plug-in folders change; each change is
-        saved as a snapshot.
+        saved as a snapshot, and History lets you go back.
         <span className="mt-2 block">
           The Vault tab keeps the installers you download in a folder you choose, ready for your next machine.
         </span>

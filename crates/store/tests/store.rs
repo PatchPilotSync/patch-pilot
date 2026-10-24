@@ -28,6 +28,8 @@ const TABLES: &[&str] = &[
     "events",
     "decisions",
     "golden_versions",
+    "restore_points",
+    "restore_point_files",
 ];
 
 #[test]
