@@ -10,5 +10,5 @@ plug-in used twice in one project, nested template folders, and a stray
 non-template file.
 
 Also a script (`Scripts/Tools/Nudge.lua`) and a theme (`ColorThemes/`) that
-Bring over tracks (#40), next to things it must skip under `Scripts/`: a
+Bring over tracks (#42), next to things it must skip under `Scripts/`: a
 compiled `helper.dll`, a `.git` folder and `__pycache__`.

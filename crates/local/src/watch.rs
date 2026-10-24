@@ -24,8 +24,22 @@ const REAPER_TEMPLATE_DIRS: [&str; 5] = [
     "ColorThemes",
 ];
 
+/// User Library subfolders holding what a scan shares. Not `Samples/`
+/// (Live writes freezes there), nor the preferences folder (Live writes its
+/// log there all the time); `Options.txt` changes are picked up by the next
+/// scan.
+const ABLETON_WATCHED_DIRS: [&str; 6] = [
+    "Templates",
+    "Presets",
+    "Defaults",
+    "Clips",
+    "Grooves",
+    "Ableton Folder Info",
+];
+
 /// The folders a standard scan reads that exist right now: every default
-/// plug-in folder and Reaper's template folders. Folders inside another one in
+/// plug-in folder, Reaper's template folders and the Ableton User Library's
+/// preset and template folders. Folders inside another one in
 /// the list are left out, since watching is recursive.
 pub fn watched_folders() -> Vec<PathBuf> {
     let (Some(os), Some(dirs)) = (Os::current(), SystemDirs::from_env()) else {
@@ -34,6 +48,9 @@ pub fn watched_folders() -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = default_roots(&dirs).into_iter().map(|r| r.path).collect();
     if let Some(reaper) = crate::default_reaper_dir(os, &dirs) {
         folders.extend(REAPER_TEMPLATE_DIRS.map(|d| reaper.join(d)));
+    }
+    if let Some(lib) = crate::default_ableton_dirs(os, &dirs).user_library {
+        folders.extend(ABLETON_WATCHED_DIRS.map(|d| lib.join(d)));
     }
     folders.retain(|f| f.is_dir());
     outermost(folders)

@@ -236,6 +236,7 @@ fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
             extra_roots,
             vendor_apps: !no_vendor_apps,
             reaper_dir,
+            ableton: None,
         },
         |_| {},
     )?;
@@ -243,9 +244,10 @@ fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
         eprintln!("warning: {w}");
     }
     let counts = format!(
-        "{} plug-ins, {} templates, {} products, {} warnings",
+        "{} plug-ins, {} templates, {} Ableton files, {} products, {} warnings",
         scan.plugins(),
         scan.templates,
+        scan.ableton,
         scan.manifest.products.len(),
         scan.warnings.len()
     );

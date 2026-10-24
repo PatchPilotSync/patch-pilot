@@ -5,6 +5,7 @@
 //! Patch Pilot's own app-data folder.
 
 mod anonymize;
+pub mod apps;
 pub mod bring;
 pub mod sync;
 mod watch;
@@ -33,6 +34,17 @@ pub struct ScanOptions {
     /// Reaper resource folder; `None` uses the standard one when
     /// `default_folders` is set.
     pub reaper_dir: Option<PathBuf>,
+    /// Ableton User Library and Live preferences folder; `None` finds the
+    /// standard ones when `default_folders` is set.
+    pub ableton: Option<AbletonDirs>,
+}
+
+/// Where Ableton Live keeps what Patch Pilot shares. Either may be missing.
+#[derive(Debug, Clone, Default)]
+pub struct AbletonDirs {
+    pub user_library: Option<PathBuf>,
+    /// The newest `Live x.y.z` preferences folder.
+    pub prefs: Option<PathBuf>,
 }
 
 impl ScanOptions {
@@ -45,6 +57,7 @@ impl ScanOptions {
             extra_roots: Vec::new(),
             vendor_apps: true,
             reaper_dir: None,
+            ableton: None,
         }
     }
 }
@@ -62,7 +75,7 @@ impl Stage {
         match self {
             Self::VendorApps => "Checking vendor apps and licensing tools",
             Self::Plugins => "Reading plug-in folders",
-            Self::Templates => "Reading Reaper templates",
+            Self::Templates => "Reading Reaper and Ableton templates and settings",
         }
     }
 }
@@ -73,6 +86,8 @@ pub struct LocalScan {
     pub warnings: Vec<String>,
     /// Reaper templates, project templates and FX chains found.
     pub templates: usize,
+    /// Ableton settings, templates and User Library files found.
+    pub ableton: usize,
 }
 
 impl LocalScan {
@@ -102,6 +117,10 @@ pub fn scan_this_machine(
     let reaper_dir = opts.reaper_dir.or_else(|| {
         opts.default_folders
             .then(|| default_reaper_dir(os, &dirs))?
+    });
+    let ableton = opts.ableton.or_else(|| {
+        opts.default_folders
+            .then(|| default_ableton_dirs(os, &dirs))
     });
 
     stage(Stage::VendorApps);
@@ -133,10 +152,12 @@ pub fn scan_this_machine(
         Some(dir) => add_templates(&mut manifest, dir),
         None => 0,
     };
+    let ableton = ableton.map_or(0, |dirs| add_ableton(&mut manifest, &dirs));
     Ok(LocalScan {
         manifest,
         warnings: output.warnings,
         templates,
+        ableton,
     })
 }
 
@@ -238,8 +259,8 @@ fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
 pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};
     let (products, items) = template_items(dir, manifest.machine.os, |r| {
-        // Stock JSFX ship with Reaper; user JSFX aren't scanned yet.
-        (r.format != PluginFormat::Jsfx).then(|| {
+        // Stock plug-ins ship with Reaper; user JSFX aren't scanned yet.
+        (!r.is_stock() && r.format != PluginFormat::Jsfx).then(|| {
             patchpilot_scanner::product_id(
                 r.vendor.as_deref(),
                 &patchpilot_scanner::normalize_name(&r.name).name,
@@ -255,6 +276,49 @@ pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     );
     manifest.products.extend(products);
     let n = items.len();
+    manifest.items.extend(items);
+    n
+}
+
+/// Live's newest preferences folder and the User Library it points at
+/// (else the standard one), each only if it exists.
+fn default_ableton_dirs(os: Os, dirs: &SystemDirs) -> AbletonDirs {
+    use patchpilot_parity::ableton::{
+        default_user_library, latest_prefs_dir, prefs_base, user_library_from_cfg,
+    };
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    let prefs = prefs_base(os, &appdata, &dirs.home).and_then(|b| latest_prefs_dir(&b, os));
+    let user_library = prefs
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p.join("Library.cfg")).ok())
+        .and_then(|cfg| user_library_from_cfg(&cfg, os))
+        .filter(|d| d.is_dir())
+        .or_else(|| default_user_library(os, &dirs.home).filter(|d| d.is_dir()));
+    AbletonDirs {
+        user_library,
+        prefs,
+    }
+}
+
+/// Add Ableton's shareable files as items, and both folders to the path map
+/// even when empty, so this machine can receive them. Returns how many
+/// items were added.
+pub fn add_ableton(manifest: &mut Manifest, dirs: &AbletonDirs) -> usize {
+    use patchpilot_parity::ableton::{ABLETON_PREFS, ABLETON_USER_LIBRARY, settings_items};
+    let user_library = dirs.user_library.as_deref().filter(|d| d.is_dir());
+    let prefs = dirs.prefs.as_deref().filter(|d| d.is_dir());
+    for (root, dir) in [(ABLETON_USER_LIBRARY, user_library), (ABLETON_PREFS, prefs)] {
+        if let Some(dir) = dir {
+            manifest
+                .machine
+                .path_map
+                .roots
+                .insert(root.to_owned(), dir.to_string_lossy().into_owned());
+        }
+    }
+    let (products, items) = settings_items(user_library, prefs, manifest.machine.os);
+    let n = items.len();
+    manifest.products.extend(products);
     manifest.items.extend(items);
     n
 }

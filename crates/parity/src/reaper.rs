@@ -46,6 +46,17 @@ impl PluginRef {
         };
         format!("{prefix}:{}", self.key)
     }
+
+    /// Ships with Reaper, so every Reaper install has it: JSFX, and Cockos's
+    /// own plug-ins (ReaEQ, ReaComp, ...), which live in Reaper's program
+    /// folder rather than the plug-in folders we scan.
+    pub fn is_stock(&self) -> bool {
+        self.format == PluginFormat::Jsfx
+            || self
+                .vendor
+                .as_deref()
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("cockos"))
+    }
 }
 
 /// The plug-ins one template file depends on.
@@ -201,7 +212,7 @@ pub fn reaper_resource_dir(os: Os, appdata: &str, home: &str) -> Option<PathBuf>
 }
 
 /// A user-owned file in Reaper's resource folder that Patch Pilot tracks and
-/// can bring over to another machine (decision #40). Mirrored in `app/src/api.ts`.
+/// can bring over to another machine (decision #42). Mirrored in `app/src/api.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
@@ -366,7 +377,7 @@ pub fn scan_templates(resource_dir: &Path) -> Vec<TemplateDeps> {
 /// Logical root for Reaper's resource folder in manifests.
 pub const REAPER_RESOURCES: &str = "REAPER_RESOURCES";
 
-/// Every tracked file under a resource folder as a manifest item (#37, #40).
+/// Every tracked file under a resource folder as a manifest item (#37, #42).
 ///
 /// Each is a portable `daw_asset` product `reaper-template/<path>` (or
 /// `reaper-script/`, `reaper-theme/`) at `REAPER_RESOURCES/<rel>`, with its
@@ -469,6 +480,23 @@ mod tests {
             Some((PluginFormat::Clap, "Bare".into(), None))
         );
         assert_eq!(split_display("DX: Old"), None);
+    }
+
+    #[test]
+    fn stock_plugins() {
+        let refs = parse_template(concat!(
+            "<VST \"VST: ReaEQ (Cockos)\" reaeq.dll 0 \"\" 1919247729<5653547265657170726561657100> \"\"\n",
+            "<JS \"utility/volume\" \"\"\n",
+            "<VST \"VST3: Acme Verb (Acme Audio)\" \"Acme Verb.vst3\" 0 \"\" 1{5653544163654D6163726F7665726200} \"\"\n",
+        ));
+        let stock: Vec<_> = refs
+            .iter()
+            .map(|r| (r.name.as_str(), r.is_stock()))
+            .collect();
+        assert_eq!(
+            stock,
+            [("volume", true), ("ReaEQ", true), ("Acme Verb", false)]
+        );
     }
 
     #[test]

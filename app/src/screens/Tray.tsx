@@ -155,7 +155,7 @@ export function Tray() {
               <ExpandIcon />
               Expand
             </Button>
-            <Button onClick={() => openMainWindow(behind.id, true)}>Up To Speed</Button>
+            <Button onClick={() => openMainWindow(behind.id, true)}>Get Up To Speed</Button>
           </>
         ) : (
           <Button title="Open the full window" onClick={() => openMainWindow()}>

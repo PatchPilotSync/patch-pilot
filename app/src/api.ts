@@ -172,7 +172,7 @@ export const compareMachine = (id: string) => invoke<MachineComparison>("compare
 export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machine", { id });
 export const importBundle = (path: string) => invoke<{ lines: string[] }>("import_bundle", { path });
 
-// Bring over (decision #40); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
+// Bring over (decision #42); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
 
 export interface FileToBring {
   /** Group heading: "Reaper". */

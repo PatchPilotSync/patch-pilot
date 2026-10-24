@@ -170,7 +170,7 @@ async fn upload(relay: &Relay, this: &str, rig: &RigKey) -> Result<(), String> {
 }
 
 /// Put this machine's shareable files (templates, scripts, themes) on the
-/// relay, so others can bring them over (decision #40). Content-addressed:
+/// relay, so others can bring them over (decision #42). Content-addressed:
 /// only files no machine has uploaded yet are sent.
 async fn upload_files(
     relay: &Relay,

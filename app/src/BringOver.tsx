@@ -3,7 +3,7 @@ import { bringFiles, fileKey, filesToBring, type BringResult, type BringView, ty
 import { Badge, Button } from "./ui";
 
 /**
- * Bring over (decision #40): the Golden Rig's templates, scripts and themes
+ * Bring over (decision #42): the Golden Rig's templates, scripts and themes
  * this machine lacks, grouped by app. One click brings the ticked ones over;
  * anything replaced is backed up first. Loads its own list, so any screen
  * about this machine can show it.
