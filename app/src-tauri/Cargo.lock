@@ -2975,6 +2975,7 @@ dependencies = [
  "patchpilot-scanner",
  "patchpilot-store",
  "patchpilot-sync",
+ "patchpilot-vault",
  "reqwest",
  "rustls",
  "serde",
@@ -3011,6 +3012,9 @@ dependencies = [
  "patchpilot-scanner",
  "patchpilot-store",
  "patchpilot-sync",
+ "patchpilot-vault",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3062,6 +3066,18 @@ dependencies = [
  "serde",
  "serde_json",
  "spake2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "patchpilot-vault"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "patchpilot-core",
+ "patchpilot-parity",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

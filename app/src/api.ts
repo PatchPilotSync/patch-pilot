@@ -165,6 +165,8 @@ export interface Step {
   details: string[];
   products: string[];
   after: number[];
+  /** Vendor app this step uses (e.g. "native-access"), so it can be opened. */
+  app: string | null;
 }
 
 export const machines = () => invoke<MachinesView>("machines");
@@ -223,6 +225,90 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
   listen<SyncStatus>("sync-status", (e) => f(e.payload));
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
+
+// Installer Vault and vendor apps (src-tauri/src/vault.rs).
+
+export type Arch = "x86_64" | "aarch64" | "universal";
+
+export interface Product {
+  canonical_id: string;
+  vendor: string;
+  name: string;
+}
+
+export interface VaultEntry {
+  id: string;
+  hash: string;
+  size: number;
+  file: string;
+  vendor: string;
+  product: string;
+  product_id?: string;
+  version?: string;
+  os?: Os;
+  arch?: Arch;
+  source_name: string;
+  signer?: string;
+  added_at: number;
+  fits_here: boolean;
+  missing: boolean;
+}
+
+export interface InboxItem {
+  path: string;
+  file_name: string;
+  size: number;
+  modified: number;
+  guess: { name: string; version: string | null; os: Os | null; arch: Arch | null };
+  product: Product | null;
+}
+
+export interface VaultView {
+  root: string | null;
+  suggested_root: string | null;
+  downloads: string | null;
+  entries: VaultEntry[];
+  inbox: InboxItem[];
+  products: Product[];
+  problem: string | null;
+}
+
+export interface NewEntry {
+  vendor: string;
+  product: string;
+  product_id: string | null;
+  version: string | null;
+  os: Os | null;
+  arch: Arch | null;
+}
+
+export interface VaultMatch {
+  product_id: string;
+  entry_id: string;
+  file_name: string;
+  version: string | null;
+}
+
+export interface VendorApp {
+  id: string;
+  name: string;
+  installed: boolean;
+  can_open: boolean;
+  download_url: string;
+}
+
+export const vaultStatus = () => invoke<VaultView>("vault_status");
+export const vaultSetRoot = (path: string) => invoke<VaultView>("vault_set_root", { path });
+export const vaultAdd = (path: string, meta: NewEntry) =>
+  invoke<{ entry: VaultEntry; already: boolean; signer_warning: string | null }>("vault_add", { path, meta });
+export const vaultInspect = (paths: string[]) => invoke<InboxItem[]>("vault_inspect", { paths });
+export const vaultDismiss = (path: string) => invoke<void>("vault_dismiss", { path });
+export const vaultMatches = (products: string[]) => invoke<VaultMatch[]>("vault_matches", { products });
+export const vaultRun = (entryId: string) => invoke<void>("vault_run", { entryId });
+export const vaultReveal = (entryId: string | null = null) => invoke<void>("vault_reveal", { entryId });
+export const vendorApps = () => invoke<VendorApp[]>("vendor_apps");
+export const openVendorApp = (id: string) => invoke<"app" | "download_page">("open_vendor_app", { id });
+export const onVaultChanged = (f: () => void): Promise<UnlistenFn> => listen("vault-changed", () => f());
 
 // Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
 
