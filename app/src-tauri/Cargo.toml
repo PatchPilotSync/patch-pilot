@@ -41,6 +41,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+# The Rig Report's Save dialog. Rust writes the file, so no fs permissions.
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

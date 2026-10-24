@@ -309,3 +309,20 @@ export const vaultReveal = (entryId: string | null = null) => invoke<void>("vaul
 export const vendorApps = () => invoke<VendorApp[]>("vendor_apps");
 export const openVendorApp = (id: string) => invoke<"app" | "download_page">("open_vendor_app", { id });
 export const onVaultChanged = (f: () => void): Promise<UnlistenFn> => listen("vault-changed", () => f());
+
+// Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
+
+export interface ReportOptions {
+  title: string;
+  date: string;
+  plugins: boolean;
+  versions: boolean;
+  apps: boolean;
+  parity: boolean;
+}
+
+export const rigReportPreview = (options: ReportOptions) =>
+  invoke<{ html: string; markdown: string }>("rig_report_preview", { options });
+/** Markdown when `path` ends in .md, otherwise the web page. */
+export const saveRigReport = (path: string, options: ReportOptions) =>
+  invoke<void>("save_rig_report", { path, options });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   onVaultChanged,
   vaultAdd,
@@ -175,7 +176,23 @@ function PickFolder({
       </p>
       <label className="flex flex-col gap-1 text-xs text-dim">
         Vault folder (or drop a folder on this window)
-        <input className={inputClass} value={path} onChange={(e) => setPath(e.target.value)} spellCheck={false} />
+        <span className="flex gap-1.5">
+          <input
+            className={`${inputClass} min-w-0 flex-1`}
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            spellCheck={false}
+          />
+          <Button
+            variant="quiet"
+            onClick={async () => {
+              const picked = await open({ directory: true, defaultPath: path || undefined }).catch(() => null);
+              if (typeof picked === "string") setPath(picked);
+            }}
+          >
+            Choose…
+          </Button>
+        </span>
       </label>
       <div className="flex gap-2">
         <Button disabled={!path.trim()} onClick={() => onChoose(path)}>
