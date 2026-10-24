@@ -1,6 +1,6 @@
 //! Ableton Live settings and User Library files, for parity between machines.
 //!
-//! What's read, and why (see decision #42):
+//! What's read, and why (see decision #41):
 //!
 //! - **User Library** (`ABLETON_USER_LIBRARY`): templates (`Templates/*.als`,
 //!   including `Default.als`), default device presets (`Defaults/`), racks and
