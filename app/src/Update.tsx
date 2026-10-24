@@ -4,8 +4,12 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { Button } from "./ui";
 
-// Self-update (decision #32). One check at launch, never a timer, so the app
-// stays idle. Nothing downloads or installs until the user clicks.
+// Self-update (decision #32). Checks at launch and again when the window is
+// shown or focused, at most once an hour. No timer, so the app stays idle
+// in the tray. Nothing downloads or installs until the user clicks.
+
+/** The app stays running from login, so launch alone is too rare a check. */
+const RECHECK_MS = 60 * 60 * 1000;
 
 /** Notes of the update being installed, shown once after the restart. */
 const JUST_INSTALLED = "patchpilot.just-installed";
@@ -22,25 +26,37 @@ export function UpdateBar() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const installed = await justInstalled();
-      if (cancelled) return;
-      if (installed) {
-        setState({ kind: "installed", ...installed });
-        return;
-      }
+    let lastCheck = 0;
+    async function checkNow() {
       // Dev builds have no release to compare against.
       if (import.meta.env.DEV) return;
+      lastCheck = Date.now();
       try {
         const update = await check();
-        if (update && !cancelled) setState({ kind: "available", update, open: false });
+        // Keep whatever the bar is already showing (an install in progress,
+        // or an offer the user is reading).
+        if (update && !cancelled)
+          setState((s) => (s.kind === "idle" ? { kind: "available", update, open: false } : s));
       } catch (e) {
         // Offline or no release yet: not worth interrupting anyone for.
         console.warn("update check failed", e);
       }
+    }
+    function onShown() {
+      if (document.visibilityState === "visible" && Date.now() - lastCheck > RECHECK_MS) checkNow();
+    }
+    (async () => {
+      const installed = await justInstalled();
+      if (cancelled) return;
+      if (installed) setState({ kind: "installed", ...installed });
+      else checkNow();
     })();
+    window.addEventListener("focus", onShown);
+    document.addEventListener("visibilitychange", onShown);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onShown);
+      document.removeEventListener("visibilitychange", onShown);
     };
   }, []);
 
