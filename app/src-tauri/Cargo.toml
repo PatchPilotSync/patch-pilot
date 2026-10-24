@@ -23,6 +23,7 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 # generate_context! emits serde_json for the plugins section of tauri.conf.json.
 serde_json = "1"
+patchpilot-catalog = { path = "../../crates/catalog" }
 patchpilot-core = { path = "../../crates/core" }
 patchpilot-local = { path = "../../crates/local" }
 patchpilot-scanner = { path = "../../crates/scanner" }

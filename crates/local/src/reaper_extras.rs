@@ -1,6 +1,6 @@
 //! ReaPack and Reaper folder settings on this machine: reading them into the
 //! manifest at scan time, and the file changes that bring them in line with
-//! the Golden Rig (decision #47).
+//! the Golden Rig (decision #48).
 //!
 //! Reading is read-only (ReaPack's registry is opened read-only). Nothing
 //! here writes: [`reapack_changes`] and [`folder_changes`] return the new

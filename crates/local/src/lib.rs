@@ -166,6 +166,8 @@ pub fn scan_this_machine(
         ));
     }
     let ableton = ableton.map_or(0, |dirs| add_ableton(&mut manifest, &dirs));
+    // One ID per product across formats, with the catalog's names.
+    patchpilot_catalog::current().canonicalize(&mut manifest);
     Ok(LocalScan {
         manifest,
         warnings,
@@ -301,6 +303,13 @@ pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     manifest.products.extend(products);
     manifest.items.extend(items);
     n
+}
+
+/// [`default_ableton_dirs`] for this OS, if it is supported.
+pub(crate) fn standard_ableton_dirs() -> Option<AbletonDirs> {
+    let os = Os::current()?;
+    let dirs = SystemDirs::from_env()?;
+    Some(default_ableton_dirs(os, &dirs))
 }
 
 /// Live's newest preferences folder and the User Library it points at

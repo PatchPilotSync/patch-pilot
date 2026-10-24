@@ -39,7 +39,7 @@ slugs) at `REAPACK/<repo>/<category>/<package>` with the package version;
 only native extensions are per-OS. Reaper folder settings are `config` items
 (`reaper-folder/<ini key>`, or `reaper-folder/explorer/<label slug>` for Media
 Explorer shortcuts) whose path is the folder, portable through the `HOME` and
-`REAPER_RESOURCES` roots where possible (decision #47).
+`REAPER_RESOURCES` roots where possible (decision #48).
 
 ## Paths
 

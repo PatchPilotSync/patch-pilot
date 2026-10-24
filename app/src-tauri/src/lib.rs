@@ -3,6 +3,7 @@
 
 mod background;
 mod bring;
+mod catalog;
 mod compare;
 mod history;
 mod reaper;
@@ -54,6 +55,7 @@ pub fn run() {
         .setup(|app| {
             let app = app.handle();
             sync::setup(app);
+            catalog::setup(app);
             vault::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
@@ -84,6 +86,7 @@ pub fn run() {
             reaper::fix_reaper_folders,
             bring::files_to_bring,
             bring::bring_files,
+            catalog::updates,
             report::rig_report_preview,
             report::save_rig_report,
             sync::sync_status,
