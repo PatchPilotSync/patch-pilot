@@ -391,6 +391,60 @@ export const vendorApps = () => invoke<VendorApp[]>("vendor_apps");
 export const openVendorApp = (id: string) => invoke<"app" | "download_page">("open_vendor_app", { id });
 export const onVaultChanged = (f: () => void): Promise<UnlistenFn> => listen("vault-changed", () => f());
 
+// New-machine setup (src-tauri/src/setup.rs, patchpilot_parity::SetupProgress).
+
+export type StepStatus = "todo" | "partly" | "done" | "skipped";
+
+export interface SetupStep {
+  /** `step:<n>` or `check:<name>`, stable for the whole setup. */
+  key: string;
+  number: number | null;
+  group: string;
+  title: string;
+  /** Vendor app or licensing tool adapter ID, for an Open button. */
+  app: string | null;
+  status: StepStatus;
+  /** Ticked by Patch Pilot after a rescan; false for final checks the user ticks. */
+  automatic: boolean;
+  open: string[];
+  finished: string[];
+  open_products: string[];
+  after: number[];
+}
+
+export interface SetupProgress {
+  steps: SetupStep[];
+  done: number;
+  total: number;
+  score_before: number;
+  score_now: number;
+  templates: TemplateReadiness[];
+  templates_ready: number;
+  complete: boolean;
+}
+
+export interface SetupView {
+  offer: boolean;
+  profiles: { id: string; name: string }[];
+  profile_id: string | null;
+  active: {
+    machine: string;
+    profile: string | null;
+    golden_version: number;
+    started_at: number;
+    finished_at: number | null;
+    progress: SetupProgress;
+  } | null;
+}
+
+export const setupView = () => invoke<SetupView>("setup_view");
+export const setupStart = (profileId: string | null) => invoke<SetupView>("setup_start", { profileId });
+export const setupTick = (key: string, done: boolean) => invoke<SetupView>("setup_tick", { key, done });
+export const setupFinish = () => invoke<SetupView>("setup_finish");
+export const setupClose = () => invoke<SetupView>("setup_close");
+export const setupReportText = () => invoke<string>("setup_report_text");
+/** Saves the report to Downloads and returns its path. */
+export const setupSaveReport = () => invoke<string>("setup_save_report");
 // Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
 
 export interface ReportOptions {

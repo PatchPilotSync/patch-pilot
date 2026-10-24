@@ -843,7 +843,7 @@ function PlanView({
 }
 
 /** "Open Native Access", or "Get Native Access" when it isn't installed here. */
-function AppButton({ app, onOpen }: { app: VendorApp | undefined; onOpen: (id: string) => void }) {
+export function AppButton({ app, onOpen }: { app: VendorApp | undefined; onOpen: (id: string) => void }) {
   if (!app || (!app.can_open && !app.download_url)) return null;
   return (
     <Button

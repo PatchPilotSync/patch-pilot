@@ -11,6 +11,7 @@ pub mod bring;
 pub mod golden;
 pub mod open;
 pub mod restore;
+pub mod setup;
 pub mod sync;
 pub mod vault;
 mod watch;

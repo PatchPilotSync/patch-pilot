@@ -10,11 +10,13 @@ import {
   onVaultChanged,
   overview as loadOverview,
   scanMachine,
+  setupView as loadSetupView,
   syncStatus as loadSyncStatus,
   vaultStatus,
   type MachinesView,
   type Overview,
   type Progress,
+  type SetupView,
   type SyncStatus,
 } from "./api";
 import { LinkDialog, SyncBadge } from "./Link";
@@ -24,12 +26,13 @@ import { History } from "./screens/History";
 import { Rig } from "./screens/Rig";
 import { Vault } from "./screens/Vault";
 import { Scanning } from "./screens/Scanning";
+import { Setup, SetupOffer } from "./screens/Setup";
 import { Welcome } from "./screens/Welcome";
 import { resetTour, Tour, tourPending } from "./Tour";
 import { Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
-type Tab = "rig" | "compare" | "history" | "vault";
+type Tab = "rig" | "compare" | "history" | "vault" | "setup";
 
 export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -49,6 +52,7 @@ export default function App() {
   const [replay, setReplay] = useState(false);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [linking, setLinking] = useState(false);
+  const [setup, setSetup] = useState<SetupView | null>(null);
   // Bumped on every refresh so History reloads with the rest.
   const [dataVersion, setDataVersion] = useState(0);
   const [dropped, setDropped] = useState<{ paths: string[]; at: number } | null>(null);
@@ -58,6 +62,7 @@ export default function App() {
   const refresh = useCallback(() => {
     loadOverview().then(setOverview, (e) => setError(String(e)));
     loadMachines().then(setView, (e) => setError(String(e)));
+    loadSetupView().then(setSetup, (e) => setError(String(e)));
     setDataVersion((v) => v + 1);
   }, []);
   const onError = useCallback((e: string) => setError(e), []);
@@ -129,6 +134,7 @@ export default function App() {
       setWarnings(report.warnings);
       setDataVersion((v) => v + 1);
       loadMachines().then(setView, (e) => setError(String(e)));
+      loadSetupView().then(setSetup, (e) => setError(String(e)));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -165,6 +171,7 @@ export default function App() {
               ["compare", "Compare"],
               ["vault", "Vault"],
               ["history", "History"],
+              ...(setup?.active || tab === "setup" ? ([["setup", "Set up"]] as const) : []),
             ] as const
           ).map(([t, label]) => (
             <button
@@ -221,6 +228,8 @@ export default function App() {
           <Scanning progress={progress} />
         ) : !overview.machine || replay ? (
           <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
+        ) : tab === "setup" ? (
+          <Setup onRescan={() => scan(null)} onError={onError} onChange={setSetup} />
         ) : tab === "vault" ? (
           <Vault dropped={dropped} onError={onError} onNotice={onNotice} onCount={setVaultCount} />
         ) : tab === "history" ? (
@@ -228,14 +237,17 @@ export default function App() {
         ) : tab === "compare" && view && canCompare ? (
           <Compare view={view} focus={focus} onError={onError} />
         ) : (
-          <Rig
-            overview={overview}
-            warnings={warnings}
-            busy={busy}
-            onRescan={() => scan(null)}
-            onMakeGolden={golden}
-            onReport={() => setReporting(true)}
-          />
+          <>
+            {setup?.offer && <SetupOffer onOpen={() => setTab("setup")} />}
+            <Rig
+              overview={overview}
+              warnings={warnings}
+              busy={busy}
+              onRescan={() => scan(null)}
+              onMakeGolden={golden}
+              onReport={() => setReporting(true)}
+            />
+          </>
         )}
       </div>
       {tour && overview !== null && !scanning && <Tour onClose={() => setTour(false)} />}
