@@ -56,12 +56,12 @@ const STEPS: Step[] = [
   },
   {
     title: "Compare and catch drift",
-    body: "Compare shows what each machine is missing next to the Golden Rig, and the parity score sums it up with the reasons. Link your machines with a short code and Compare updates live, end-to-end encrypted.",
+    body: "Compare shows what each machine is missing next to the Golden Rig, and the parity score sums it up with the reasons. It also flags Reaper templates that would open with empty plug-in slots, and which plug-ins they need. Link your machines with a short code and Compare updates live, end-to-end encrypted.",
     art: <CompareArt />,
   },
   {
     title: "Get up to speed",
-    body: "Up To Speed turns the differences into a checklist, starting with what other installs depend on. You install things yourself; Patch Pilot never runs an installer or touches a license.",
+    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. You install things yourself; Patch Pilot never runs an installer or touches a license.",
     art: <ChecklistArt />,
   },
   {
@@ -289,7 +289,7 @@ function TrayArt() {
       </div>
       <div className="flex h-8 items-center justify-end gap-1 border-t border-line px-2">
         <span className="rounded-md px-2 py-0.5 text-dim">Expand</span>
-        <span className="rounded-md bg-accent px-2 py-0.5 font-semibold text-on-accent">Up To Speed</span>
+        <span className="rounded-md bg-accent px-2 py-0.5 font-semibold text-on-accent">Get Up To Speed</span>
       </div>
     </div>
   );
