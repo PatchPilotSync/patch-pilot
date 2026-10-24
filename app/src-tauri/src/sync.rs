@@ -187,12 +187,9 @@ async fn upload_files(
             continue;
         }
         // Changed since the scan: the next scan uploads the new one.
-        let Ok(bytes) = std::fs::read(&file.path) else {
+        let Some(bytes) = patchpilot_local::bring::read_shared(file) else {
             continue;
         };
-        if patchpilot_sync::content_hash(&bytes) != file.hash {
-            continue;
-        }
         let sealed = rig.seal_file(&file.hash, &bytes);
         relay.put(&rig.file_object(&file.hash), sealed).await?;
     }
@@ -556,6 +553,8 @@ mod tests {
         let files = [patchpilot_local::bring::SharedFile {
             hash: hash.clone(),
             path: path.clone(),
+            root: "REAPER_RESOURCES".into(),
+            rel: "FXChains/x.RfxChain".into(),
         }];
 
         let rig = RigKey::generate();

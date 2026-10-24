@@ -40,7 +40,7 @@ fn newest_release_prefs_folder_wins() {
 fn reads_user_library_location_from_library_cfg() {
     let cfg = std::fs::read_to_string(fixture("prefs-mac/Live 12.1.5/Library.cfg")).unwrap();
     assert_eq!(
-        user_library_from_cfg(&cfg, Os::Macos),
+        user_library_from_cfg(&cfg),
         Some(PathBuf::from("/Users/alice/Music/Ableton/User Library"))
     );
 }
@@ -75,6 +75,7 @@ fn shares_settings_files_and_nothing_else() {
             ),
             (ABLETON_USER_LIBRARY, "Templates/Default.als"),
             (ABLETON_PREFS, "Options.txt"),
+            (ABLETON_PREFS, "Library.cfg"),
         ]
     );
     let labels: Vec<&str> = items.iter().map(|i| describe(&i.path)).collect();
@@ -88,7 +89,8 @@ fn shares_settings_files_and_nothing_else() {
             "Preset",
             "Rack",
             "Template",
-            "Setting"
+            "Setting",
+            "Collection names"
         ]
     );
 
@@ -117,6 +119,8 @@ fn shares_settings_files_and_nothing_else() {
     assert_eq!(kinds[0], ItemKind::Config);
     assert_eq!(kinds[6], ItemKind::DawAsset);
     assert_eq!(kinds[7], ItemKind::Config);
+    assert_eq!(kinds[8], ItemKind::Config);
+    assert_eq!(products[8].name, "Collection names");
 }
 
 #[test]
@@ -166,5 +170,72 @@ fn reads_plugins_from_a_rack_and_skips_saved_state() {
             (PluginFormat::Vst3, "Acme Verb", "Acme Verb"),
             (PluginFormat::Au, "Acme Synth", "Acme Audio: Acme Synth"),
         ]
+    );
+}
+
+#[test]
+fn collection_names_travel_without_paths() {
+    let mac = std::fs::read_to_string(fixture("prefs-mac/Live 12.1.5/Library.cfg")).unwrap();
+    let pc =
+        std::fs::read_to_string(fixture("prefs-win/Live 12.1.5/Preferences/Library.cfg")).unwrap();
+    assert_eq!(
+        collection_names(&mac)[..2],
+        [(1, "Faves".to_owned()), (2, "Synths & Keys".to_owned())]
+    );
+
+    // What the PC shares: names only, no paths.
+    let shared = shared_view(ABLETON_PREFS, LIBRARY_CFG, pc.clone().into_bytes());
+    let text = String::from_utf8(shared.clone()).unwrap();
+    assert!(text.starts_with("1\tFavorites\n2\tInst\n3\tRacks\n"));
+    assert!(!text.contains("D:"));
+
+    // The Mac takes the PC's names and keeps its own paths and Places.
+    let merged = merge_incoming(ABLETON_PREFS, LIBRARY_CFG, Some(mac.as_bytes()), shared).unwrap();
+    let merged = String::from_utf8(merged).unwrap();
+    assert_eq!(collection_names(&merged), collection_names(&pc));
+    assert_eq!(
+        user_library_from_cfg(&merged),
+        Some(PathBuf::from("/Users/alice/Music/Ableton/User Library"))
+    );
+    assert!(merged.contains(r#"Path="/Users/alice/Samples/Breaks""#));
+    assert!(!merged.contains("D:"));
+    // Nothing else moved: only DisplayName values differ, line by line.
+    for (a, b) in mac.lines().zip(merged.lines()) {
+        if a != b {
+            assert!(a.contains("Uri=\"color:colors="), "{a}");
+        }
+    }
+    assert_eq!(mac.lines().count(), merged.lines().count());
+
+    // Escaping round-trips.
+    let back = merge_incoming(
+        ABLETON_PREFS,
+        LIBRARY_CFG,
+        Some(merged.as_bytes()),
+        shared_view(ABLETON_PREFS, LIBRARY_CFG, mac.clone().into_bytes()),
+    )
+    .unwrap();
+    assert_eq!(String::from_utf8(back).unwrap(), mac);
+}
+
+#[test]
+fn collection_names_need_a_library_cfg_with_collections() {
+    let names = b"1\tFaves\n".to_vec();
+    assert!(merge_incoming(ABLETON_PREFS, LIBRARY_CFG, None, names.clone()).is_err());
+    assert!(
+        merge_incoming(
+            ABLETON_PREFS,
+            LIBRARY_CFG,
+            Some(b"<Ableton/>"),
+            names.clone()
+        )
+        .is_err()
+    );
+    let cfg = std::fs::read(fixture("prefs-mac/Live 12.1.5/Library.cfg")).unwrap();
+    assert!(merge_incoming(ABLETON_PREFS, LIBRARY_CFG, Some(&cfg), b"junk".to_vec()).is_err());
+    // Other files pass through untouched.
+    assert_eq!(
+        merge_incoming(ABLETON_PREFS, "Options.txt", None, names.clone()).unwrap(),
+        names
     );
 }

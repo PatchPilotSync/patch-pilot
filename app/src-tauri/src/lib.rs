@@ -10,6 +10,7 @@ mod history;
 mod reaper;
 mod report;
 mod rig;
+mod setup;
 mod sync;
 mod tray;
 mod vault;
@@ -79,6 +80,13 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            setup::setup_view,
+            setup::setup_start,
+            setup::setup_tick,
+            setup::setup_finish,
+            setup::setup_close,
+            setup::setup_report_text,
+            setup::setup_save_report,
             compare::add_to_golden,
             compare::ignore_suggestion,
             history::history,
