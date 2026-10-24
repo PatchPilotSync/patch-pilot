@@ -10,9 +10,10 @@ interface Props {
   busy: boolean;
   onRescan: () => void;
   onMakeGolden: () => void;
+  onReport: () => void;
 }
 
-export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props) {
+export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport }: Props) {
   const { machine, inventory: inv, golden } = overview;
   const [grouping, setGrouping] = useState<Grouping>("vendor");
   const [query, setQuery] = useState("");
@@ -57,6 +58,9 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
             {plural(inv.templates, "Reaper template")}
           </p>
         </div>
+        <Button variant="quiet" onClick={onReport} title="A summary of this machine to share">
+          Share Rig Report
+        </Button>
         <Button variant="quiet" onClick={onRescan} disabled={busy}>
           Rescan
         </Button>
