@@ -12,6 +12,7 @@ becomes its release notes, which the app shows when it offers that update
 
 ### Improved
 
+- Easier to get from the tray to the full window: a labelled Expand button, clickable rows, and double-click anywhere in the popover. On Windows, double-click the tray icon.
 - Clearer wording throughout: the main screen now says it lists the plug-ins installed on this machine, and each screen says in a line what it shows. Patch Pilot only reads metadata and never changes anything.
 
 ## 0.1.0 - 2026-10-23
