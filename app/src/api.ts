@@ -276,3 +276,19 @@ export const setupClose = () => invoke<SetupView>("setup_close");
 export const setupReportText = () => invoke<string>("setup_report_text");
 /** Saves the report to Downloads and returns its path. */
 export const setupSaveReport = () => invoke<string>("setup_save_report");
+// Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
+
+export interface ReportOptions {
+  title: string;
+  date: string;
+  plugins: boolean;
+  versions: boolean;
+  apps: boolean;
+  parity: boolean;
+}
+
+export const rigReportPreview = (options: ReportOptions) =>
+  invoke<{ html: string; markdown: string }>("rig_report_preview", { options });
+/** Markdown when `path` ends in .md, otherwise the web page. */
+export const saveRigReport = (path: string, options: ReportOptions) =>
+  invoke<void>("save_rig_report", { path, options });
