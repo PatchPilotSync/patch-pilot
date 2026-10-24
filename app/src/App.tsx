@@ -16,6 +16,7 @@ import { Compare, type Focus } from "./screens/Compare";
 import { Rig } from "./screens/Rig";
 import { Scanning } from "./screens/Scanning";
 import { Welcome } from "./screens/Welcome";
+import { Tour, tourPending } from "./Tour";
 import { Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
@@ -32,6 +33,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string[] | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
+  const [tour, setTour] = useState(tourPending);
 
   const refresh = useCallback(() => {
     loadOverview().then(setOverview, (e) => setError(String(e)));
@@ -127,6 +129,10 @@ export default function App() {
               {label}
             </button>
           ))}
+          <span className="flex-1" />
+          <button onClick={() => setTour(true)} className="text-dim hover:text-fg">
+            How it works
+          </button>
         </nav>
       )}
       <UpdateBar />
@@ -154,7 +160,7 @@ export default function App() {
         {overview === null ? null : scanning ? (
           <Scanning progress={progress} />
         ) : !overview.machine ? (
-          <Welcome onScan={(name) => scan(name)} />
+          <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
         ) : tab === "compare" && view && canCompare ? (
           <Compare view={view} focus={focus} onError={onError} />
         ) : (
@@ -167,6 +173,7 @@ export default function App() {
           />
         )}
       </div>
+      {tour && overview !== null && !scanning && <Tour onClose={() => setTour(false)} />}
     </main>
   );
 }
