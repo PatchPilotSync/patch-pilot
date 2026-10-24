@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### New
+
+- A short tour on first launch explains the Golden Rig, comparisons and the parity score, Up To Speed and snapshots. Skip it any time, and reopen it from "How it works".
+
 ## 0.1.0 - 2026-10-23
 
 ### New
