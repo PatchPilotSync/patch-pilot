@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  addToGolden,
   compareMachine,
+  ignoreSuggestion,
   FORMAT_LABEL,
   openVendorApp,
   PHASE_LABEL,
@@ -68,6 +70,21 @@ export function Compare({ view, focus, onError }: Props) {
   const [plan, setPlan] = useState<Step[] | null>(null);
   const [row, setRow] = useState<ComparisonRow | null>(null);
   const [wantPlan, setWantPlan] = useState(focus?.plan ?? false);
+  const [busy, setBusy] = useState(false);
+
+  // Both refresh every window through `data-changed`, which reloads `view`.
+  const suggest: SuggestActions = {
+    busy,
+    add: (ids) => {
+      if (!data) return;
+      setBusy(true);
+      addToGolden(data.machine.id, ids).catch((e) => onError(String(e))).finally(() => setBusy(false));
+    },
+    ignore: (r) => {
+      setBusy(true);
+      ignoreSuggestion(r.product_id, r.machine_version).catch((e) => onError(String(e))).finally(() => setBusy(false));
+    },
+  };
 
   useEffect(() => {
     if (!focus) return;
@@ -125,13 +142,16 @@ export function Compare({ view, focus, onError }: Props) {
             data={data}
             selected={row}
             onSelect={setRow}
+            suggest={suggest}
             onPlan={() => planMachine(data.machine.id).then((p) => setPlan(p.steps), (e) => onError(String(e)))}
           />
         )}
       </section>
 
       <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel">
-        {row && data ? <Detail row={row} machine={data.machine} /> : (
+        {row && data ? (
+          <Detail row={row} machine={data.machine} suggested={data.suggested.includes(row.product_id)} suggest={suggest} />
+        ) : (
           <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Golden Rig.</p>
         )}
       </aside>
@@ -171,11 +191,13 @@ function Diff({
   data,
   selected,
   onSelect,
+  suggest,
   onPlan,
 }: {
   data: MachineComparison;
   selected: ComparisonRow | null;
   onSelect: (r: ComparisonRow) => void;
+  suggest: SuggestActions;
   onPlan: () => void;
 }) {
   const { machine, comparison: c } = data;
@@ -252,6 +274,7 @@ function Diff({
       )}
 
       <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
+      <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
 
       <div className="flex flex-wrap items-center gap-1 border-b border-line pb-2">
         {STATE_ORDER.filter((s) => counts.get(s)).map((s) => (
@@ -541,7 +564,116 @@ function versionPair(r: ComparisonRow): string {
   return `${m || "?"} → ${g || "?"}`;
 }
 
-function Detail({ row, machine }: { row: ComparisonRow; machine: MachineCard }) {
+/** "Propose to Golden" (M9): add or ignore what a machine has that the Golden Rig doesn't. */
+interface SuggestActions {
+  busy: boolean;
+  add: (productIds: string[]) => void;
+  ignore: (r: ComparisonRow) => void;
+}
+
+/**
+ * Products on this machine that the Golden Rig lacks or has an older version
+ * of, each with Add and Ignore. Collapsed by default, like the templates line.
+ */
+function SuggestionsNotice({
+  data,
+  selected,
+  onSelect,
+  suggest,
+}: {
+  data: MachineComparison;
+  selected: ComparisonRow | null;
+  onSelect: (r: ComparisonRow) => void;
+  suggest: SuggestActions;
+}) {
+  const [open, setOpen] = useState(false);
+  const rows = data.comparison.rows.filter((r) => data.suggested.includes(r.product_id));
+  if (!rows.length) return null;
+  const n = rows.length;
+  const where = data.machine.is_this_machine ? "this machine" : data.machine.name;
+  return (
+    <div className="text-xs">
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="-mx-2 flex h-7 w-[calc(100%+1rem)] items-center gap-2.5 rounded-[5px] px-2 text-left hover:bg-sel/50"
+      >
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">
+          {n === 1 ? `${rows[0].name} on ${where} could` : `${n} things on ${where} could`} go into the Golden Rig
+        </span>
+        <span className="shrink-0 text-dim">{open ? "Hide" : "Review"}</span>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          aria-hidden="true"
+          className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
+        >
+          <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 text-dim">
+              New here, or newer than the Golden Rig. Adding one makes a new Golden version, and every linked machine
+              is then compared with it. Ignore stops suggesting that version.
+            </p>
+            {n > 1 && (
+              <Button
+                variant="quiet"
+                disabled={suggest.busy}
+                onClick={() => suggest.add(rows.map((r) => r.product_id))}
+                className="shrink-0 text-accent-text!"
+              >
+                Add all
+              </Button>
+            )}
+          </div>
+          <ul className="-mx-2">
+            {rows.map((r) => (
+              <li
+                key={r.product_id}
+                className={`flex h-7 items-center gap-2 rounded-[5px] px-2 ${
+                  selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
+                }`}
+              >
+                <button onClick={() => onSelect(r)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  <span className="min-w-0 flex-1 truncate">
+                    {r.name}
+                    {r.vendor && <span className="ml-2 text-dim">{r.vendor}</span>}
+                  </span>
+                  <span className="shrink-0 font-mono text-[11px] text-dim">
+                    {r.state === "extra" ? "not in Golden" : `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`}
+                  </span>
+                </button>
+                <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore(r)} className="h-6 px-2">
+                  Ignore
+                </Button>
+                <Button disabled={suggest.busy} onClick={() => suggest.add([r.product_id])} className="h-6 px-2.5">
+                  Add
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Detail({
+  row,
+  machine,
+  suggested,
+  suggest,
+}: {
+  row: ComparisonRow;
+  machine: MachineCard;
+  suggested: boolean;
+  suggest: SuggestActions;
+}) {
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
@@ -562,6 +694,16 @@ function Detail({ row, machine }: { row: ComparisonRow; machine: MachineCard }) 
       )}
       {row.confidence === "low" && (
         <p className="text-xs text-dim">Identified from the file name only, so the match may be wrong.</p>
+      )}
+      {suggested && (
+        <div className="flex gap-1.5">
+          <Button disabled={suggest.busy} onClick={() => suggest.add([row.product_id])}>
+            Add to Golden Rig
+          </Button>
+          <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore(row)}>
+            Ignore
+          </Button>
+        </div>
       )}
     </div>
   );

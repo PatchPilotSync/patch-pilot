@@ -74,6 +74,11 @@ export function Tray() {
     WORK.indexOf(r.state as (typeof WORK)[number]) * 10 + KIND_ORDER.indexOf(r.kind);
   todo.sort((a, b) => rank(a) - rank(b));
   const behind = target && todo.length > 0 ? target.machine : null;
+  // "Propose to Golden": this machine first, then whoever has the most.
+  const suggesting =
+    view?.machines
+      .filter((m) => m.suggestions > 0)
+      .sort((a, b) => Number(b.is_this_machine) - Number(a.is_this_machine) || b.suggestions - a.suggestions)[0] ?? null;
 
   // Double-click on anything that isn't a control opens the main window,
   // on the machine that needs work if there is one.
@@ -116,6 +121,22 @@ export function Tray() {
               />
             ))}
           </ul>
+        )}
+
+        {suggesting && (
+          <button
+            onClick={() => openMainWindow(suggesting.id)}
+            className="flex h-7 items-center gap-2.5 rounded-md px-3 text-left text-xs hover:bg-sel/50"
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">
+              {suggesting.suggestions === 1 ? "1 suggestion" : `${suggesting.suggestions} suggestions`} for the Golden
+              Rig{suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}
+            </span>
+            <span className="text-dim" aria-hidden="true">
+              ›
+            </span>
+          </button>
         )}
 
         {target && (

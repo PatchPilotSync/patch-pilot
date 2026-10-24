@@ -102,6 +102,8 @@ export interface MachineCard {
   is_this_machine: boolean;
   profile: { id: string; name: string } | null;
   score: number | null;
+  /** Products here the Golden Rig lacks or has older (not ignored). */
+  suggestions: number;
 }
 
 export interface MachinesView {
@@ -154,6 +156,8 @@ export interface MachineComparison {
   machine: MachineCard;
   golden_version: number;
   comparison: Comparison;
+  /** Product IDs of rows that could go into the Golden Rig, not ignored. */
+  suggested: string[];
 }
 
 export type Phase = "foundation" | "vendor_handoff" | "manual";
@@ -172,6 +176,12 @@ export interface Step {
 export const machines = () => invoke<MachinesView>("machines");
 export const compareMachine = (id: string) => invoke<MachineComparison>("compare_machine", { id });
 export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machine", { id });
+/** "Propose to Golden": a new Golden version taking these products from the machine. Returns the version. */
+export const addToGolden = (machine: string, products: string[]) =>
+  invoke<number>("add_to_golden", { machine, products });
+/** Stop suggesting this version of the product, on every linked machine. */
+export const ignoreSuggestion = (product: string, version: string | null) =>
+  invoke<void>("ignore_suggestion", { product, version });
 export const importBundle = (path: string) => invoke<{ lines: string[] }>("import_bundle", { path });
 
 // Bring over (decision #47); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.

@@ -27,6 +27,10 @@ pub struct Bundle {
     /// User target profiles (built-in presets are not exported).
     #[serde(default)]
     pub profiles: Vec<TargetProfile>,
+    /// Suggestions for the Golden Rig the user chose not to add, so every
+    /// linked machine stops offering them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<IgnoredSuggestion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -50,6 +54,17 @@ pub struct BundleGolden {
     pub manifest: Manifest,
 }
 
+/// A product version the user doesn't want in the Golden Rig ("Ignore" on a
+/// suggestion). A newer version is suggested again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct IgnoredSuggestion {
+    pub product_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Unix seconds UTC.
+    pub ignored_at: i64,
+}
+
 impl Bundle {
     pub fn new(exported_at: i64, exported_from: Option<String>) -> Self {
         Self {
@@ -59,6 +74,7 @@ impl Bundle {
             machines: Vec::new(),
             golden: Vec::new(),
             profiles: Vec::new(),
+            ignored: Vec::new(),
         }
     }
 
