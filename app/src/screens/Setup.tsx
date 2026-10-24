@@ -17,6 +17,7 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
+import { BringOver } from "../BringOver";
 import { AppButton } from "./Compare";
 import { Button, scoreColor, timeAgo } from "../ui";
 
@@ -162,6 +163,7 @@ function Progress({
     installer: (product) => installers.get(product),
     open: (id) => openVendorApp(id).then(() => {}, (e) => onError(String(e))),
     run: (entry) => vaultRun(entry).catch((e) => onError(String(e))),
+    onError,
   };
   const notReady = p.templates.filter((t) => t.missing.length > 0);
   return (
@@ -254,6 +256,7 @@ interface Actions {
   installer: (product: string) => VaultMatch | undefined;
   open: (id: string) => void;
   run: (entry: string) => void;
+  onError: (e: string) => void;
 }
 
 function StepRow({
@@ -320,6 +323,11 @@ function StepRow({
               <li key={d}>✓ {d}</li>
             ))}
           </ul>
+        )}
+        {!finished && s.automatic && s.title.startsWith("Bring over") && (
+          <div className="mt-1.5">
+            <BringOver onError={actions.onError} />
+          </div>
         )}
         {!finished && s.after.length > 0 && (
           <span className="mt-0.5 block text-[11px] text-dim opacity-80">

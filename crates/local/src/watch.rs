@@ -17,7 +17,13 @@ use patchpilot_core::Os;
 use patchpilot_scanner::{SystemDirs, default_roots};
 
 /// Reaper resource subfolders holding the templates a scan reads (#37).
-const REAPER_TEMPLATE_DIRS: [&str; 3] = ["TrackTemplates", "ProjectTemplates", "FXChains"];
+const REAPER_TEMPLATE_DIRS: [&str; 5] = [
+    "TrackTemplates",
+    "ProjectTemplates",
+    "FXChains",
+    "Scripts",
+    "ColorThemes",
+];
 
 /// User Library subfolders holding what a scan shares. Not `Samples/`
 /// (Live writes freezes there), nor the preferences folder (Live writes its

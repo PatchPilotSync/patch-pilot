@@ -7,6 +7,7 @@
 
 mod anonymize;
 pub mod apps;
+pub mod bring;
 pub mod open;
 pub mod setup;
 pub mod sync;
@@ -257,8 +258,9 @@ fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
     patchpilot_parity::reaper::reaper_resource_dir(os, &appdata, &dirs.home).filter(|d| d.is_dir())
 }
 
-/// Add Reaper templates under `dir` as items that require their plug-ins.
-/// Returns how many were added.
+/// Add Reaper templates under `dir` as items that require their plug-ins,
+/// plus the scripts and themes Bring over shares (#45). Returns how many
+/// templates were added.
 pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};
     let (products, items) = template_items(dir, manifest.machine.os, |r| {
@@ -277,8 +279,11 @@ pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
         REAPER_RESOURCES.to_owned(),
         dir.to_string_lossy().into_owned(),
     );
+    let n = products
+        .iter()
+        .filter(|p| p.canonical_id.0.starts_with("reaper-template/"))
+        .count();
     manifest.products.extend(products);
-    let n = items.len();
     manifest.items.extend(items);
     n
 }

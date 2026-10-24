@@ -2,6 +2,7 @@
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
 mod background;
+mod bring;
 mod compare;
 mod report;
 mod rig;
@@ -79,6 +80,8 @@ pub fn run() {
             setup::setup_close,
             setup::setup_report_text,
             setup::setup_save_report,
+            bring::files_to_bring,
+            bring::bring_files,
             report::rig_report_preview,
             report::save_rig_report,
             sync::sync_status,

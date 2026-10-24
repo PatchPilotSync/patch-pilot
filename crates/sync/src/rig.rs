@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use patchpilot_core::Bundle;
+use patchpilot_core::{Bundle, ContentHash};
 use rand_core::{OsRng, RngCore};
 
 use crate::{Error, Result, envelope};
@@ -11,6 +11,7 @@ use crate::{Error, Result, envelope};
 const ID_CONTEXT: &str = "Patch Pilot 2026-10-24 rig id v1";
 const TOKEN_CONTEXT: &str = "Patch Pilot 2026-10-24 relay token v1";
 const ENCRYPT_CONTEXT: &str = "Patch Pilot 2026-10-24 rig encryption v1";
+const FILE_CONTEXT: &str = "Patch Pilot 2026-10-24 file name v1";
 const STORED_PREFIX: &str = "pprig1:";
 
 #[derive(Clone, PartialEq, Eq)]
@@ -81,6 +82,31 @@ impl RigKey {
         Ok(Bundle::from_json(json)?)
     }
 
+    /// The relay object holding one user-owned file (a template, an FX
+    /// chain), by its content hash: `file/<keyed hash>`. Keyed with the rig,
+    /// so the relay can't match the name against files it knows.
+    pub fn file_object(&self, hash: &ContentHash) -> String {
+        let key = blake3::derive_key(FILE_CONTEXT, &self.0);
+        let name = blake3::keyed_hash(&key, hash.as_str().as_bytes());
+        format!("file/{}", hex(&name.as_bytes()[..20]))
+    }
+
+    /// Encrypt a file's bytes for storing under [`Self::file_object`].
+    pub fn seal_file(&self, hash: &ContentHash, bytes: &[u8]) -> Vec<u8> {
+        let object = self.file_object(hash);
+        envelope::seal(&self.encryption_key(), &self.aad(&object), bytes)
+    }
+
+    /// Decrypt a file and check it is the one `hash` names.
+    pub fn open_file(&self, hash: &ContentHash, sealed: &[u8]) -> Result<Vec<u8>> {
+        let object = self.file_object(hash);
+        let bytes = envelope::open(&self.encryption_key(), &self.aad(&object), sealed)?;
+        if content_hash(&bytes) != *hash {
+            return Err(Error::Decrypt);
+        }
+        Ok(bytes)
+    }
+
     fn encryption_key(&self) -> [u8; 32] {
         blake3::derive_key(ENCRYPT_CONTEXT, &self.0)
     }
@@ -121,6 +147,12 @@ fn check_object(name: &str) -> Result<()> {
     } else {
         Err(Error::BadObject(name.to_owned()))
     }
+}
+
+/// The hash a manifest records for a user-owned file's bytes.
+pub fn content_hash(bytes: &[u8]) -> ContentHash {
+    ContentHash::try_from(format!("blake3:{}", blake3::hash(bytes).to_hex()))
+        .expect("a BLAKE3 hex digest is a valid content hash")
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -211,6 +243,24 @@ mod tests {
     fn debug_never_shows_the_key() {
         let rig = RigKey::from_bytes([0xab; 32]);
         assert!(!format!("{rig:?}").contains("abab"));
+    }
+
+    #[test]
+    fn files_round_trip_by_hash_and_names_hide_the_hash() {
+        let rig = RigKey::generate();
+        let bytes = b"<TRACK\n<FXCHAIN\n>\n>\n";
+        let hash = content_hash(bytes);
+        let object = rig.file_object(&hash);
+        assert!(check_object(&object).is_ok());
+        assert!(!object.contains(&hash.as_str()["blake3:".len()..][..16]));
+        assert_ne!(object, RigKey::generate().file_object(&hash));
+        let sealed = rig.seal_file(&hash, bytes);
+        assert_eq!(rig.open_file(&hash, &sealed).unwrap(), bytes);
+        assert!(!String::from_utf8_lossy(&sealed).contains("FXCHAIN"));
+        // Another rig, or a file stored under another hash, fails.
+        assert!(RigKey::generate().open_file(&hash, &sealed).is_err());
+        let other = content_hash(b"other");
+        assert!(rig.open_file(&other, &sealed).is_err());
     }
 
     #[test]
