@@ -26,6 +26,7 @@ async function socket(url: string, headers: Record<string, string> = {}) {
     waiters.shift()?.();
   });
   ws.accept();
+  ws.binaryType = "arraybuffer";
   const next = async () => {
     if (!inbox.length) await new Promise<void>((r) => waiters.push(r));
     return inbox.shift()!;
@@ -95,6 +96,8 @@ describe("rig objects", () => {
     await put("machine/mac", "sealed");
     const event = JSON.parse((await next()) as string);
     expect(event).toMatchObject({ type: "changed", name: "machine/mac" });
+    ws.send("ping");
+    expect(await next()).toBe("pong");
     ws.close();
   });
 
@@ -115,6 +118,18 @@ describe("link mailbox", () => {
     expect(await mac.next()).toBe("pc-hello");
     mac.ws.send("mac-hello");
     expect(await pc.next()).toBe("mac-hello");
+    pc.ws.close();
+  });
+
+  it("forwards binary frames unchanged", async () => {
+    const pc = await socket("https://relay.test/v1/link/BBBB");
+    pc.ws.send(new Uint8Array([1, 2, 3]));
+    const mac = await socket("https://relay.test/v1/link/BBBB");
+    const got = await mac.next();
+    expect(got).toBeInstanceOf(ArrayBuffer);
+    expect([...new Uint8Array(got as ArrayBuffer)]).toEqual([1, 2, 3]);
+    mac.ws.send(new Uint8Array([9]).buffer);
+    expect([...new Uint8Array((await pc.next()) as ArrayBuffer)]).toEqual([9]);
     pc.ws.close();
   });
 
