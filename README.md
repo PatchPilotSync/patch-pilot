@@ -23,7 +23,7 @@ You know the moment: you open a project on the laptop and half the chain is red 
 3. **Compare.** Each machine gets a **parity score** that shows how close it is to the Golden Rig, with the reasons behind the number. A travel laptop can skip things it doesn't need, like AAX or huge sample libraries.
 4. **Get Up To Speed.** Patch Pilot turns the differences into a checklist, starting with what other installs depend on, like licensing tools. You install things yourself and tick them off as you go.
 
-| Your rig | Compare with the Golden Rig | Up To Speed |
+| Your rig | Compare with the Golden Rig | Get Up To Speed |
 | --- | --- | --- |
 | ![The plug-ins installed on this machine](docs/screenshots/rig.png) | ![Travel Laptop scored 40% against the Golden Rig, with reasons](docs/screenshots/compare.png) | ![Checklist to bring Travel Laptop back to parity](docs/screenshots/up-to-speed.png) |
 
@@ -33,7 +33,7 @@ You know the moment: you open a project on the laptop and half the chain is red 
 - **Parity score** — one number per machine, always with the reasons.
 - **Drift detection** — spots when a machine falls behind, like an update installed on one machine but not the others.
 - **Template readiness** — tells you which Reaper templates and FX chains won't open fully on a machine, because a plug-in they use is missing.
-- **Up To Speed** — a step-by-step checklist to bring a machine back in line.
+- **Get Up To Speed** — a step-by-step checklist to bring a machine back in line.
 - **Live machine linking** — link your Mac and PC with a short code and Compare updates live. What your machines share is end-to-end encrypted, so nobody else can read it, not even us.
 - **Always on, barely there** — opens when your computer starts, waits in the tray or menu bar, and rescans by itself when you add or update a plug-in. It uses next to no CPU while it waits.
 - **Snapshots** — every change to a machine is saved, so you can see what changed and when.

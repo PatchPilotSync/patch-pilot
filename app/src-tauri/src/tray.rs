@@ -200,7 +200,7 @@ pub fn set_dock_icon(_app: &AppHandle, _visible: bool) {
     let _ = _app.set_dock_visibility(_visible);
 }
 
-/// The popover's Expand and Up To Speed buttons, row clicks and double-clicks. `machine` opens Compare on
+/// The popover's Expand and Get Up To Speed buttons, row clicks and double-clicks. `machine` opens Compare on
 /// that machine; `plan` goes straight to its Up To Speed checklist.
 #[tauri::command]
 pub fn open_main_window(app: AppHandle, machine: Option<String>, plan: bool) {
