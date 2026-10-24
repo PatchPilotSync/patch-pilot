@@ -1,6 +1,7 @@
 //! Identity resolution, manifest diff, parity scoring and plan generation.
 
 pub mod ableton;
+pub mod presets;
 pub mod reaper;
 
 mod comparison;
@@ -24,7 +25,9 @@ pub use drift::{Alert, Observed, Seen, alerts, gaps, suggestion_key, suggestions
 pub use golden::{ProposeError, find_product, propose_to_golden};
 pub use history::{Change, ProductChange, plugin_changes};
 pub use identity::align_products;
-pub use inventory::{AppRow, FormatCount, Inventory, ProductRow, VendorGroup, inventory};
+pub use inventory::{
+    AppRow, FormatCount, Inventory, PresetRow, ProductRow, VendorGroup, inventory,
+};
 pub use plan::{Phase, Plan, Step, up_to_speed};
 pub use readiness::{TemplateReadiness, required_products, template_readiness};
 pub use report::{ReportOptions, ReportParity, RigReport, rig_report};

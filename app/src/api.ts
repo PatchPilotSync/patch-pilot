@@ -40,6 +40,7 @@ export interface Inventory {
   vendors: VendorGroup[];
   apps: AppRow[];
   templates: number;
+  presets: { name: string; vendor: string; size: number | null }[];
 }
 
 export interface Overview {
