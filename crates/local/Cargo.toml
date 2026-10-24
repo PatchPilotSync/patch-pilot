@@ -15,6 +15,7 @@ patchpilot-parity = { path = "../parity" }
 patchpilot-scanner = { path = "../scanner" }
 patchpilot-store = { path = "../store" }
 patchpilot-sync = { path = "../sync" }
+serde = { version = "1.0.229", features = ["derive"] }
 
 [lints]
 workspace = true

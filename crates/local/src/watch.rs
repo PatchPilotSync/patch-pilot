@@ -16,7 +16,13 @@ use patchpilot_core::Os;
 use patchpilot_scanner::{SystemDirs, default_roots};
 
 /// Reaper resource subfolders holding the templates a scan reads (#37).
-const REAPER_TEMPLATE_DIRS: [&str; 3] = ["TrackTemplates", "ProjectTemplates", "FXChains"];
+const REAPER_TEMPLATE_DIRS: [&str; 5] = [
+    "TrackTemplates",
+    "ProjectTemplates",
+    "FXChains",
+    "Scripts",
+    "ColorThemes",
+];
 
 /// The folders a standard scan reads that exist right now: every default
 /// plug-in folder and Reaper's template folders. Folders inside another one in

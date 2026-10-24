@@ -200,29 +200,151 @@ pub fn reaper_resource_dir(os: Os, appdata: &str, home: &str) -> Option<PathBuf>
     }
 }
 
-/// Template files under a resource folder: `TrackTemplates/**.RTrackTemplate`,
-/// `ProjectTemplates/**.RPP` and `FXChains/**.RfxChain`. Sorted.
-pub fn find_templates(resource_dir: &Path) -> Vec<PathBuf> {
+/// A user-owned file in Reaper's resource folder that Patch Pilot tracks and
+/// can bring over to another machine (decision #40). Mirrored in `app/src/api.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceKind {
+    TrackTemplate,
+    ProjectTemplate,
+    FxChain,
+    /// Anything under `Scripts/` (ReaScripts and the files they load,
+    /// including ReaPack-installed ones).
+    Script,
+    /// Anything under `ColorThemes/`.
+    Theme,
+}
+
+impl ResourceKind {
+    /// The subfolder of the resource folder it lives in.
+    pub fn folder(self) -> &'static str {
+        match self {
+            Self::TrackTemplate => "TrackTemplates",
+            Self::ProjectTemplate => "ProjectTemplates",
+            Self::FxChain => "FXChains",
+            Self::Script => "Scripts",
+            Self::Theme => "ColorThemes",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TrackTemplate => "Track template",
+            Self::ProjectTemplate => "Project template",
+            Self::FxChain => "FX chain",
+            Self::Script => "Script",
+            Self::Theme => "Theme",
+        }
+    }
+
+    /// Templates name the plug-ins they use; scripts and themes don't.
+    pub fn is_template(self) -> bool {
+        matches!(
+            self,
+            Self::TrackTemplate | Self::ProjectTemplate | Self::FxChain
+        )
+    }
+
+    fn template_ext(self) -> Option<&'static str> {
+        match self {
+            Self::TrackTemplate => Some("rtracktemplate"),
+            Self::ProjectTemplate => Some("rpp"),
+            Self::FxChain => Some("rfxchain"),
+            Self::Script | Self::Theme => None,
+        }
+    }
+
+    fn product_prefix(self) -> &'static str {
+        match self {
+            Self::Script => "reaper-script",
+            Self::Theme => "reaper-theme",
+            _ => "reaper-template",
+        }
+    }
+}
+
+const RESOURCE_KINDS: [ResourceKind; 5] = [
+    ResourceKind::TrackTemplate,
+    ResourceKind::ProjectTemplate,
+    ResourceKind::FxChain,
+    ResourceKind::Script,
+    ResourceKind::Theme,
+];
+
+/// Compiled code is never brought over, even if it sits in `Scripts/`: it is
+/// per-OS and is software, not a user file (CLAUDE.md rule 2).
+const NEVER_SHARED_EXT: [&str; 8] = ["dll", "dylib", "so", "exe", "app", "msi", "pkg", "dmg"];
+
+/// What a path below the resource folder (`/`-separated) is, if Patch Pilot
+/// tracks it: a template with its extension in its folder, or any file in
+/// `Scripts/` or `ColorThemes/` except compiled code and hidden files. `None`
+/// for anything else, including paths that would leave the folder. Checked
+/// before writing a file that came from another machine.
+pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let safe = parts.len() >= 2
+        && parts.iter().all(|p| {
+            !p.is_empty() && !p.starts_with('.') && !p.contains(['\\', ':']) && *p != "__pycache__"
+        });
+    if !safe {
+        return None;
+    }
+    let kind = RESOURCE_KINDS
+        .into_iter()
+        .find(|k| k.folder().eq_ignore_ascii_case(parts[0]))?;
+    let ext = Path::new(parts[parts.len() - 1])
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase());
+    match kind.template_ext() {
+        Some(want) => (ext.as_deref() == Some(want)).then_some(kind),
+        None => (!ext.is_some_and(|e| NEVER_SHARED_EXT.contains(&e.as_str()))).then_some(kind),
+    }
+}
+
+/// Every file under a resource folder that [`resource_kind`] tracks, with
+/// its `/`-separated path below the folder. Sorted by path.
+pub fn find_resources(resource_dir: &Path) -> Vec<(PathBuf, String, ResourceKind)> {
     let mut out = Vec::new();
-    for (dir, ext) in [
-        ("TrackTemplates", "rtracktemplate"),
-        ("ProjectTemplates", "rpp"),
-        ("FXChains", "rfxchain"),
-    ] {
-        let walk = walkdir::WalkDir::new(resource_dir.join(dir)).follow_links(true);
-        for entry in walk.into_iter().filter_map(Result::ok) {
-            let matches = entry.file_type().is_file()
-                && entry
-                    .path()
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case(ext));
-            if matches {
-                out.push(entry.into_path());
+    for kind in RESOURCE_KINDS {
+        let walk = walkdir::WalkDir::new(resource_dir.join(kind.folder()))
+            .follow_links(true)
+            .into_iter()
+            // Don't descend into .git, __pycache__ and the like.
+            .filter_entry(|e| {
+                e.depth() == 0 || {
+                    let n = e.file_name().to_string_lossy();
+                    !n.starts_with('.') && n != "__pycache__"
+                }
+            });
+        for entry in walk.filter_map(Result::ok) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let Ok(rel) = entry.path().strip_prefix(resource_dir) else {
+                continue;
+            };
+            let rel: Vec<_> = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            let rel = rel.join("/");
+            if resource_kind(&rel) == Some(kind) {
+                out.push((entry.into_path(), rel, kind));
             }
         }
     }
-    out.sort();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
+}
+
+/// Template files under a resource folder: `TrackTemplates/**.RTrackTemplate`,
+/// `ProjectTemplates/**.RPP` and `FXChains/**.RfxChain`. Sorted.
+pub fn find_templates(resource_dir: &Path) -> Vec<PathBuf> {
+    find_resources(resource_dir)
+        .into_iter()
+        .filter(|(_, _, k)| k.is_template())
+        .map(|(p, _, _)| p)
+        .collect()
 }
 
 /// Parse every template under a resource folder. Unreadable files are skipped.
@@ -244,14 +366,14 @@ pub fn scan_templates(resource_dir: &Path) -> Vec<TemplateDeps> {
 /// Logical root for Reaper's resource folder in manifests.
 pub const REAPER_RESOURCES: &str = "REAPER_RESOURCES";
 
-/// Every template under a resource folder as a manifest item (#37).
+/// Every tracked file under a resource folder as a manifest item (#37, #40).
 ///
-/// Each template is a portable `daw_asset` product `reaper-template/<path>`
-/// at `REAPER_RESOURCES/<rel>`, with its content hash (templates are
-/// user-owned files) and `requires` set to the products it uses.
-/// `product_of` maps a plug-in reference to a product ID, or `None` to leave
-/// it out (e.g. stock JSFX that ship with Reaper). Unreadable files are
-/// skipped.
+/// Each is a portable `daw_asset` product `reaper-template/<path>` (or
+/// `reaper-script/`, `reaper-theme/`) at `REAPER_RESOURCES/<rel>`, with its
+/// content hash (they are user-owned files). Templates also get `requires`
+/// set to the products they use: `product_of` maps a plug-in reference to a
+/// product ID, or `None` to leave it out (e.g. stock JSFX that ship with
+/// Reaper). Unreadable files are skipped.
 pub fn template_items(
     resource_dir: &Path,
     os: Os,
@@ -259,23 +381,19 @@ pub fn template_items(
 ) -> (Vec<Product>, Vec<Item>) {
     let mut products = Vec::new();
     let mut items = Vec::new();
-    for path in find_templates(resource_dir) {
+    for (path, rel, kind) in find_resources(resource_dir) {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        let Ok(rel) = path.strip_prefix(resource_dir) else {
-            continue;
+        let id = ProductId(format!("{}/{}", kind.product_prefix(), slug(&rel)));
+        let mut requires: Vec<ProductId> = if kind.is_template() {
+            parse_template(&String::from_utf8_lossy(&bytes))
+                .iter()
+                .filter_map(&product_of)
+                .collect()
+        } else {
+            Vec::new()
         };
-        let rel: Vec<_> = rel
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect();
-        let rel = rel.join("/");
-        let id = ProductId(format!("reaper-template/{}", slug(&rel)));
-        let mut requires: Vec<ProductId> = parse_template(&String::from_utf8_lossy(&bytes))
-            .iter()
-            .filter_map(&product_of)
-            .collect();
         requires.sort();
         requires.dedup();
         let meta = std::fs::metadata(&path).ok();
@@ -357,6 +475,41 @@ mod tests {
     fn vst3_without_class_id_falls_back_to_file_name() {
         let refs = parse_template(r#"<VST "VST3: Old (Acme)" "Old.vst3" 0 "" 12345 """#);
         assert_eq!(refs[0].identity_hint(), "vst3:Old.vst3");
+    }
+
+    #[test]
+    fn resource_paths_from_other_machines_are_checked() {
+        use ResourceKind::*;
+        for (ok, kind) in [
+            ("TrackTemplates/Vocals.RTrackTemplate", TrackTemplate),
+            ("FXChains/Mix/Bus Glue.RfxChain", FxChain),
+            ("ProjectTemplates/Podcast.rpp", ProjectTemplate),
+            ("Scripts/ReaTeam Scripts/Items/X.lua", Script),
+            ("Scripts/tool/icon.png", Script),
+            ("ColorThemes/Imperial.ReaperThemeZip", Theme),
+        ] {
+            assert_eq!(resource_kind(ok), Some(kind), "{ok}");
+        }
+        for bad in [
+            "reaper.ini",
+            "reaper-kb.ini",
+            "FXChains/../reaper.ini",
+            "FXChains/../../x.RfxChain",
+            "/FXChains/a.RfxChain",
+            "FXChains/a.RTrackTemplate",
+            "FXChains/C:a.RfxChain",
+            "FXChains\\a.RfxChain",
+            "FXChains/a.RfxChain/",
+            "FXChains//a.RfxChain",
+            "Effects/a.RfxChain",
+            "UserPlugins/reaper_sws64.dll",
+            "Scripts/tool/helper.dll",
+            "Scripts/.git/config",
+            "Scripts/x/__pycache__/a.pyc",
+            "Scripts",
+        ] {
+            assert_eq!(resource_kind(bad), None, "{bad}");
+        }
     }
 
     #[test]

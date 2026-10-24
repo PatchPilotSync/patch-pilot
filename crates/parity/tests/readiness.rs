@@ -79,12 +79,26 @@ fn templates_become_portable_items_with_requirements() {
     assert_eq!(
         names,
         [
+            "ColorThemes/Studio Dark.ReaperTheme",
             "FXChains/Bus Glue.RfxChain",
             "ProjectTemplates/Mix Template.RPP",
+            "Scripts/Tools/Nudge.lua",
             "TrackTemplates/Vocals/Lead Vocal.RTrackTemplate",
         ]
     );
-    assert_eq!(items.len(), 3);
+    // Scripts and themes are tracked (#40) but need no plug-ins; compiled
+    // code, `.git` and `__pycache__` under Scripts/ are skipped.
+    assert_eq!(items.len(), 5);
+    let ids: Vec<_> = products.iter().map(|p| p.canonical_id.0.as_str()).collect();
+    assert!(
+        ids.contains(&"reaper-script/scripts-tools-nudge-lua"),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&"reaper-theme/colorthemes-studio-dark-reapertheme"),
+        "{ids:?}"
+    );
+    assert_eq!(items.iter().filter(|i| !i.requires.is_empty()).count(), 3);
     let lead = items
         .iter()
         .find(|i| {
