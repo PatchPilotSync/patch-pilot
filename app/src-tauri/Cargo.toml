@@ -30,6 +30,7 @@ patchpilot-scanner = { path = "../../crates/scanner" }
 patchpilot-parity = { path = "../../crates/parity" }
 patchpilot-store = { path = "../../crates/store" }
 patchpilot-sync = { path = "../../crates/sync" }
+patchpilot-vault = { path = "../../crates/vault" }
 # Live sync transport (decision #38). rustls with ring, like the updater, so no
 # C toolchain is needed for aws-lc on Windows.
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }

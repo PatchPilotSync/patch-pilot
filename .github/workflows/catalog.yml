@@ -1,6 +1,6 @@
 # Publishes the plug-in catalog (crates/catalog/data/catalog.json) to the
 # public PatchPilotSync/patch-pilot-releases repo, where the app checks for a
-# newer copy once a day (decision #43). Runs when the catalog changes on main.
+# newer copy once a day (decision #44). Runs when the catalog changes on main.
 #
 # Secret: RELEASES_TOKEN (contents: write on patch-pilot-releases), the same
 # one the release workflow uses.

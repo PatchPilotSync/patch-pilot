@@ -1,4 +1,4 @@
-//! Plug-in catalog and update alerts (decision #43).
+//! Plug-in catalog and update alerts (decision #44).
 //!
 //! The app starts with the catalog compiled into it, then uses the copy
 //! cached in app data, then checks the public releases repo for a newer one:
@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::rig::{db_path, err, open};
 
-/// The catalog file on the public releases repo (decision #43).
+/// The catalog file on the public releases repo (decision #44).
 const DEFAULT_CATALOG_URL: &str =
     "https://raw.githubusercontent.com/PatchPilotSync/patch-pilot-releases/main/catalog.json";
 const CACHE_FILE: &str = "catalog.json";

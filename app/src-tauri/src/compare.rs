@@ -188,7 +188,7 @@ pub(crate) fn comparison(
     })
 }
 
-fn existing_store() -> Result<Option<Store>, String> {
+pub(crate) fn existing_store() -> Result<Option<Store>, String> {
     let db = db_path()?;
     if !db.exists() {
         return Ok(None);
