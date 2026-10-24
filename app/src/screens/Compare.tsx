@@ -2,10 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   compareMachine,
   FORMAT_LABEL,
+  openVendorApp,
   PHASE_LABEL,
   planMachine,
   STATE_HINT,
   STATE_LABEL,
+  vaultMatches,
+  vaultRun,
+  vendorApps,
   type ComparisonRow,
   type MachineCard,
   type MachineComparison,
@@ -13,6 +17,8 @@ import {
   type ParityState,
   type PluginFormat,
   type Step,
+  type VaultMatch,
+  type VendorApp,
 } from "../api";
 import { Badge, Button, inputClass, Pill, ScoreBar, scoreColor, timeAgo } from "../ui";
 
@@ -106,7 +112,13 @@ export function Compare({ view, focus, onError }: Props) {
         ) : !data ? (
           <Empty text={selected ? "Comparing…" : "No machines yet."} />
         ) : plan ? (
-          <PlanView name={data.machine.name} steps={plan} onBack={() => setPlan(null)} />
+          <PlanView
+            name={data.machine.name}
+            steps={plan}
+            here={data.machine.is_this_machine}
+            onError={onError}
+            onBack={() => setPlan(null)}
+          />
         ) : (
           <Diff
             data={data}
@@ -396,15 +408,42 @@ function Side({ title, items }: { title: string; items: ComparisonRow["golden_it
   );
 }
 
-function PlanView({ name, steps, onBack }: { name: string; steps: Step[]; onBack: () => void }) {
+function PlanView({
+  name,
+  steps,
+  here,
+  onError,
+  onBack,
+}: {
+  name: string;
+  steps: Step[];
+  /** The plan is for this machine, so its apps and installers can be opened. */
+  here: boolean;
+  onError: (e: string) => void;
+  onBack: () => void;
+}) {
   const [done, setDone] = useState<Set<number>>(new Set());
+  const [apps, setApps] = useState<VendorApp[]>([]);
+  const [installers, setInstallers] = useState<Map<string, VaultMatch>>(new Map());
+  useEffect(() => {
+    if (!here) return;
+    vendorApps().then(setApps, () => {});
+    vaultMatches(steps.flatMap((s) => s.products)).then(
+      (m) => setInstallers(new Map(m.map((x) => [x.product_id, x]))),
+      () => {},
+    );
+  }, [here, steps]);
+  const open = (id: string) => openVendorApp(id).catch((e) => onError(String(e)));
+  const run = (entry: string) => vaultRun(entry).catch((e) => onError(String(e)));
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
       <header className="flex items-center gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">Up To Speed: {name}</h1>
           <p className="text-xs text-dim">
-            A checklist. Patch Pilot doesn't install or copy anything; rescan when you're done.
+            {here
+              ? "A checklist. Open the apps and installers from here; you install, then Patch Pilot rescans."
+              : "A checklist. Patch Pilot doesn't install or copy anything; rescan when you're done."}
           </p>
         </div>
         <span className="text-xs tabular-nums text-dim">
@@ -441,9 +480,26 @@ function PlanView({ name, steps, onBack }: { name: string; steps: Step[]; onBack
                 </span>
                 {s.details.length > 0 && (
                   <ul className="mt-0.5 text-xs text-dim">
-                    {s.details.map((d) => (
-                      <li key={d}>{d}</li>
-                    ))}
+                    {s.details.map((d, n) => {
+                      const installer = installers.get(s.products[n]);
+                      return (
+                        <li key={d} className="flex items-center gap-2">
+                          <span className="min-w-0 truncate">{d}</span>
+                          {installer && (
+                            <button
+                              className="shrink-0 text-accent-text hover:underline"
+                              title={`From your Installer Vault: ${installer.file_name}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                run(installer.entry_id);
+                              }}
+                            >
+                              Run installer{installer.version ? ` ${installer.version}` : ""}
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 {s.after.length > 0 && (
@@ -452,10 +508,29 @@ function PlanView({ name, steps, onBack }: { name: string; steps: Step[]; onBack
                   </span>
                 )}
               </span>
+              {s.app && <AppButton app={apps.find((a) => a.id === s.app)} onOpen={open} />}
             </label>
           </li>
         ))}
       </ol>
     </div>
+  );
+}
+
+/** "Open Native Access", or "Get Native Access" when it isn't installed here. */
+function AppButton({ app, onOpen }: { app: VendorApp | undefined; onOpen: (id: string) => void }) {
+  if (!app || (!app.can_open && !app.download_url)) return null;
+  return (
+    <Button
+      variant="quiet"
+      className="shrink-0 self-start"
+      title={app.can_open ? undefined : "Opens the vendor's download page"}
+      onClick={(e) => {
+        e.preventDefault();
+        onOpen(app.id);
+      }}
+    >
+      {app.can_open ? "Open" : "Get"} {app.name}
+    </Button>
   );
 }
