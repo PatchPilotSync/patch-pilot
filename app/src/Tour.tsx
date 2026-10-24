@@ -61,7 +61,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Get up to speed",
-    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. You install things yourself; Patch Pilot never runs an installer or touches a license.",
+    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license.",
     art: <ChecklistArt />,
   },
   {
@@ -71,9 +71,8 @@ const STEPS: Step[] = [
         Click the plane in the {TRAY} for every machine's score. Expand, or double-click the popover, to open this
         window. It opens when your computer starts and rescans on its own when plug-in folders change; each change is
         saved as a snapshot, and History lets you go back.
-        <span className="mt-2 flex items-center gap-1.5">
-          <Badge>Soon</Badge>
-          <span>Installer Vault: your installers, on your drive.</span>
+        <span className="mt-2 block">
+          The Vault tab keeps the installers you download in a folder you choose, ready for your next machine.
         </span>
       </>
     ),

@@ -28,7 +28,7 @@ pub use scan::{ScanInput, ScanOutput, product_id, scan_machine, slug};
 pub use vendor_apps::read_uninstall_entries;
 pub use vendor_apps::{
     ADAPTERS, Detection, UninstallEntry, VendorAdapter, VendorAppStatus, detect_macos,
-    detect_windows,
+    detect_windows, windows_executable,
 };
 pub use vst2_aax::{MetaSource, PluginMeta, read_aax, read_clap, read_vst2};
 pub use vst3::{Vst3Class, Vst3Info, Vst3Source, read_vst3};
