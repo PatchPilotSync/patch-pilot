@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### Fixed
+
+- Patch Pilot now notices new versions while it keeps running in the menu bar or tray: it checks again when you open its window, at most once an hour.
+- Arturia Audio Units show their real version (1.1.5) instead of a long number (65797).
+
 ## 0.3.0 - 2026-10-24
 
 ### New

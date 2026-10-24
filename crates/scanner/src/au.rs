@@ -45,11 +45,16 @@ pub struct AuInfo {
 }
 
 impl AuInfo {
-    /// The bundle's version string, falling back to the first component's.
+    /// The bundle's marketing version, then the first component's, then the
+    /// bundle's build version. Some vendors (Arturia) leave out the marketing
+    /// version and put the packed AU number in `CFBundleVersion`, which would
+    /// show as "65797" instead of the component's decoded "1.1.5".
     pub fn version(&self) -> Option<&str> {
         self.bundle
-            .version()
+            .short_version
+            .as_deref()
             .or_else(|| self.components.iter().find_map(|c| c.version.as_deref()))
+            .or(self.bundle.bundle_version.as_deref())
     }
 }
 
@@ -176,5 +181,35 @@ mod tests {
         assert_eq!(decode_version(&s("0x00010203")).as_deref(), Some("1.2.3"));
         assert_eq!(decode_version(&s("131328")).as_deref(), Some("2.1.0"));
         assert_eq!(decode_version(&s("2.1b3")).as_deref(), Some("2.1b3"));
+    }
+
+    #[test]
+    fn component_version_beats_packed_bundle_version() {
+        let component = |version: Option<&str>| AuComponent {
+            au_type: "aumu".into(),
+            subtype: "Acid".into(),
+            manufacturer: "Artu".into(),
+            name: "Arturia: Acid V".into(),
+            vendor: Some("Arturia".into()),
+            product_name: "Acid V".into(),
+            version: version.map(str::to_owned),
+            description: None,
+        };
+        let mut info = AuInfo {
+            name: "Acid V".into(),
+            bundle: BundleInfo {
+                bundle_version: Some("65797".into()),
+                ..Default::default()
+            },
+            components: vec![component(Some("1.1.5"))],
+            confidence: Confidence::High,
+            warnings: vec![],
+        };
+        assert_eq!(info.version(), Some("1.1.5"));
+        info.bundle.short_version = Some("1.1.5.2201".into());
+        assert_eq!(info.version(), Some("1.1.5.2201"));
+        info.bundle.short_version = None;
+        info.components = vec![component(None)];
+        assert_eq!(info.version(), Some("65797"));
     }
 }
