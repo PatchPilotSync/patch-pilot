@@ -2,12 +2,15 @@
 //!
 //! The glue between the OS and the other crates, shared by the `patchpilot`
 //! CLI and the desktop app so both scan the same way. Read-only except for
-//! Patch Pilot's own app-data folder.
+//! Patch Pilot's own app-data folder and the Installer Vault folder the user
+//! picked.
 
 mod anonymize;
 pub mod apps;
 pub mod bring;
+pub mod open;
 pub mod sync;
+pub mod vault;
 mod watch;
 
 use std::path::{Path, PathBuf};
@@ -17,7 +20,7 @@ use patchpilot_scanner::{PluginRoot, ScanInput, SystemDirs, default_roots};
 use patchpilot_store::{SnapshotInfo, SnapshotReason, Store, StoreError};
 
 pub use anonymize::anonymize;
-pub use watch::{FolderWatch, watch_folders, watched_folders};
+pub use watch::{FolderWatch, watch_folder_flat, watch_folders, watched_folders};
 
 /// What to scan besides the defaults.
 #[derive(Debug, Clone)]
@@ -255,7 +258,7 @@ fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
 }
 
 /// Add Reaper templates under `dir` as items that require their plug-ins,
-/// plus the scripts and themes Bring over shares (#44). Returns how many
+/// plus the scripts and themes Bring over shares (#45). Returns how many
 /// templates were added.
 pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};

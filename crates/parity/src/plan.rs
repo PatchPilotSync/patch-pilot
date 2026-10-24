@@ -45,6 +45,9 @@ pub struct Step {
     pub products: Vec<ProductId>,
     /// Step numbers that must be done first.
     pub after: Vec<usize>,
+    /// The vendor app or licensing tool this step uses (scanner adapter ID,
+    /// e.g. `native-access`), so the app can offer to open it.
+    pub app: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -136,20 +139,22 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         .collect();
 
     let mut steps: Vec<Step> = Vec::new();
-    let mut push = |phase, title: String, items: &[&ProductDiff], after: Vec<usize>| {
-        let number = steps.len() + 1;
-        let mut items = items.to_vec();
-        items.sort_by(|a, b| a.name.cmp(&b.name));
-        steps.push(Step {
-            number,
-            phase,
-            title,
-            details: items.iter().map(|p| detail(p)).collect(),
-            products: items.iter().map(|p| p.product_id.clone()).collect(),
-            after,
-        });
-        number
-    };
+    let mut push =
+        |phase, title: String, items: &[&ProductDiff], after: Vec<usize>, app: Option<&str>| {
+            let number = steps.len() + 1;
+            let mut items = items.to_vec();
+            items.sort_by(|a, b| a.name.cmp(&b.name));
+            steps.push(Step {
+                number,
+                phase,
+                title,
+                details: items.iter().map(|p| detail(p)).collect(),
+                products: items.iter().map(|p| p.product_id.clone()).collect(),
+                after,
+                app: app.and_then(|a| a.strip_prefix("app/")).map(str::to_owned),
+            });
+            number
+        };
 
     // Foundation: licensing first (PACE/iLok before anything that needs it),
     // then vendor apps.
@@ -163,6 +168,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             format!("{} {}", verb(p), p.name),
             &[p],
             Vec::new(),
+            Some(&p.product_id.0),
         );
         license_steps.push(n);
     }
@@ -176,6 +182,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             format!("{} {}", verb(p), p.name),
             &[p],
             license_steps.clone(),
+            Some(&p.product_id.0),
         );
         app_steps.insert(p.product_id.0.clone(), n);
     }
@@ -209,6 +216,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
                     format!("Install {}", m.name),
                     &[],
                     license_steps.clone(),
+                    Some(m.app),
                 );
                 add_dep(&mut after, n);
             }
@@ -219,6 +227,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             format!("Open {} and {}", m.name, count_phrase(items)),
             items,
             after,
+            Some(m.app),
         );
     }
     for (vendor, items) in &by_vendor {
@@ -232,11 +241,12 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             format!("Install from {from}: {}", count_phrase(items)),
             items,
             license_steps.clone(),
+            None,
         );
     }
 
     // DAW files and configs are user-owned; linked machines bring them over
-    // in one click (decision #44).
+    // in one click (decision #45).
     let files: Vec<&ProductDiff> = todo
         .iter()
         .copied()
@@ -257,6 +267,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             ),
             &files,
             Vec::new(),
+            None,
         );
     }
 
