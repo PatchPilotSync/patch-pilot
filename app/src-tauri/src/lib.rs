@@ -4,6 +4,7 @@
 mod alerts;
 mod background;
 mod compare;
+mod report;
 mod rig;
 mod sync;
 mod tray;
@@ -45,6 +46,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(rig::Scanning::default())
         .manage(tray::LastHidden::default())
         .setup(|app| {
@@ -72,6 +74,8 @@ pub fn run() {
             compare::import_bundle,
             compare::add_to_golden,
             compare::ignore_suggestion,
+            report::rig_report_preview,
+            report::save_rig_report,
             sync::sync_status,
             sync::link_start,
             sync::link_join,
