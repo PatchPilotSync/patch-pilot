@@ -212,7 +212,7 @@ pub fn reaper_resource_dir(os: Os, appdata: &str, home: &str) -> Option<PathBuf>
 }
 
 /// A user-owned file in Reaper's resource folder that Patch Pilot tracks and
-/// can bring over to another machine (decision #42). Mirrored in `app/src/api.ts`.
+/// can bring over to another machine (decision #44). Mirrored in `app/src/api.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
@@ -377,7 +377,7 @@ pub fn scan_templates(resource_dir: &Path) -> Vec<TemplateDeps> {
 /// Logical root for Reaper's resource folder in manifests.
 pub const REAPER_RESOURCES: &str = "REAPER_RESOURCES";
 
-/// Every tracked file under a resource folder as a manifest item (#37, #42).
+/// Every tracked file under a resource folder as a manifest item (#37, #44).
 ///
 /// Each is a portable `daw_asset` product `reaper-template/<path>` (or
 /// `reaper-script/`, `reaper-theme/`) at `REAPER_RESOURCES/<rel>`, with its

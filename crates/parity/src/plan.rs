@@ -236,7 +236,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
     }
 
     // DAW files and configs are user-owned; linked machines bring them over
-    // in one click (decision #42).
+    // in one click (decision #44).
     let files: Vec<&ProductDiff> = todo
         .iter()
         .copied()

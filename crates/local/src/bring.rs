@@ -1,4 +1,4 @@
-//! Bring over (decision #42): copy the Golden Rig's user-owned files, such as
+//! Bring over (decision #44): copy the Golden Rig's user-owned files, such as
 //! Reaper templates, FX chains, scripts and themes, onto this machine. Never plug-ins (CLAUDE.md
 //! rule 2), never silently: the user picks the files, anything replaced is
 //! backed up to app-data first, and each file is staged and renamed into place.

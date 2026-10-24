@@ -1,4 +1,4 @@
-//! Bring over (decision #42): the Golden Rig's templates, scripts and themes
+//! Bring over (decision #44): the Golden Rig's templates, scripts and themes
 //! that this machine lacks, fetched from the relay and written with a backup.
 //! What to bring and how it's written live in `patchpilot_local::bring`.
 

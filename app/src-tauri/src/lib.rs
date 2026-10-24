@@ -4,6 +4,7 @@
 mod background;
 mod bring;
 mod compare;
+mod report;
 mod rig;
 mod sync;
 mod tray;
@@ -44,6 +45,7 @@ pub fn run() {
         // installs when the user says so.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(rig::Scanning::default())
         .manage(tray::LastHidden::default())
         .setup(|app| {
@@ -70,6 +72,8 @@ pub fn run() {
             compare::import_bundle,
             bring::files_to_bring,
             bring::bring_files,
+            report::rig_report_preview,
+            report::save_rig_report,
             sync::sync_status,
             sync::link_start,
             sync::link_join,
