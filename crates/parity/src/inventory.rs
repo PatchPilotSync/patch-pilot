@@ -24,6 +24,16 @@ pub struct Inventory {
     pub apps: Vec<AppRow>,
     /// DAW templates, project templates and FX chains.
     pub templates: usize,
+    /// Third-party preset folders found ([`crate::presets`]), by name.
+    pub presets: Vec<PresetRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PresetRow {
+    pub name: String,
+    pub vendor: String,
+    /// Bytes in the folder.
+    pub size: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -64,6 +74,7 @@ pub fn inventory(m: &Manifest) -> Inventory {
     let mut apps = Vec::new();
     let mut plugins = 0;
     let mut templates = 0;
+    let mut presets = Vec::new();
 
     for item in &m.items {
         let product = item.product_id.as_ref().and_then(|id| m.product(id));
@@ -114,6 +125,13 @@ pub fn inventory(m: &Manifest) -> Inventory {
                 kind: item.kind,
                 version: item.version.clone(),
             }),
+            ItemKind::Folder if crate::presets::is_preset_item(item) => {
+                presets.push(PresetRow {
+                    name: product.map_or_else(|| path_label(&item.path), |p| p.name.clone()),
+                    vendor: product.map(|p| p.vendor.clone()).unwrap_or_default(),
+                    size: item.size,
+                });
+            }
             ItemKind::DawAsset if is_template(item) => {
                 templates += 1;
             }
@@ -122,6 +140,7 @@ pub fn inventory(m: &Manifest) -> Inventory {
     }
 
     apps.sort_by_key(|a| a.name.to_lowercase());
+    presets.sort_by_key(|p| p.name.to_lowercase());
     let vendors: Vec<VendorGroup> = vendors
         .into_values()
         .map(|(vendor, products)| {
@@ -137,6 +156,7 @@ pub fn inventory(m: &Manifest) -> Inventory {
         vendors,
         apps,
         templates,
+        presets,
     }
 }
 
