@@ -237,7 +237,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
 
     // ReaPack installs its own packages once its repositories are there, and
     // Reaper's folder settings are pointed at this machine's folders; both
-    // are one click in the app (decision #40).
+    // are one click in the app (decision #43).
     let reapack: Vec<&ProductDiff> = todo
         .iter()
         .copied()
@@ -247,7 +247,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         push(
             Phase::Manual,
             format!(
-                "Restore {} with ReaPack (Reaper must be closed)",
+                "Restore {} (Reaper must be closed)",
                 count_noun(reapack.len(), "ReaPack item")
             ),
             &reapack,

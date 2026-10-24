@@ -14,6 +14,7 @@ import {
   type PluginFormat,
   type Step,
 } from "../api";
+import { ReaperExtras } from "../ReaperExtras";
 import { Badge, Button, inputClass, Pill, ScoreBar, scoreColor, timeAgo } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
@@ -106,7 +107,13 @@ export function Compare({ view, focus, onError }: Props) {
         ) : !data ? (
           <Empty text={selected ? "Comparing…" : "No machines yet."} />
         ) : plan ? (
-          <PlanView name={data.machine.name} steps={plan} onBack={() => setPlan(null)} />
+          <PlanView
+            name={data.machine.name}
+            here={data.machine.is_this_machine}
+            steps={plan}
+            onBack={() => setPlan(null)}
+            onError={onError}
+          />
         ) : (
           <Diff
             data={data}
@@ -577,7 +584,19 @@ function Side({ title, items }: { title: string; items: ComparisonRow["golden_it
   );
 }
 
-function PlanView({ name, steps, onBack }: { name: string; steps: Step[]; onBack: () => void }) {
+function PlanView({
+  name,
+  here,
+  steps,
+  onBack,
+  onError,
+}: {
+  name: string;
+  here: boolean;
+  steps: Step[];
+  onBack: () => void;
+  onError: (e: string) => void;
+}) {
   const [done, setDone] = useState<Set<number>>(new Set());
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
@@ -595,6 +614,7 @@ function PlanView({ name, steps, onBack }: { name: string; steps: Step[]; onBack
           Back to diff
         </Button>
       </header>
+      {here && <ReaperExtras onError={onError} />}
       {steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       <ol className="-mx-2 flex flex-col">
         {steps.map((s, i) => (

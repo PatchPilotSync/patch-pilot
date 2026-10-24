@@ -32,6 +32,15 @@ content-hashed. Their `requires` lists the plug-ins they use, keyed the same
 way the scanner keys products (`<vendor>/<name>`), so a template can require a
 product the machine doesn't have.
 
+ReaPack repositories are `config` items (`reapack-repo/<name slug>`, vendor
+`ReaPack`) whose path is the repository's index URL as an `absolute` path.
+Installed packages are `daw_asset` items (`reapack/<repo>/<category>/<package>`
+slugs) at `REAPACK/<repo>/<category>/<package>` with the package version;
+only native extensions are per-OS. Reaper folder settings are `config` items
+(`reaper-folder/<ini key>`, or `reaper-folder/explorer/<label slug>` for Media
+Explorer shortcuts) whose path is the folder, portable through the `HOME` and
+`REAPER_RESOURCES` roots where possible (decision #43).
+
 ## Paths
 
 Paths are portable so Windows and macOS manifests compare directly:

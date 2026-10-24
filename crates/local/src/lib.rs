@@ -5,8 +5,8 @@
 //! Patch Pilot's own app-data folder.
 
 mod anonymize;
-pub mod restore;
 pub mod reaper_extras;
+pub mod restore;
 pub mod sync;
 mod watch;
 
@@ -233,6 +233,12 @@ fn detect_vendor_apps(os: Os, dirs: &SystemDirs) -> Vec<patchpilot_scanner::Vend
         }
         Os::Windows => Vec::new(),
     }
+}
+
+/// This machine's standard Reaper resource folder, if Reaper is set up here.
+pub fn standard_reaper_dir() -> Option<PathBuf> {
+    let os = Os::current()?;
+    default_reaper_dir(os, &SystemDirs::from_env()?)
 }
 
 /// Reaper's standard resource folder, if it exists. It holds the CLAP cache

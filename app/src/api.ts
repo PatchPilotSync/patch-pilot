@@ -223,3 +223,35 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
   listen<SyncStatus>("sync-status", (e) => f(e.payload));
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
+
+// Reaper extras (decision #43): ReaPack restore and folder settings.
+export interface ReaPackRemote {
+  name: string;
+  url: string;
+  enabled: boolean;
+}
+export interface ReaPackPackage {
+  remote: string;
+  category: string;
+  package: string;
+  desc: string;
+  version: string;
+  kind: number;
+}
+export type FolderSetting = { type: "key"; key: string } | { type: "explorer"; label: string };
+export interface FolderFix {
+  setting: FolderSetting;
+  name: string;
+  golden: string;
+  current: string | null;
+  proposed: string | null;
+}
+export interface ReaperExtras {
+  reaper_found: boolean;
+  reapack_installed: boolean;
+  reapack: { missing_remotes: ReaPackRemote[]; missing_packages: ReaPackPackage[] };
+  folders: FolderFix[];
+}
+export const reaperExtras = () => invoke<ReaperExtras | null>("reaper_extras");
+export const restoreReapack = () => invoke<ReaperExtras | null>("restore_reapack");
+export const fixReaperFolders = () => invoke<ReaperExtras | null>("fix_reaper_folders");

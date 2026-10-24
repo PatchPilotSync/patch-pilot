@@ -3,6 +3,7 @@
 
 mod background;
 mod compare;
+mod reaper;
 mod rig;
 mod sync;
 mod tray;
@@ -67,6 +68,9 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            reaper::reaper_extras,
+            reaper::restore_reapack,
+            reaper::fix_reaper_folders,
             sync::sync_status,
             sync::link_start,
             sync::link_join,
