@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Badge, Button, Mark, ScoreBar } from "./ui";
+import { Badge, Button, Mark, ScoreBar, scoreColor } from "./ui";
 
 // The first-run tutorial (decision #36): a short, skippable card that explains
 // the core ideas. Shown once on first launch, reopened from "How it works".
@@ -34,6 +34,9 @@ function markSeen() {
   }
 }
 
+/** Where the icon lives: "menu bar" on macOS, "system tray" on Windows. */
+const TRAY = /Mac/i.test(navigator.userAgent) ? "menu bar" : "system tray";
+
 interface Step {
   title: string;
   body: ReactNode;
@@ -43,7 +46,7 @@ interface Step {
 const STEPS: Step[] = [
   {
     title: "Every rig, ready for the session",
-    body: "Patch Pilot keeps your studio, laptop and travel machines in step, so a project that opens on one opens on all of them. It reads metadata only: nothing is loaded, copied or uploaded.",
+    body: "Patch Pilot keeps your studio, laptop and travel machines in step, so a project that opens on one opens on all of them. It only reads what's installed: nothing is loaded, changed or copied.",
     art: <MachinesArt />,
   },
   {
@@ -53,7 +56,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Compare and catch drift",
-    body: "Each machine is compared with the Golden Rig. Anything missing, older or short a format shows up as drift, and the parity score sums it up, always with the reasons behind it.",
+    body: "Compare shows what each machine is missing next to the Golden Rig. Anything missing, older or short a format is drift, and the parity score sums it up, always with the reasons behind it.",
     art: <CompareArt />,
   },
   {
@@ -62,18 +65,19 @@ const STEPS: Step[] = [
     art: <ChecklistArt />,
   },
   {
-    title: "Snapshots keep the history",
+    title: `Lives in your ${TRAY}`,
     body: (
       <>
-        Every scan that finds a change is saved as a snapshot, so Patch Pilot knows what changed and when. Rescan
-        from the tray any time.
+        Click the plane in the {TRAY} for every machine's score. Expand, or double-click the popover, to open this
+        window. It opens when your computer starts and rescans on its own when plug-in folders change; each change is
+        saved as a snapshot.
         <span className="mt-2 flex items-center gap-1.5">
           <Badge>Soon</Badge>
           <span>Installer Vault: your installers, on your drive.</span>
         </span>
       </>
     ),
-    art: <SnapshotsArt />,
+    art: <TrayArt />,
   },
 ];
 
@@ -262,26 +266,31 @@ function ChecklistArt() {
   );
 }
 
-function SnapshotsArt() {
-  const points = [
-    ["Oct 2", "First scan"],
-    ["Oct 14", "+3 plug-ins"],
-    ["Today", "Serum 2.0.14"],
-  ];
+function TrayArt() {
+  const rows = [
+    ["Studio PC", 100],
+    ["Travel laptop", 87],
+  ] as const;
   return (
-    <div className="relative flex w-[250px] justify-between" aria-hidden="true">
-      <div className="absolute left-[18px] right-[18px] top-[5px] h-px bg-line" />
-      {points.map(([when, what], n) => (
-        <div key={when} className="relative flex w-[80px] flex-col items-center text-center">
-          <span
-            className={`h-[11px] w-[11px] rounded-full border-2 ${
-              n === points.length - 1 ? "border-accent bg-accent" : "border-dim bg-canvas"
-            }`}
-          />
-          <span className="mt-2 text-xs font-medium">{when}</span>
-          <span className="text-[11px] text-dim">{what}</span>
-        </div>
-      ))}
+    <div className="w-[230px] rounded-md border border-line bg-panel text-xs shadow-sm" aria-hidden="true">
+      <div className="flex h-7 items-center gap-1.5 px-2.5">
+        <Mark size={12} className="text-accent-text" />
+        <span className="font-semibold">Patch Pilot</span>
+        <span className="flex-1" />
+        <span className="text-[10px] text-dim">Scanned just now</span>
+      </div>
+      <div className="flex flex-col gap-1 px-2 pb-2">
+        {rows.map(([name, score]) => (
+          <div key={name} className="flex h-7 items-center gap-2 rounded-md border border-line bg-canvas px-2.5">
+            <span className="flex-1 font-medium">{name}</span>
+            <span className={`font-semibold tabular-nums ${scoreColor(score)}`}>{score}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex h-8 items-center justify-end gap-1 border-t border-line px-2">
+        <span className="rounded-md px-2 py-0.5 text-dim">Expand</span>
+        <span className="rounded-md bg-accent px-2 py-0.5 font-semibold text-on-accent">Up To Speed</span>
+      </div>
     </div>
   );
 }

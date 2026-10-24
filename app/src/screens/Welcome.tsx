@@ -9,7 +9,7 @@ export function Welcome({ onScan, onTour }: { onScan: (name: string) => void; on
         <h1 className="text-lg font-semibold">Let's see what's on this machine</h1>
         <p className="mt-1.5 leading-relaxed text-dim">
           Patch Pilot lists the plug-ins, vendor apps and Reaper templates installed here, so you can keep
-          every machine matching. It only reads metadata: nothing is loaded, changed or uploaded.{" "}
+          every machine matching, and keeps that list current on its own. It only reads metadata: nothing is loaded, changed or uploaded.{" "}
           <button type="button" onClick={onTour} className="text-accent-text hover:underline">
             How it works
           </button>

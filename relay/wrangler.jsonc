@@ -1,0 +1,16 @@
+// The Patch Pilot sync relay (decision #38). Deployed by
+// .github/workflows/relay.yml; see relay/README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "patch-pilot-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-20",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "RIG", "class_name": "Rig" },
+      { "name": "MAILBOX", "class_name": "Mailbox" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Rig", "Mailbox"] }]
+}
