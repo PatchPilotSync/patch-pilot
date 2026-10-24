@@ -16,7 +16,7 @@ import { Compare, type Focus } from "./screens/Compare";
 import { Rig } from "./screens/Rig";
 import { Scanning } from "./screens/Scanning";
 import { Welcome } from "./screens/Welcome";
-import { Tour, tourPending } from "./Tour";
+import { resetTour, Tour, tourPending } from "./Tour";
 import { Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
@@ -34,6 +34,10 @@ export default function App() {
   const [notice, setNotice] = useState<string[] | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   const [tour, setTour] = useState(tourPending);
+  // "Replay First Run" in the tray menu (temporary, for testing onboarding):
+  // the welcome screen and tour as a new user sees them. Saved data is untouched;
+  // scanning from there just rescans this machine.
+  const [replay, setReplay] = useState(false);
 
   const refresh = useCallback(() => {
     loadOverview().then(setOverview, (e) => setError(String(e)));
@@ -66,9 +70,17 @@ export default function App() {
     });
     // A rescan from the tray popover.
     const unlistenChanged = listen("data-changed", refresh);
+    const unlistenReplay = listen("replay-first-run", () => {
+      resetTour();
+      setReplay(true);
+      setTour(true);
+      setError(null);
+      setNotice(null);
+    });
     return () => {
       unlistenShow.then((f) => f());
       unlistenChanged.then((f) => f());
+      unlistenReplay.then((f) => f());
       unlistenProgress.then((f) => f());
       unlistenDrop.then((f) => f());
     };
@@ -78,6 +90,7 @@ export default function App() {
     setError(null);
     setProgress(null);
     setScanning(true);
+    setReplay(false);
     try {
       const report = await scanMachine(name);
       setOverview(report.overview);
@@ -107,7 +120,7 @@ export default function App() {
 
   return (
     <main className="flex h-full flex-col bg-canvas text-fg antialiased">
-      {overview?.machine && !scanning && (
+      {overview?.machine && !scanning && !replay && (
         <nav className="flex h-10 shrink-0 items-center gap-4 border-b border-line bg-panel px-3">
           <span className="flex items-center gap-1.5 font-semibold">
             <Mark className="text-accent-text" />
@@ -135,6 +148,14 @@ export default function App() {
           </button>
         </nav>
       )}
+      {replay && (
+        <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-panel px-3 text-xs text-dim">
+          <span className="flex-1">Replaying the first run. Your saved machines and Golden Rig are untouched.</span>
+          <button onClick={() => setReplay(false)} className="hover:text-fg">
+            Exit
+          </button>
+        </div>
+      )}
       <UpdateBar />
       {error && (
         <div className="flex shrink-0 items-start gap-3 border-b border-line bg-bad/10 px-4 py-1.5 text-bad">
@@ -159,7 +180,7 @@ export default function App() {
       <div className="min-h-0 flex-1 overflow-auto">
         {overview === null ? null : scanning ? (
           <Scanning progress={progress} />
-        ) : !overview.machine ? (
+        ) : !overview.machine || replay ? (
           <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
         ) : tab === "compare" && view && canCompare ? (
           <Compare view={view} focus={focus} onError={onError} />
