@@ -435,8 +435,16 @@ fn write_atomic(path: &Path, contents: Option<&[u8]>) -> Result<(), ApplyError> 
 /// True if `daw` is open, or if the process list can't be read (when unsure,
 /// don't touch its files).
 pub fn daw_running(daw: Daw) -> bool {
-    match process_names() {
-        Some(names) => names.iter().any(|n| is_daw_process(daw, n)),
+    match crate::apps::process_list() {
+        Some(list) => list.lines().any(|l| {
+            // `tasklist` CSV starts with the quoted image name; `ps` gives a path.
+            let l = l.trim();
+            let name = l
+                .strip_prefix('"')
+                .and_then(|l| l.split('"').next())
+                .unwrap_or(l);
+            is_daw_process(daw, name)
+        }),
         None => true,
     }
 }
@@ -444,49 +452,13 @@ pub fn daw_running(daw: Daw) -> bool {
 /// Whether a process name or path (`tasklist` image name on Windows, `ps`
 /// command path on macOS) is `daw`.
 pub fn is_daw_process(daw: Daw, name: &str) -> bool {
-    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
-    let base_lower = base.to_ascii_lowercase();
     match daw {
-        Daw::Reaper => base_lower == "reaper" || base_lower == "reaper.exe",
-        Daw::Ableton => {
-            (base_lower.starts_with("ableton live") && base_lower.ends_with(".exe"))
-                || (base == "Live" && name.contains("Ableton Live"))
+        Daw::Reaper => {
+            let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+            base.eq_ignore_ascii_case("reaper") || base.eq_ignore_ascii_case("reaper.exe")
         }
+        Daw::Ableton => crate::apps::lists_ableton_live(name),
     }
-}
-
-#[cfg(windows)]
-fn process_names() -> Option<Vec<String>> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("tasklist")
-        .args(["/FO", "CSV", "/NH"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    // "reaper.exe","1234","Console","1","120,000 K"
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter_map(|l| l.strip_prefix('"')?.split('"').next().map(str::to_owned))
-            .collect(),
-    )
-}
-
-#[cfg(not(windows))]
-fn process_names() -> Option<Vec<String>> {
-    let out = std::process::Command::new("ps")
-        .args(["-axo", "comm="])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(|l| l.trim().to_owned())
-            .collect(),
-    )
 }
 
 #[cfg(test)]

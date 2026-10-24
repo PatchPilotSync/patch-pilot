@@ -1,5 +1,6 @@
 //! Identity resolution, manifest diff, parity scoring and plan generation.
 
+pub mod ableton;
 pub mod reaper;
 
 mod comparison;
