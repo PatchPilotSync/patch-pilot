@@ -1,5 +1,5 @@
 //! History: this machine's scans and every file change Patch Pilot made,
-//! newest first, with Undo and "go back to this scan" (decision #41).
+//! newest first, with Undo and "go back to this scan" (decision #43).
 //! Plug-ins are only listed; files are put back through
 //! `patchpilot_local::restore`.
 

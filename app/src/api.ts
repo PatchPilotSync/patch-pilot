@@ -224,7 +224,24 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
 
-// History (decision #41): src-tauri/src/history.rs and patchpilot_parity::ProductChange.
+// Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
+
+export interface ReportOptions {
+  title: string;
+  date: string;
+  plugins: boolean;
+  versions: boolean;
+  apps: boolean;
+  parity: boolean;
+}
+
+export const rigReportPreview = (options: ReportOptions) =>
+  invoke<{ html: string; markdown: string }>("rig_report_preview", { options });
+/** Markdown when `path` ends in .md, otherwise the web page. */
+export const saveRigReport = (path: string, options: ReportOptions) =>
+  invoke<void>("save_rig_report", { path, options });
+
+// History (decision #43): src-tauri/src/history.rs and patchpilot_parity::ProductChange.
 
 export type Change = "added" | "removed" | "updated" | "downgraded";
 

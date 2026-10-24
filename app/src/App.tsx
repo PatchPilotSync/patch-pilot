@@ -16,6 +16,7 @@ import {
   type SyncStatus,
 } from "./api";
 import { LinkDialog, SyncBadge } from "./Link";
+import { ReportDialog } from "./Report";
 import { Compare, type Focus } from "./screens/Compare";
 import { History } from "./screens/History";
 import { Rig } from "./screens/Rig";
@@ -47,6 +48,7 @@ export default function App() {
   const [linking, setLinking] = useState(false);
   // Bumped on every refresh so History reloads with the rest.
   const [dataVersion, setDataVersion] = useState(0);
+  const [reporting, setReporting] = useState(false);
 
   const refresh = useCallback(() => {
     loadOverview().then(setOverview, (e) => setError(String(e)));
@@ -209,11 +211,19 @@ export default function App() {
             busy={busy}
             onRescan={() => scan(null)}
             onMakeGolden={golden}
+            onReport={() => setReporting(true)}
           />
         )}
       </div>
       {tour && overview !== null && !scanning && <Tour onClose={() => setTour(false)} />}
       {linking && <LinkDialog status={sync} onClose={() => setLinking(false)} />}
+      {reporting && overview?.machine && (
+        <ReportDialog
+          machineName={overview.machine.name}
+          hasGolden={!!overview.golden}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </main>
   );
 }
