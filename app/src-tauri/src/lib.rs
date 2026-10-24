@@ -30,7 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }))
-        // Opens at login, hidden in the tray (decision #38). macOS uses a
+        // Opens at login, hidden in the tray (decision #39). macOS uses a
         // LaunchAgent (the plug-in's default), which needs no permission prompt.
         .plugin(
             tauri_plugin_autostart::Builder::new()

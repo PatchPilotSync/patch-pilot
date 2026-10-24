@@ -1,4 +1,4 @@
-//! Patch Pilot as an always-on observer (decision #38). It opens at login
+//! Patch Pilot as an always-on observer (decision #39). It opens at login
 //! (hidden, in the tray), watches the plug-in and template folders, and
 //! rescans quietly a little while after they change, so every rig's score is
 //! current without the user pressing Rescan.

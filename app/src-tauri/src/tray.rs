@@ -2,7 +2,7 @@
 //! small borderless window next to the icon; it hides again when it loses
 //! focus. Double-clicking the icon (Windows) opens the main window. Closing the main window hides it, so Patch Pilot keeps living in the
 //! tray until the user picks Quit from the icon's menu. On macOS the Dock icon
-//! only shows while the main window is open (decision #38).
+//! only shows while the main window is open (decision #39).
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
