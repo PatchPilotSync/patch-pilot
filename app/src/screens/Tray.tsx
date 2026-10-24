@@ -100,6 +100,9 @@ export function Tray() {
         {machine && view?.golden_version === null && <Hint text="Make a Golden Rig to compare your machines." />}
 
         {view && view.golden_version !== null && (
+          <h2 className="px-1 text-[11px] text-dim">Parity with Golden Rig v{view.golden_version}</h2>
+        )}
+        {view && view.golden_version !== null && (
           <ul className="flex flex-col gap-0.5">
             {view.machines.map((m) => (
               <MachineRow

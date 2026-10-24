@@ -54,8 +54,7 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
           <h1 className="truncate text-sm font-semibold">{machine.name}</h1>
           <p className="truncate text-xs text-dim">
             {machine.os === "macos" ? "macOS" : "Windows"} · scanned {timeAgo(machine.scanned_at)} ·{" "}
-            {plural(inv.products, "plug-in")} ({plural(inv.plugins, "file")}) · {plural(vendorCount, "vendor")} ·{" "}
-            {plural(inv.templates, "template")}
+            {plural(inv.templates, "Reaper template")}
           </p>
         </div>
         <Button variant="quiet" onClick={onRescan} disabled={busy}>
@@ -68,8 +67,9 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
       {warnings.length > 0 && (
         <details className="border-b border-line px-4 py-2 text-xs">
           <summary className="cursor-pointer text-warn">
-            {warnings.length} file{warnings.length === 1 ? "" : "s"} could only be read partly
+            {warnings.length} plug-in file{warnings.length === 1 ? "" : "s"} had no readable version info
           </summary>
+          <p className="mt-1 text-dim">Still listed, identified by file name.</p>
           <ul className="mt-1.5 max-h-40 overflow-auto font-mono text-[11px] text-dim">
             {warnings.map((w) => (
               <li key={w}>{w}</li>
@@ -78,7 +78,18 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
         </details>
       )}
 
-      <div className="flex flex-wrap items-center gap-1 px-3 pb-1 pt-3">
+      <div className="px-4 pt-3">
+        <h2 className="text-sm font-semibold">
+          Plug-ins installed on this machine{" "}
+          <span className="font-normal tabular-nums text-dim">{inv.products.toLocaleString()}</span>
+        </h2>
+        <p className="text-xs text-dim">
+          {plural(vendorCount, "vendor")} · {plural(inv.plugins, "file")} in the standard plug-in folders. Read
+          only: nothing is loaded or changed.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1 px-3 pb-1 pt-2">
         {(["vendor", "format"] as const).map((g) => (
           <Pill key={g} active={grouping === g} onClick={() => setGrouping(g)}>
             By {g}
@@ -94,9 +105,9 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter"
+          placeholder="Filter by name or vendor"
           aria-label="Filter plug-ins"
-          className={`ml-auto w-40 ${inputClass}`}
+          className={`ml-auto w-48 ${inputClass}`}
         />
       </div>
 
@@ -121,7 +132,7 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
 
       {inv.apps.length > 0 && (
         <section>
-          <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">Vendor apps and licensing</h3>
+          <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">Vendor apps and licensing tools installed</h3>
           <ul>
             {inv.apps.map((a) => (
               <li key={a.name} className="flex h-7 items-center justify-between px-4 hover:bg-sel/60">
@@ -170,8 +181,8 @@ function GoldenCard({
         <span>
           <span className="font-medium text-fg">Golden Rig v{golden.version}</span>
           {golden.from_this_machine
-            ? " was made from this machine."
-            : " comes from another machine. Open Compare to see how this one measures up."}
+            ? " was made from this machine. Your other machines are compared to it."
+            : " comes from another machine. Compare shows what this one is missing."}
         </span>
       </p>
     );
