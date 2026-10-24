@@ -174,7 +174,7 @@ export const compareMachine = (id: string) => invoke<MachineComparison>("compare
 export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machine", { id });
 export const importBundle = (path: string) => invoke<{ lines: string[] }>("import_bundle", { path });
 
-// Bring over (decision #46); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
+// Bring over (decision #47); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
 
 export interface FileToBring {
   /** Group heading: "Reaper". */
@@ -198,8 +198,8 @@ export interface BringView {
 
 export interface BringResult {
   written: number;
+  /** Replaced files, saved first so History can undo the bring-over. */
   backed_up: number;
-  backup_dir: string | null;
   unavailable: string[];
 }
 
@@ -259,7 +259,7 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
 
-// Update alerts (decision #46): a newer version on another machine, in the
+// Update alerts (decision #47): a newer version on another machine, in the
 // Golden Rig, or in the plug-in catalog.
 export type UpdateSource =
   | { kind: "machine"; name: string }
@@ -396,3 +396,59 @@ export const rigReportPreview = (options: ReportOptions) =>
 /** Markdown when `path` ends in .md, otherwise the web page. */
 export const saveRigReport = (path: string, options: ReportOptions) =>
   invoke<void>("save_rig_report", { path, options });
+
+// History (decision #45): src-tauri/src/history.rs and patchpilot_parity::ProductChange.
+
+export type Change = "added" | "removed" | "updated" | "downgraded";
+
+export interface ProductChange {
+  product_id: string;
+  name: string;
+  vendor: string;
+  change: Change;
+  from: string | null;
+  to: string | null;
+}
+
+export interface FileLine {
+  name: string;
+  /** The last two folders, e.g. "REAPER/TrackTemplates". */
+  folder: string;
+  path: string;
+}
+
+export interface FilePreview extends FileLine {
+  /** Put back; false means the change created it, so it's removed. */
+  restore: boolean;
+  changed_since: boolean;
+  missing_backup: boolean;
+}
+
+export type HistoryEntry =
+  | {
+      type: "scan";
+      snapshot_id: number;
+      at: number;
+      first: boolean;
+      latest: boolean;
+      plugins: number;
+      changes: ProductChange[];
+    }
+  | { type: "files"; id: number; at: number; label: string; undo: boolean; undone: boolean; files: FileLine[] };
+
+export interface HistoryView {
+  entries: HistoryEntry[];
+}
+
+export interface GoBackPlan {
+  at: number;
+  files: FilePreview[];
+  /** From now to then: added = reinstall, removed = uninstall. */
+  plugins: ProductChange[];
+}
+
+export const history = () => invoke<HistoryView>("history");
+export const undoPreview = (id: number) => invoke<FilePreview[]>("undo_preview", { id });
+export const undoChange = (id: number) => invoke<HistoryView>("undo_change", { id });
+export const goBackPlan = (snapshotId: number) => invoke<GoBackPlan>("go_back_plan", { snapshotId });
+export const goBack = (snapshotId: number) => invoke<HistoryView>("go_back", { snapshotId });
