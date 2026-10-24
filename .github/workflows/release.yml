@@ -154,6 +154,8 @@ jobs:
     name: Publish release
     needs: [prepare, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       # Only now does latest.json become "latest", so installed apps never see
       # a release that is missing a platform. The build jobs merge their
@@ -171,10 +173,9 @@ jobs:
             fi
           done
           gh api -X PATCH "repos/$RELEASES_REPO/releases/${{ needs.prepare.outputs.release_id }}" \
-            -F draft=false -f make_latest=true
-      # Best effort: needs the repo's Actions token to be allowed to write
-      # (Settings > Actions > General > Workflow permissions). The release is
-      # already out by now, so a failure here only leaves the commit untagged.
+            -F draft=false
+      # The release is already out by now, so a failure here only leaves the
+      # commit untagged.
       - name: Tag this commit (when run from the Actions tab)
         if: github.ref_type != 'tag'
         continue-on-error: true
