@@ -8,7 +8,7 @@ becomes its release notes, which the app shows when it offers that update
 
 ### New
 
-- A short tour on first launch explains the Golden Rig, comparisons and the parity score, Up To Speed and snapshots. Skip it any time, and reopen it from "How it works".
+- A short tour on first launch explains the Golden Rig, comparisons and the parity score, Up To Speed, and the tray or menu bar icon. Skip it any time, and reopen it from "How it works".
 
 ### Improved
 
