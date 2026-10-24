@@ -46,6 +46,17 @@ impl PluginRef {
         };
         format!("{prefix}:{}", self.key)
     }
+
+    /// Ships with Reaper, so every Reaper install has it: JSFX, and Cockos's
+    /// own plug-ins (ReaEQ, ReaComp, ...), which live in Reaper's program
+    /// folder rather than the plug-in folders we scan.
+    pub fn is_stock(&self) -> bool {
+        self.format == PluginFormat::Jsfx
+            || self
+                .vendor
+                .as_deref()
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("cockos"))
+    }
 }
 
 /// The plug-ins one template file depends on.
@@ -351,6 +362,23 @@ mod tests {
             Some((PluginFormat::Clap, "Bare".into(), None))
         );
         assert_eq!(split_display("DX: Old"), None);
+    }
+
+    #[test]
+    fn stock_plugins() {
+        let refs = parse_template(concat!(
+            "<VST \"VST: ReaEQ (Cockos)\" reaeq.dll 0 \"\" 1919247729<5653547265657170726561657100> \"\"\n",
+            "<JS \"utility/volume\" \"\"\n",
+            "<VST \"VST3: Acme Verb (Acme Audio)\" \"Acme Verb.vst3\" 0 \"\" 1{5653544163654D6163726F7665726200} \"\"\n",
+        ));
+        let stock: Vec<_> = refs
+            .iter()
+            .map(|r| (r.name.as_str(), r.is_stock()))
+            .collect();
+        assert_eq!(
+            stock,
+            [("volume", true), ("ReaEQ", true), ("Acme Verb", false)]
+        );
     }
 
     #[test]

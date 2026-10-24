@@ -237,8 +237,8 @@ fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
 pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};
     let (products, items) = template_items(dir, manifest.machine.os, |r| {
-        // Stock JSFX ship with Reaper; user JSFX aren't scanned yet.
-        (r.format != PluginFormat::Jsfx).then(|| {
+        // Stock plug-ins ship with Reaper; user JSFX aren't scanned yet.
+        (!r.is_stock() && r.format != PluginFormat::Jsfx).then(|| {
             patchpilot_scanner::product_id(
                 r.vendor.as_deref(),
                 &patchpilot_scanner::normalize_name(&r.name).name,
