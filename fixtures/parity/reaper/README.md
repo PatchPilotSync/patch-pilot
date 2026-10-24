@@ -11,4 +11,4 @@ non-template file.
 
 Also a script (`Scripts/Tools/Nudge.lua`) and a theme (`ColorThemes/`) that
 Bring over tracks (#42), next to things it must skip under `Scripts/`: a
-compiled `helper.dll`, a `.git` folder and `__pycache__`.
+compiled `helper.dll`, a hidden `.cache` folder and `__pycache__`.

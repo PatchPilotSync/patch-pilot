@@ -87,7 +87,7 @@ fn templates_become_portable_items_with_requirements() {
         ]
     );
     // Scripts and themes are tracked (#42) but need no plug-ins; compiled
-    // code, `.git` and `__pycache__` under Scripts/ are skipped.
+    // code, hidden folders and `__pycache__` under Scripts/ are skipped.
     assert_eq!(items.len(), 5);
     let ids: Vec<_> = products.iter().map(|p| p.canonical_id.0.as_str()).collect();
     assert!(
