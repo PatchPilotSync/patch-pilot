@@ -15,6 +15,7 @@ patchpilot-parity = { path = "../parity" }
 patchpilot-scanner = { path = "../scanner" }
 patchpilot-store = { path = "../store" }
 patchpilot-sync = { path = "../sync" }
+thiserror = "2.0.21"
 
 [lints]
 workspace = true

@@ -5,6 +5,7 @@
 //! Patch Pilot's own app-data folder.
 
 mod anonymize;
+pub mod restore;
 pub mod sync;
 mod watch;
 

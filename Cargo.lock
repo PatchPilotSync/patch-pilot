@@ -682,6 +682,7 @@ dependencies = [
  "patchpilot-store",
  "patchpilot-sync",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]
