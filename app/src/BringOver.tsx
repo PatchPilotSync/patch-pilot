@@ -80,7 +80,8 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
         <p className="mt-1.5 text-[11px] text-ok">
           Brought over {result.written} file{result.written === 1 ? "" : "s"}.
           {result.backed_up > 0 &&
-            ` ${result.backed_up} replaced file${result.backed_up === 1 ? " was" : "s were"} backed up first.`}
+            ` ${result.backed_up} replaced file${result.backed_up === 1 ? " was" : "s were"} saved first.`}
+          {result.written > 0 && " You can undo this in History."}
           {result.unavailable.length > 0 && (
             <span className="text-warn">
               {" "}

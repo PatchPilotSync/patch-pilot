@@ -2987,6 +2987,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
 ]
@@ -3015,6 +3016,7 @@ dependencies = [
  "patchpilot-vault",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -15,7 +15,10 @@ use patchpilot_parity::ableton::{
 };
 use patchpilot_parity::apply_profile;
 use patchpilot_parity::reaper::{REAPER_RESOURCES, reaper_resource_dir, resource_kind};
+use patchpilot_store::Store;
 use serde::Serialize;
+
+use crate::restore::{ChangeSet, FileChange, apply_changes};
 
 /// The relay keeps objects up to 2 MB; leave room for the envelope.
 pub const MAX_FILE_BYTES: u64 = 1_900_000;
@@ -209,73 +212,63 @@ fn default_reaper_dir() -> Option<PathBuf> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct WriteReport {
     pub written: usize,
-    /// Files that were replaced, now in `backup_dir`.
+    /// Files that were replaced; their old bytes are in the restore point.
     pub backed_up: usize,
-    pub backup_dir: Option<PathBuf>,
+    /// The restore point History can undo, if anything was written.
+    pub restore_point: Option<i64>,
 }
 
-/// Write files (`rel` below `root`, which is at `dir` here, and their bytes).
-/// Existing files that differ are first copied to `backup_dir`; then each file
-/// is written to a temporary name beside it and renamed into place, so the
-/// app never sees half a file. Every path and the root's guard are checked
-/// first, and nothing is written if any fails or a backup fails.
+/// Write files (`rel` below `root`, which is at `dir` here, and their bytes)
+/// through [`crate::restore::apply_changes`]: every file it replaces is saved
+/// first, each is written to a temp file beside it and renamed into place,
+/// and History can undo the lot. Every path and the root's guard are checked
+/// first, and nothing is written if any fails.
+#[allow(clippy::too_many_arguments)]
 pub fn write_files(
+    store: &mut Store,
+    blobs: &Path,
+    machine_id: &str,
+    label: &str,
     root: &str,
     dir: &Path,
-    backup_dir: &Path,
     files: &[(String, Vec<u8>)],
+    now: i64,
 ) -> Result<WriteReport, String> {
     let shared = shared_root(root).ok_or_else(|| format!("{root}: not a shared folder"))?;
     (shared.guard)()?;
-    let mut plan = Vec::new();
+    let mut changes = Vec::new();
+    let mut backed_up = 0;
     for (rel, bytes) in files {
         if (shared.kind)(rel).is_none() {
             return Err(format!("{rel}: not a file {} can receive", shared.app));
         }
         let target = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
-        let existing = match std::fs::read(&target) {
+        match std::fs::read(&target) {
             Ok(old) if old == *bytes => continue,
-            Ok(_) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Ok(_) => backed_up += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(format!("{}: {e}", target.display())),
-        };
-        plan.push((rel, bytes, target, existing));
-    }
-
-    let mut report = WriteReport::default();
-    for (rel, _, target, existing) in &plan {
-        if *existing {
-            let backup = rel
-                .split('/')
-                .fold(backup_dir.join(root), |p, part| p.join(part));
-            let parent = backup.parent().expect("backup path has a parent");
-            std::fs::create_dir_all(parent)
-                .and_then(|_| std::fs::copy(target, &backup))
-                .map_err(|e| format!("backing up {}: {e}", target.display()))?;
-            report.backed_up += 1;
-            report.backup_dir = Some(backup_dir.to_owned());
         }
+        changes.push(FileChange {
+            path: target,
+            contents: Some(bytes.clone()),
+        });
     }
-    for (_, bytes, target, _) in &plan {
-        let parent = target.parent().expect("file path has a parent");
-        let name = target.file_name().expect("file path has a name");
-        let tmp = parent.join(format!("{}.patchpilot-tmp", name.to_string_lossy()));
-        let result = std::fs::create_dir_all(parent)
-            .and_then(|()| std::fs::write(&tmp, bytes))
-            .and_then(|()| std::fs::rename(&tmp, target));
-        if let Err(e) = result {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(format!("{}: {e}", target.display()));
-        }
-        report.written += 1;
-    }
-    Ok(report)
-}
-
-/// A fresh backup folder in app-data for one bring-over: `backups/<unix secs>`,
-/// holding one folder per root.
-pub fn backup_dir(app_dir: &Path, now: i64) -> PathBuf {
-    app_dir.join("backups").join(now.to_string())
+    let req = ChangeSet {
+        machine_id: machine_id.to_owned(),
+        label: label.to_owned(),
+        // Templates, scripts and themes: Reaper doesn't rewrite them on
+        // exit, so it may stay open (the root's guard covers the rest).
+        daw: None,
+        changes,
+        now,
+    };
+    let point = apply_changes(store, blobs, &req).map_err(|e| e.to_string())?;
+    Ok(WriteReport {
+        written: point.changed.len(),
+        backed_up,
+        restore_point: point.id,
+    })
 }
 
 #[cfg(test)]
@@ -475,15 +468,19 @@ mod tests {
     fn writes_new_files_and_backs_up_replaced_ones() {
         let tmp = tempfile::tempdir().unwrap();
         let reaper = tmp.path().join("REAPER");
-        let backups = backup_dir(&tmp.path().join("PatchPilot"), 1_760_000_000);
+        let blobs = tmp.path().join("PatchPilot").join("blobs");
+        let mut store = Store::open_in_memory().unwrap();
         std::fs::create_dir_all(reaper.join("TrackTemplates")).unwrap();
         std::fs::write(reaper.join("TrackTemplates/Drums.RTrackTemplate"), "old").unwrap();
         std::fs::write(reaper.join("TrackTemplates/Same.RTrackTemplate"), "same").unwrap();
 
         let report = write_files(
+            &mut store,
+            &blobs,
+            "m1",
+            "Brought over 2 Reaper files",
             REAPER_RESOURCES,
             &reaper,
-            &backups,
             &[
                 ("FXChains/Mix/Vocal Bus.RfxChain".into(), b"vocal".to_vec()),
                 (
@@ -495,6 +492,7 @@ mod tests {
                     b"same".to_vec(),
                 ),
             ],
+            1,
         )
         .unwrap();
         assert_eq!((report.written, report.backed_up), (2, 1));
@@ -507,9 +505,13 @@ mod tests {
             read(&reaper.join("TrackTemplates/Drums.RTrackTemplate")),
             "new"
         );
-        let backed_up = backups.join(REAPER_RESOURCES).join("TrackTemplates");
-        assert_eq!(read(&backed_up.join("Drums.RTrackTemplate")), "old");
-        assert!(!backed_up.join("Same.RTrackTemplate").exists());
+        // History can undo it: the old template comes back, the new chain goes.
+        crate::restore::undo(&mut store, &blobs, report.restore_point.unwrap(), 2).unwrap();
+        assert_eq!(
+            read(&reaper.join("TrackTemplates/Drums.RTrackTemplate")),
+            "old"
+        );
+        assert!(!reaper.join("FXChains/Mix/Vocal Bus.RfxChain").exists());
         // No temporary files left beside the templates.
         let names: Vec<_> = std::fs::read_dir(reaper.join("TrackTemplates"))
             .unwrap()
@@ -522,14 +524,19 @@ mod tests {
     fn refuses_paths_outside_the_template_folders_before_writing_anything() {
         let tmp = tempfile::tempdir().unwrap();
         let reaper = tmp.path().join("REAPER");
+        let mut store = Store::open_in_memory().unwrap();
         let err = write_files(
+            &mut store,
+            &tmp.path().join("b"),
+            "m1",
+            "x",
             REAPER_RESOURCES,
             &reaper,
-            &tmp.path().join("b"),
             &[
                 ("FXChains/ok.RfxChain".into(), b"ok".to_vec()),
                 ("Scripts/../reaper.ini".into(), b"x".to_vec()),
             ],
+            1,
         )
         .unwrap_err();
         assert!(err.contains("reaper.ini"));
