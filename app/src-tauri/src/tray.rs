@@ -46,8 +46,17 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         app.autolaunch().is_enabled().unwrap_or(false),
         None::<&str>,
     )?;
+    // Quiet OS notifications when a machine drifts (M9).
+    let alerts = CheckMenuItem::with_id(
+        app,
+        "alerts",
+        "Drift Alerts",
+        true,
+        crate::alerts::enabled(),
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Patch Pilot", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &replay, &at_login, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &replay, &at_login, &alerts, &quit])?;
 
     TrayIconBuilder::with_id(ID)
         .icon(Image::from_bytes(ICON)?)
@@ -70,6 +79,10 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                     autolaunch.disable()
                 };
                 let _ = at_login.set_checked(autolaunch.is_enabled().unwrap_or(false));
+            }
+            "alerts" => {
+                crate::alerts::set_enabled(alerts.is_checked().unwrap_or(true));
+                let _ = alerts.set_checked(crate::alerts::enabled());
             }
             "quit" => app.exit(0),
             _ => {}

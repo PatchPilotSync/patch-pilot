@@ -1,4 +1,4 @@
-//! Third-party preset folders (roadmap M10-12, decision #48).
+//! Third-party preset folders (roadmap M10-12, decision #49).
 //!
 //! Each known preset folder that exists on a machine becomes one
 //! [`ItemKind::Folder`] item under its own logical root (`PRESETS_FABFILTER`

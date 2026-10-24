@@ -8,6 +8,7 @@
 mod anonymize;
 pub mod apps;
 pub mod bring;
+pub mod golden;
 pub mod open;
 pub mod restore;
 pub mod sync;
