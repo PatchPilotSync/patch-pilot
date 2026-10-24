@@ -226,7 +226,7 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
 
-// Update alerts (decision #44): a newer version on another machine, in the
+// Update alerts (decision #45): a newer version on another machine, in the
 // Golden Rig, or in the plug-in catalog.
 export type UpdateSource =
   | { kind: "machine"; name: string }

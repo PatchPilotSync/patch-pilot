@@ -2,7 +2,7 @@
 
 `crates/catalog/data/catalog.json` tells Patch Pilot which vendor and product
 a plug-in really is, whatever its format or OS calls it, and (optionally) the
-newest release. See decision #44.
+newest release. See decision #45.
 
 ## Editing it
 

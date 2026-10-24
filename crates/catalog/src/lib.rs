@@ -9,7 +9,7 @@
 //! [`Catalog::canonicalize`] rewrites a manifest to one ID per product.
 //!
 //! A copy ships inside the app (`data/catalog.json`). A newer one, fetched by
-//! the app from the public releases repo (decision #44), replaces it with
+//! the app from the public releases repo (decision #45), replaces it with
 //! [`install`]. Matching is deliberately conservative: an ID is only changed
 //! when its vendor is known, or when an unknown-vendor name matches exactly
 //! one catalog product.
