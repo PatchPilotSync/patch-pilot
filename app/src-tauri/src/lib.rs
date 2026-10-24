@@ -3,6 +3,7 @@
 
 mod background;
 mod compare;
+mod history;
 mod rig;
 mod sync;
 mod tray;
@@ -67,6 +68,11 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            history::history,
+            history::undo_preview,
+            history::undo_change,
+            history::go_back_plan,
+            history::go_back,
             sync::sync_status,
             sync::link_start,
             sync::link_join,

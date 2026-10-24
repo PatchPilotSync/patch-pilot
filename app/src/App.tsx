@@ -17,6 +17,7 @@ import {
 } from "./api";
 import { LinkDialog, SyncBadge } from "./Link";
 import { Compare, type Focus } from "./screens/Compare";
+import { History } from "./screens/History";
 import { Rig } from "./screens/Rig";
 import { Scanning } from "./screens/Scanning";
 import { Welcome } from "./screens/Welcome";
@@ -24,7 +25,7 @@ import { resetTour, Tour, tourPending } from "./Tour";
 import { Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
-type Tab = "rig" | "compare";
+type Tab = "rig" | "compare" | "history";
 
 export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -44,10 +45,13 @@ export default function App() {
   const [replay, setReplay] = useState(false);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [linking, setLinking] = useState(false);
+  // Bumped on every refresh so History reloads with the rest.
+  const [dataVersion, setDataVersion] = useState(0);
 
   const refresh = useCallback(() => {
     loadOverview().then(setOverview, (e) => setError(String(e)));
     loadMachines().then(setView, (e) => setError(String(e)));
+    setDataVersion((v) => v + 1);
   }, []);
   const onError = useCallback((e: string) => setError(e), []);
 
@@ -104,6 +108,7 @@ export default function App() {
       const report = await scanMachine(name);
       setOverview(report.overview);
       setWarnings(report.warnings);
+      setDataVersion((v) => v + 1);
       loadMachines().then(setView, (e) => setError(String(e)));
     } catch (e) {
       setError(String(e));
@@ -139,6 +144,7 @@ export default function App() {
             [
               ["rig", "This machine"],
               ["compare", "Compare"],
+              ["history", "History"],
             ] as const
           ).map(([t, label]) => (
             <button
@@ -192,6 +198,8 @@ export default function App() {
           <Scanning progress={progress} />
         ) : !overview.machine || replay ? (
           <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
+        ) : tab === "history" ? (
+          <History refreshKey={dataVersion} onError={onError} />
         ) : tab === "compare" && view && canCompare ? (
           <Compare view={view} focus={focus} onError={onError} />
         ) : (

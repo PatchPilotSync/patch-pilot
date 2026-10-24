@@ -43,6 +43,7 @@ tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -193,6 +193,103 @@ pub fn undo_preview(blobs: &Path, point: &RestorePointRecord) -> Vec<UndoFile> {
         .collect()
 }
 
+/// Every file changed after scan `snapshot_id` was the latest, with the
+/// state it had then: the earliest restore point after it that touched the
+/// file has its `before_hash`, the latest has what's there now.
+fn changed_since(
+    store: &Store,
+    machine_id: &str,
+    snapshot_id: i64,
+) -> Result<(Vec<FileRecord>, Vec<Daw>), ApplyError> {
+    let mut files: Vec<FileRecord> = Vec::new();
+    let mut daws = Vec::new();
+    // Oldest first.
+    for p in store.restore_points(machine_id)?.into_iter().rev() {
+        if p.snapshot_id.unwrap_or(0) < snapshot_id {
+            continue;
+        }
+        if let Some(d) = p.daw.as_deref().and_then(Daw::parse)
+            && !daws.contains(&d)
+        {
+            daws.push(d);
+        }
+        for f in p.files {
+            match files.iter_mut().find(|g| g.path == f.path) {
+                Some(g) => g.after_hash = f.after_hash,
+                None => files.push(f),
+            }
+        }
+    }
+    // Files that ended up as they started need nothing.
+    files.retain(|f| f.before_hash != f.after_hash);
+    Ok((files, daws))
+}
+
+/// Preview [`go_back`]: the files it would put back or remove.
+pub fn go_back_preview(
+    store: &Store,
+    blobs: &Path,
+    machine_id: &str,
+    snapshot_id: i64,
+) -> Result<Vec<UndoFile>, ApplyError> {
+    let (files, _) = changed_since(store, machine_id, snapshot_id)?;
+    let point = RestorePointRecord {
+        id: 0,
+        machine_id: machine_id.to_owned(),
+        created_at: 0,
+        kind: RestoreKind::Undo,
+        label: String::new(),
+        daw: None,
+        snapshot_id: None,
+        undoes: None,
+        undone_by: None,
+        files,
+    };
+    Ok(undo_preview(blobs, &point))
+}
+
+/// Put every file Patch Pilot changed since scan `snapshot_id` back as it
+/// was then, as one restore point (so going back can be undone too).
+/// Plug-ins aren't touched.
+pub fn go_back(
+    store: &mut Store,
+    blobs: &Path,
+    machine_id: &str,
+    snapshot_id: i64,
+    label: &str,
+    now: i64,
+) -> Result<RestorePoint, ApplyError> {
+    let (files, daws) = changed_since(store, machine_id, snapshot_id)?;
+    if let Some(&d) = daws.iter().find(|d| daw_running(**d)) {
+        return Err(ApplyError::DawRunning(d));
+    }
+    let blob_store = BlobStore::new(blobs);
+    let changes = files
+        .iter()
+        .map(|f| {
+            let path = PathBuf::from(&f.path);
+            let contents = match &f.before_hash {
+                None => None,
+                Some(h) => Some(
+                    blob_store
+                        .get(h)
+                        .map_err(|_| ApplyError::MissingBackup(path.clone()))?,
+                ),
+            };
+            Ok(FileChange { path, contents })
+        })
+        .collect::<Result<_, ApplyError>>()?;
+    let req = ChangeSet {
+        machine_id: machine_id.to_owned(),
+        label: label.to_owned(),
+        // Checked above; recorded so undoing this checks the same app.
+        daw: daws.first().copied(),
+        changes,
+        now,
+    };
+    apply_checked(store, blobs, &req, RestoreKind::Undo, None)
+}
+
 fn apply(
     store: &mut Store,
     blobs: &Path,
@@ -205,6 +302,17 @@ fn apply(
     {
         return Err(ApplyError::DawRunning(daw));
     }
+    apply_checked(store, blobs, req, kind, undoes)
+}
+
+/// [`apply`] once the DAW check has passed.
+fn apply_checked(
+    store: &mut Store,
+    blobs: &Path,
+    req: &ChangeSet,
+    kind: RestoreKind,
+    undoes: Option<i64>,
+) -> Result<RestorePoint, ApplyError> {
     let mut seen = BTreeSet::new();
     for c in &req.changes {
         if !c.path.is_absolute() || c.path.to_str().is_none() || c.path.file_name().is_none() {

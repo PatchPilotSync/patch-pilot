@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use patchpilot_local::restore::{
-    ApplyError, ChangeSet, FileChange, apply_changes, undo, undo_preview,
+    ApplyError, ChangeSet, FileChange, apply_changes, go_back, go_back_preview, undo, undo_preview,
 };
 use patchpilot_store::{RestoreKind, Store};
 
@@ -223,4 +223,72 @@ fn missing_backup_is_reported_not_guessed() {
         Err(ApplyError::MissingBackup(_))
     ));
     assert_eq!(read(&p).as_deref(), Some("v2"));
+}
+
+#[test]
+fn go_back_restores_files_as_they_were_at_a_scan() {
+    let mut r = rig();
+    let m = patchpilot_core::Manifest::new(
+        patchpilot_core::MachineInfo {
+            id: "m1".into(),
+            name: "Studio".into(),
+            os: patchpilot_core::Os::Macos,
+            arch: patchpilot_core::Arch::Aarch64,
+            os_version: None,
+            path_map: patchpilot_core::PathMap::new(patchpilot_core::Os::Macos),
+        },
+        1,
+    );
+    let early = r
+        .store
+        .save_manifest(&m, patchpilot_store::SnapshotReason::FirstScan, 1)
+        .unwrap()
+        .id;
+
+    let a = r.files.join("TrackTemplates").join("A.RTrackTemplate");
+    let b = r.files.join("TrackTemplates").join("B.RTrackTemplate");
+    std::fs::write(&a, "a1").unwrap();
+    apply_changes(
+        &mut r.store,
+        &r.blobs,
+        &set(
+            "one",
+            vec![change(&a, Some("a2")), change(&b, Some("b"))],
+            2,
+        ),
+    )
+    .unwrap();
+    apply_changes(
+        &mut r.store,
+        &r.blobs,
+        &set("two", vec![change(&a, Some("a3"))], 3),
+    )
+    .unwrap();
+
+    let preview = go_back_preview(&r.store, &r.blobs, "m1", early).unwrap();
+    assert_eq!(preview.len(), 2);
+    assert!(preview.iter().all(|f| !f.changed_since));
+
+    // A later scan: going back to it changes nothing.
+    let mut later = m.clone();
+    later.machine.name = "Studio 2".into();
+    later.generated_at = 4;
+    let late = r
+        .store
+        .save_manifest(&later, patchpilot_store::SnapshotReason::Scan, 4)
+        .unwrap()
+        .id;
+    assert!(
+        go_back_preview(&r.store, &r.blobs, "m1", late)
+            .unwrap()
+            .is_empty()
+    );
+
+    let back = go_back(&mut r.store, &r.blobs, "m1", early, "Went back", 5).unwrap();
+    assert_eq!(read(&a).as_deref(), Some("a1"));
+    assert_eq!(read(&b), None);
+    // And it can be undone.
+    undo(&mut r.store, &r.blobs, back.id.unwrap(), 6).unwrap();
+    assert_eq!(read(&a).as_deref(), Some("a3"));
+    assert_eq!(read(&b).as_deref(), Some("b"));
 }

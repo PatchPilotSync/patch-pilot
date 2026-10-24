@@ -70,7 +70,7 @@ const STEPS: Step[] = [
       <>
         Click the plane in the {TRAY} for every machine's score. Expand, or double-click the popover, to open this
         window. It opens when your computer starts and rescans on its own when plug-in folders change; each change is
-        saved as a snapshot.
+        saved as a snapshot, and History lets you go back.
         <span className="mt-2 flex items-center gap-1.5">
           <Badge>Soon</Badge>
           <span>Installer Vault: your installers, on your drive.</span>
