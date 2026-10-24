@@ -193,6 +193,103 @@ pub fn undo_preview(blobs: &Path, point: &RestorePointRecord) -> Vec<UndoFile> {
         .collect()
 }
 
+/// Every file changed after scan `snapshot_id` was the latest, with the
+/// state it had then: the earliest restore point after it that touched the
+/// file has its `before_hash`, the latest has what's there now.
+fn changed_since(
+    store: &Store,
+    machine_id: &str,
+    snapshot_id: i64,
+) -> Result<(Vec<FileRecord>, Vec<Daw>), ApplyError> {
+    let mut files: Vec<FileRecord> = Vec::new();
+    let mut daws = Vec::new();
+    // Oldest first.
+    for p in store.restore_points(machine_id)?.into_iter().rev() {
+        if p.snapshot_id.unwrap_or(0) < snapshot_id {
+            continue;
+        }
+        if let Some(d) = p.daw.as_deref().and_then(Daw::parse)
+            && !daws.contains(&d)
+        {
+            daws.push(d);
+        }
+        for f in p.files {
+            match files.iter_mut().find(|g| g.path == f.path) {
+                Some(g) => g.after_hash = f.after_hash,
+                None => files.push(f),
+            }
+        }
+    }
+    // Files that ended up as they started need nothing.
+    files.retain(|f| f.before_hash != f.after_hash);
+    Ok((files, daws))
+}
+
+/// Preview [`go_back`]: the files it would put back or remove.
+pub fn go_back_preview(
+    store: &Store,
+    blobs: &Path,
+    machine_id: &str,
+    snapshot_id: i64,
+) -> Result<Vec<UndoFile>, ApplyError> {
+    let (files, _) = changed_since(store, machine_id, snapshot_id)?;
+    let point = RestorePointRecord {
+        id: 0,
+        machine_id: machine_id.to_owned(),
+        created_at: 0,
+        kind: RestoreKind::Undo,
+        label: String::new(),
+        daw: None,
+        snapshot_id: None,
+        undoes: None,
+        undone_by: None,
+        files,
+    };
+    Ok(undo_preview(blobs, &point))
+}
+
+/// Put every file Patch Pilot changed since scan `snapshot_id` back as it
+/// was then, as one restore point (so going back can be undone too).
+/// Plug-ins aren't touched.
+pub fn go_back(
+    store: &mut Store,
+    blobs: &Path,
+    machine_id: &str,
+    snapshot_id: i64,
+    label: &str,
+    now: i64,
+) -> Result<RestorePoint, ApplyError> {
+    let (files, daws) = changed_since(store, machine_id, snapshot_id)?;
+    if let Some(&d) = daws.iter().find(|d| daw_running(**d)) {
+        return Err(ApplyError::DawRunning(d));
+    }
+    let blob_store = BlobStore::new(blobs);
+    let changes = files
+        .iter()
+        .map(|f| {
+            let path = PathBuf::from(&f.path);
+            let contents = match &f.before_hash {
+                None => None,
+                Some(h) => Some(
+                    blob_store
+                        .get(h)
+                        .map_err(|_| ApplyError::MissingBackup(path.clone()))?,
+                ),
+            };
+            Ok(FileChange { path, contents })
+        })
+        .collect::<Result<_, ApplyError>>()?;
+    let req = ChangeSet {
+        machine_id: machine_id.to_owned(),
+        label: label.to_owned(),
+        // Checked above; recorded so undoing this checks the same app.
+        daw: daws.first().copied(),
+        changes,
+        now,
+    };
+    apply_checked(store, blobs, &req, RestoreKind::Undo, None)
+}
+
 fn apply(
     store: &mut Store,
     blobs: &Path,
@@ -205,6 +302,17 @@ fn apply(
     {
         return Err(ApplyError::DawRunning(daw));
     }
+    apply_checked(store, blobs, req, kind, undoes)
+}
+
+/// [`apply`] once the DAW check has passed.
+fn apply_checked(
+    store: &mut Store,
+    blobs: &Path,
+    req: &ChangeSet,
+    kind: RestoreKind,
+    undoes: Option<i64>,
+) -> Result<RestorePoint, ApplyError> {
     let mut seen = BTreeSet::new();
     for c in &req.changes {
         if !c.path.is_absolute() || c.path.to_str().is_none() || c.path.file_name().is_none() {
@@ -327,8 +435,16 @@ fn write_atomic(path: &Path, contents: Option<&[u8]>) -> Result<(), ApplyError> 
 /// True if `daw` is open, or if the process list can't be read (when unsure,
 /// don't touch its files).
 pub fn daw_running(daw: Daw) -> bool {
-    match process_names() {
-        Some(names) => names.iter().any(|n| is_daw_process(daw, n)),
+    match crate::apps::process_list() {
+        Some(list) => list.lines().any(|l| {
+            // `tasklist` CSV starts with the quoted image name; `ps` gives a path.
+            let l = l.trim();
+            let name = l
+                .strip_prefix('"')
+                .and_then(|l| l.split('"').next())
+                .unwrap_or(l);
+            is_daw_process(daw, name)
+        }),
         None => true,
     }
 }
@@ -336,49 +452,13 @@ pub fn daw_running(daw: Daw) -> bool {
 /// Whether a process name or path (`tasklist` image name on Windows, `ps`
 /// command path on macOS) is `daw`.
 pub fn is_daw_process(daw: Daw, name: &str) -> bool {
-    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
-    let base_lower = base.to_ascii_lowercase();
     match daw {
-        Daw::Reaper => base_lower == "reaper" || base_lower == "reaper.exe",
-        Daw::Ableton => {
-            (base_lower.starts_with("ableton live") && base_lower.ends_with(".exe"))
-                || (base == "Live" && name.contains("Ableton Live"))
+        Daw::Reaper => {
+            let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+            base.eq_ignore_ascii_case("reaper") || base.eq_ignore_ascii_case("reaper.exe")
         }
+        Daw::Ableton => crate::apps::lists_ableton_live(name),
     }
-}
-
-#[cfg(windows)]
-fn process_names() -> Option<Vec<String>> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("tasklist")
-        .args(["/FO", "CSV", "/NH"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    // "reaper.exe","1234","Console","1","120,000 K"
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter_map(|l| l.strip_prefix('"')?.split('"').next().map(str::to_owned))
-            .collect(),
-    )
-}
-
-#[cfg(not(windows))]
-fn process_names() -> Option<Vec<String>> {
-    let out = std::process::Command::new("ps")
-        .args(["-axo", "comm="])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(|l| l.trim().to_owned())
-            .collect(),
-    )
 }
 
 #[cfg(test)]

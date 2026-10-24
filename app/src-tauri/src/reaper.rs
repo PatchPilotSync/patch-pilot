@@ -1,4 +1,4 @@
-//! Reaper extras in Up To Speed (decision #46): restore ReaPack's
+//! Reaper extras in Up To Speed (decision #47): restore ReaPack's
 //! repositories and packages, and point Reaper's folder settings at this
 //! machine's folders. Writes go through restore points, so they refuse while
 //! Reaper is open and can be undone from History.

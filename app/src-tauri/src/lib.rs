@@ -4,6 +4,7 @@
 mod background;
 mod bring;
 mod compare;
+mod history;
 mod reaper;
 mod report;
 mod rig;
@@ -73,6 +74,11 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            history::history,
+            history::undo_preview,
+            history::undo_change,
+            history::go_back_plan,
+            history::go_back,
             reaper::reaper_extras,
             reaper::restore_reapack,
             reaper::fix_reaper_folders,
