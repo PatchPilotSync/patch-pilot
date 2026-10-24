@@ -5,8 +5,8 @@ import {
   ignoreSuggestion,
   FORMAT_LABEL,
   openVendorApp,
-  PHASE_LABEL,
-  planMachine,
+  planProgress,
+  planTick,
   STATE_HINT,
   STATE_LABEL,
   vaultMatches,
@@ -18,12 +18,13 @@ import {
   type MachinesView,
   type ParityState,
   type PluginFormat,
-  type Step,
+  type SetupProgress,
   type VaultMatch,
   type VendorApp,
 } from "../api";
 import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
+import { StepRow, type Actions } from "./Setup";
 import { Badge, Button, inputClass, Pill, ScoreBar, scoreColor, timeAgo } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
@@ -68,7 +69,7 @@ interface Props {
 export function Compare({ view, focus, onError }: Props) {
   const [selected, setSelected] = useState<string | null>(focus?.id ?? view.machines[0]?.id ?? null);
   const [data, setData] = useState<MachineComparison | null>(null);
-  const [plan, setPlan] = useState<Step[] | null>(null);
+  const [plan, setPlan] = useState(false);
   const [row, setRow] = useState<ComparisonRow | null>(null);
   const [wantPlan, setWantPlan] = useState(focus?.plan ?? false);
   const [busy, setBusy] = useState(false);
@@ -96,8 +97,8 @@ export function Compare({ view, focus, onError }: Props) {
   useEffect(() => {
     if (!wantPlan || !data || data.machine.id !== selected) return;
     setWantPlan(false);
-    planMachine(data.machine.id).then((p) => setPlan(p.steps), (e) => onError(String(e)));
-  }, [wantPlan, data, selected, onError]);
+    setPlan(true);
+  }, [wantPlan, data, selected]);
 
   useEffect(() => {
     if (!view.machines.some((m) => m.id === selected)) setSelected(view.machines[0]?.id ?? null);
@@ -105,7 +106,11 @@ export function Compare({ view, focus, onError }: Props) {
 
   useEffect(() => {
     setData(null);
-    setPlan(null);
+    setPlan(false);
+  }, [selected]);
+
+  // A rescan reloads `view`; an open checklist stays open and ticks itself off.
+  useEffect(() => {
     setRow(null);
     if (!selected || view.golden_version === null) return;
     compareMachine(selected).then(setData, (e) => onError(String(e)));
@@ -132,11 +137,12 @@ export function Compare({ view, focus, onError }: Props) {
           <Empty text={selected ? "Comparing…" : "No machines yet."} />
         ) : plan ? (
           <PlanView
+            id={data.machine.id}
             name={data.machine.name}
-            steps={plan}
             here={data.machine.is_this_machine}
+            refresh={view}
             onError={onError}
-            onBack={() => setPlan(null)}
+            onBack={() => setPlan(false)}
           />
         ) : (
           <Diff
@@ -144,7 +150,7 @@ export function Compare({ view, focus, onError }: Props) {
             selected={row}
             onSelect={setRow}
             suggest={suggest}
-            onPlan={() => planMachine(data.machine.id).then((p) => setPlan(p.steps), (e) => onError(String(e)))}
+            onPlan={() => setPlan(true)}
           />
         )}
       </section>
@@ -734,32 +740,48 @@ function Side({ title, items }: { title: string; items: ComparisonRow["golden_it
 }
 
 function PlanView({
+  id,
   name,
-  steps,
   here,
+  refresh,
   onError,
   onBack,
 }: {
+  id: string;
   name: string;
-  steps: Step[];
   /** The plan is for this machine, so its apps and installers can be opened. */
   here: boolean;
+  /** Changes after every rescan, to reload the ticks. */
+  refresh: unknown;
   onError: (e: string) => void;
   onBack: () => void;
 }) {
-  const [done, setDone] = useState<Set<number>>(new Set());
+  const [progress, setProgress] = useState<SetupProgress | null>(null);
   const [apps, setApps] = useState<VendorApp[]>([]);
   const [installers, setInstallers] = useState<Map<string, VaultMatch>>(new Map());
   useEffect(() => {
+    planProgress(id).then(setProgress, (e) => onError(String(e)));
+  }, [id, refresh, onError]);
+  const wanted = progress?.steps.flatMap((s) => s.open_products).join("\n") ?? "";
+  useEffect(() => {
     if (!here) return;
     vendorApps().then(setApps, () => {});
-    vaultMatches(steps.flatMap((s) => s.products)).then(
+    const products = wanted ? wanted.split("\n") : [];
+    vaultMatches(products).then(
       (m) => setInstallers(new Map(m.map((x) => [x.product_id, x]))),
       () => {},
     );
-  }, [here, steps]);
-  const open = (id: string) => openVendorApp(id).catch((e) => onError(String(e)));
-  const run = (entry: string) => vaultRun(entry).catch((e) => onError(String(e)));
+  }, [here, wanted]);
+  const actions: Actions = {
+    app: (app) => (here ? apps.find((a) => a.id === app) : undefined),
+    installer: (product) => (here ? installers.get(product) : undefined),
+    open: (app) => openVendorApp(app).catch((e) => onError(String(e))),
+    run: (entry) => vaultRun(entry).catch((e) => onError(String(e))),
+    onError,
+    bringOver: false,
+  };
+  const tick = (key: string, done: boolean) => planTick(id, key, done).then(setProgress, (e) => onError(String(e)));
+  const steps = progress?.steps ?? [];
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
       <header className="flex items-center gap-4">
@@ -767,76 +789,32 @@ function PlanView({
           <h1 className="truncate text-sm font-semibold">Up To Speed: {name}</h1>
           <p className="text-xs text-dim">
             {here
-              ? "A checklist. Bring templates, scripts and themes over below and open the apps and installers from here; you install plug-ins, then Patch Pilot rescans."
-              : `A checklist. Open Patch Pilot on ${name} to bring templates, scripts and themes over there.`}
+              ? "A checklist. Bring templates, scripts and themes over below and open the apps and installers from here. As you install things, Patch Pilot rescans and crosses them off."
+              : `A checklist. Steps are crossed off as ${name} finds them installed. Open Patch Pilot there to bring templates, scripts and themes over.`}
           </p>
         </div>
-        <span className="text-xs tabular-nums text-dim">
-          {done.size} of {steps.length}
-        </span>
+        {progress && (
+          <span className="text-xs tabular-nums text-dim">
+            {progress.done} of {progress.total}
+          </span>
+        )}
         <Button variant="quiet" onClick={onBack} className="shrink-0 whitespace-nowrap">
           Back to diff
         </Button>
       </header>
       {here && <BringOver onError={onError} />}
       {here && <ReaperExtras onError={onError} />}
-      {steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
+      {progress && steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
+      {progress?.complete && steps.length > 0 && (
+        <p className="text-xs font-medium text-ok">Every step is done.</p>
+      )}
       <ol className="-mx-2 flex flex-col">
         {steps.map((s, i) => (
-          <li key={s.number}>
-            {(i === 0 || steps[i - 1].phase !== s.phase) && (
-              <h3 className="px-2 pb-0.5 pt-3 text-[11px] text-dim">{PHASE_LABEL[s.phase]}</h3>
+          <li key={s.key}>
+            {(i === 0 || steps[i - 1].group !== s.group) && (
+              <h3 className="px-2 pb-0.5 pt-3 text-[11px] text-dim">{s.group}</h3>
             )}
-            <label className="flex gap-2.5 rounded-[5px] px-2 py-1.5 hover:bg-sel/50">
-              <input
-                type="checkbox"
-                className="mt-0.5 accent-accent"
-                checked={done.has(s.number)}
-                onChange={() =>
-                  setDone((d) => {
-                    const n = new Set(d);
-                    if (n.has(s.number)) n.delete(s.number);
-                    else n.add(s.number);
-                    return n;
-                  })
-                }
-              />
-              <span className="min-w-0 flex-1">
-                <span className={done.has(s.number) ? "text-dim line-through" : ""}>
-                  {s.number}. {s.title}
-                </span>
-                {s.details.length > 0 && (
-                  <ul className="mt-0.5 text-xs text-dim">
-                    {s.details.map((d, n) => {
-                      const installer = installers.get(s.products[n]);
-                      return (
-                        <li key={d} className="flex items-center gap-2">
-                          <span className="min-w-0 truncate">{d}</span>
-                          {installer && (
-                            <button
-                              className="shrink-0 text-accent-text hover:underline"
-                              title={`From your Installer Vault: ${installer.file_name}`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                run(installer.entry_id);
-                              }}
-                            >
-                              Run installer{installer.version ? ` ${installer.version}` : ""}
-                            </button>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-                {s.after.length > 0 && (
-                  <span className="mt-0.5 block text-[11px] text-dim opacity-80">
-                    After step{s.after.length === 1 ? "" : "s"} {s.after.join(", ")}
-                  </span>
-                )}
-              </span>
-              {s.app && <AppButton app={apps.find((a) => a.id === s.app)} onOpen={open} />}
-            </label>
+            <StepRow step={s} onTick={tick} actions={actions} />
           </li>
         ))}
       </ol>

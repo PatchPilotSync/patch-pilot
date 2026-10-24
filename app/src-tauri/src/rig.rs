@@ -199,6 +199,10 @@ fn scan_blocking(
     })?;
     emit(4, "Saving the snapshot");
     let info = patchpilot_local::save_scan(&mut store, &scan.manifest).map_err(err)?;
+    let _ = patchpilot_local::up_to_speed::record_check(
+        patchpilot_local::app_dir(&db),
+        patchpilot_local::now(),
+    );
     if !info.unchanged {
         let _ = app.emit(RIG_CHANGED, ());
     }
@@ -235,13 +239,23 @@ fn load_overview(store: &Store, this: Option<&str>) -> Result<Overview, String> 
     })
 }
 
-/// When the machine's latest snapshot was taken (Unix seconds), 0 if never.
+/// When the machine was last scanned (Unix seconds), 0 if never. A rescan
+/// that finds nothing new adds no snapshot, so for this machine the time of
+/// its last scan counts too.
 pub(crate) fn scanned_at(store: &Store, id: &str) -> Result<i64, String> {
-    Ok(store
+    let snapshot = store
         .snapshots(id)
         .map_err(err)?
         .first()
-        .map_or(0, |s| s.created_at))
+        .map_or(0, |s| s.created_at);
+    let checked = db_path().ok().and_then(|db| {
+        let dir = patchpilot_local::app_dir(&db);
+        let this = patchpilot_store::read_machine_id(dir).ok()??;
+        (this == id)
+            .then(|| patchpilot_local::up_to_speed::last_check(dir))
+            .flatten()
+    });
+    Ok(snapshot.max(checked.unwrap_or(0)))
 }
 
 pub(crate) fn db_path() -> Result<PathBuf, String> {

@@ -177,6 +177,10 @@ export interface Step {
 export const machines = () => invoke<MachinesView>("machines");
 export const compareMachine = (id: string) => invoke<MachineComparison>("compare_machine", { id });
 export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machine", { id });
+/** Get Up To Speed with each step ticked off once a rescan shows it done. */
+export const planProgress = (id: string) => invoke<SetupProgress>("plan_progress", { id });
+export const planTick = (id: string, key: string, done: boolean) =>
+  invoke<SetupProgress>("plan_tick", { id, key, done });
 /** "Propose to Golden": a new Golden version taking these products from the machine. Returns the version. */
 export const addToGolden = (machine: string, products: string[]) =>
   invoke<number>("add_to_golden", { machine, products });

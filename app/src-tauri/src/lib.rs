@@ -79,6 +79,8 @@ pub fn run() {
             compare::machines,
             compare::compare_machine,
             compare::plan_machine,
+            compare::plan_progress,
+            compare::plan_tick,
             compare::import_bundle,
             setup::setup_view,
             setup::setup_start,

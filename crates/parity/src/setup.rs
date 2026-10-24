@@ -161,6 +161,50 @@ pub fn setup_progress(
     }
 }
 
+/// Get Up To Speed with live progress: the plan made from `baseline`, each
+/// step ticked off as `machine` (the latest scan) shows it done. Like
+/// [`setup_progress`] without the final checks; `complete` ignores templates.
+pub fn plan_progress(
+    golden: &Manifest,
+    profile: &TargetProfile,
+    baseline: &Manifest,
+    machine: &Manifest,
+    ticked: &BTreeSet<String>,
+) -> SetupProgress {
+    let mut p = setup_progress(golden, profile, baseline, machine, ticked);
+    p.steps.retain(|s| s.automatic);
+    p.total = p.steps.len();
+    p.done = p
+        .steps
+        .iter()
+        .filter(|s| matches!(s.status, StepStatus::Done | StepStatus::Skipped))
+        .count();
+    p.complete = p.done == p.total;
+    p
+}
+
+/// True while the plan made from `baseline` still covers everything
+/// `machine` needs, so it can keep tracking progress. False once something
+/// new is missing (or the Golden Rig changed), when a fresh plan is due.
+pub fn plan_still_covers(
+    golden: &Manifest,
+    profile: &TargetProfile,
+    baseline: &Manifest,
+    machine: &Manifest,
+) -> bool {
+    let (g0, b) = aligned(golden, baseline);
+    let plan = up_to_speed(&g0, profile, &b);
+    let planned: BTreeSet<&ProductId> = plan.steps.iter().flat_map(|s| &s.products).collect();
+    let (g, m) = aligned(golden, machine);
+    up_to_speed(&g, profile, &m).steps.iter().all(|s| {
+        if s.products.is_empty() {
+            plan.steps.iter().any(|p| p.title == s.title)
+        } else {
+            s.products.iter().all(|p| planned.contains(p))
+        }
+    })
+}
+
 fn aligned(golden: &Manifest, machine: &Manifest) -> (Manifest, Manifest) {
     let (mut g, mut m) = (golden.clone(), machine.clone());
     align_products(&mut g, &mut m);

@@ -14,6 +14,7 @@ pub mod reaper_extras;
 pub mod restore;
 pub mod setup;
 pub mod sync;
+pub mod up_to_speed;
 pub mod vault;
 mod watch;
 
@@ -24,7 +25,9 @@ use patchpilot_scanner::{PluginRoot, ScanInput, SystemDirs, default_roots};
 use patchpilot_store::{SnapshotInfo, SnapshotReason, Store, StoreError};
 
 pub use anonymize::anonymize;
-pub use watch::{FolderWatch, watch_folder_flat, watch_folders, watched_folders};
+pub use watch::{
+    FolderWatch, app_folders, watch_folder_flat, watch_folders, watch_folders_flat, watched_folders,
+};
 
 /// What to scan besides the defaults.
 #[derive(Debug, Clone)]

@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use patchpilot_core::{Manifest, Os, TargetProfile};
-use patchpilot_parity::{ReportInfo, StepStatus, setup_progress, setup_report};
+use patchpilot_parity::{
+    ReportInfo, StepStatus, plan_progress, plan_still_covers, setup_progress, setup_report,
+};
 
 fn load(name: &str) -> Manifest {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -160,4 +162,50 @@ fn report_lists_open_work() {
         "{report}"
     );
     assert!(!report.contains("## Done"));
+}
+
+#[test]
+fn up_to_speed_crosses_off_what_a_rescan_finds() {
+    let golden = load("golden.json");
+    let laptop = load("laptop.json");
+    let profile = TargetProfile::default();
+    let none = BTreeSet::new();
+
+    let start = plan_progress(&golden, &profile, &laptop, &laptop, &none);
+    assert_eq!((start.done, start.total), (0, 6), "no final checks");
+    assert!(start.steps.iter().all(|s| s.automatic));
+
+    // iLok and Native Access got installed: their steps stay, ticked off.
+    let later = with_golden(
+        &laptop,
+        &golden,
+        &["app/ilok-license-manager", "app/native-access"],
+    );
+    let p = plan_progress(&golden, &profile, &laptop, &later, &none);
+    assert_eq!(p.total, 6);
+    assert_eq!(
+        status(&p)[..2],
+        [("step:1", StepStatus::Done), ("step:2", StepStatus::Done)]
+    );
+    assert_eq!(p.done, 2);
+    assert!(!p.complete);
+    assert!(plan_still_covers(&golden, &profile, &laptop, &later));
+
+    // Pro-Q 3 was in parity and gets removed: the old plan doesn't cover it.
+    let mut lost = later.clone();
+    lost.items.retain(|i| {
+        i.product_id
+            .as_ref()
+            .is_none_or(|p| p.0 != "fabfilter/pro-q-3")
+    });
+    assert!(!plan_still_covers(&golden, &profile, &laptop, &lost));
+
+    let all: Vec<&str> = golden
+        .items
+        .iter()
+        .filter_map(|i| i.product_id.as_ref().map(|p| p.0.as_str()))
+        .collect();
+    let done = with_golden(&laptop, &golden, &all);
+    let p = plan_progress(&golden, &profile, &laptop, &done, &none);
+    assert!(p.complete, "{:?}", status(&p));
 }
