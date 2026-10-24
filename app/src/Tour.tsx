@@ -61,7 +61,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Get up to speed",
-    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license.",
+    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license. Templates, scripts and themes come over from the Golden Rig in one click.",
     art: <ChecklistArt />,
   },
   {

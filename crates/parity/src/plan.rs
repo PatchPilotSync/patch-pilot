@@ -245,8 +245,8 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         );
     }
 
-    // DAW files and configs are user-owned and will sync later; for now the
-    // user copies them.
+    // DAW files and configs are user-owned; linked machines bring them over
+    // in one click (decision #45).
     let files: Vec<&ProductDiff> = todo
         .iter()
         .copied()
@@ -261,7 +261,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         push(
             Phase::Manual,
             format!(
-                "Copy {} DAW file{} from the Golden machine (file sync comes later)",
+                "Bring over {} DAW file{} from the Golden Rig",
                 files.len(),
                 if files.len() == 1 { "" } else { "s" }
             ),
