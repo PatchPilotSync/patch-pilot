@@ -5,6 +5,7 @@
 //! Patch Pilot's own app-data folder.
 
 mod anonymize;
+mod watch;
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,7 @@ use patchpilot_scanner::{PluginRoot, ScanInput, SystemDirs, default_roots};
 use patchpilot_store::{SnapshotInfo, SnapshotReason, Store, StoreError};
 
 pub use anonymize::anonymize;
+pub use watch::{FolderWatch, watch_folders, watched_folders};
 
 /// What to scan besides the defaults.
 #[derive(Debug, Clone)]
@@ -174,6 +176,21 @@ pub fn default_db_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "can't find the app-data folder".to_owned())
 }
 
+/// Marker file in the app-data folder: Patch Pilot has already turned on
+/// "Open at Login" once, so it never does it again behind the user's back.
+const LOGIN_DEFAULT_FILE: &str = "login-default-applied";
+
+/// True once [`mark_login_default_applied`] has run for this app-data folder.
+pub fn login_default_applied(app_dir: &Path) -> bool {
+    app_dir.join(LOGIN_DEFAULT_FILE).exists()
+}
+
+/// Remember that the launch-at-login default was applied.
+pub fn mark_login_default_applied(app_dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(app_dir)?;
+    std::fs::write(app_dir.join(LOGIN_DEFAULT_FILE), b"")
+}
+
 /// The folder holding the database, where `machine-id` lives too.
 pub fn app_dir(db: &Path) -> &Path {
     db.parent().unwrap_or(Path::new("."))
@@ -269,4 +286,18 @@ pub fn random_id() -> String {
         .map_or(0, |d| d.as_nanos());
     let seed = format!("{nanos}-{}-{:p}", std::process::id(), &nanos);
     blake3::hash(seed.as_bytes()).to_hex()[..16].to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_default_is_applied_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("PatchPilot");
+        assert!(!login_default_applied(&app));
+        mark_login_default_applied(&app).unwrap();
+        assert!(login_default_applied(&app));
+    }
 }

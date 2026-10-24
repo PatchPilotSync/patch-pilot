@@ -1,6 +1,7 @@
 //! Patch Pilot desktop shell (#33). Commands here are the UI's only way into
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
+mod background;
 mod compare;
 mod rig;
 mod tray;
@@ -24,13 +25,37 @@ fn app_version() -> AppVersion {
 
 pub fn run() {
     tauri::Builder::default()
+        // Opening Patch Pilot again (Start menu, Finder) while it runs in the
+        // tray shows the running one instead of starting a second.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main(app);
+        }))
+        // Opens at login, hidden in the tray (decision #38). macOS uses a
+        // LaunchAgent (the plug-in's default), which needs no permission prompt.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("Patch Pilot")
+                .arg(background::BACKGROUND_ARG)
+                .build(),
+        )
         // Self-update (decision #32): the UI checks once at launch and only
         // installs when the user says so.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(rig::Scanning::default())
         .manage(tray::LastHidden::default())
-        .setup(|app| Ok(tray::setup(app.handle())?))
+        .setup(|app| {
+            let app = app.handle();
+            tray::setup(app)?;
+            background::apply_login_default(app);
+            if background::launched_at_login() {
+                tray::set_dock_icon(app, false);
+            } else {
+                tray::show_main(app);
+            }
+            background::start(app);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_version,
             rig::overview,

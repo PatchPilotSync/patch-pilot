@@ -1,18 +1,22 @@
 //! Tray / menu bar icon and its popover (decision #35). Left click toggles a
 //! small borderless window next to the icon; it hides again when it loses
 //! focus. Double-clicking the icon (Windows) opens the main window. Closing the main window hides it, so Patch Pilot keeps living in the
-//! tray until the user picks Quit from the icon's menu.
+//! tray until the user picks Quit from the icon's menu. On macOS the Dock icon
+//! only shows while the main window is open (decision #38).
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Rect, WindowEvent};
+use tauri_plugin_autostart::ManagerExt;
 
 pub const MAIN: &str = "main";
 pub const POPOVER: &str = "tray";
+/// The tray icon's ID.
+pub const ID: &str = "patchpilot";
 
 /// Gap between the tray icon and the popover, in logical pixels.
 const GAP: f64 = 6.0;
@@ -32,20 +36,40 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     // Temporary, for testing onboarding: shows the welcome screen and tour again
     // without touching any saved data. Remove before a public launch.
     let replay = MenuItem::with_id(app, "replay", "Replay First Run", true, None::<&str>)?;
+    // Shows the real state, so a change made in Task Manager or macOS Login
+    // Items is reflected; refreshed whenever it's clicked.
+    let at_login = CheckMenuItem::with_id(
+        app,
+        "login",
+        "Open at Login",
+        true,
+        app.autolaunch().is_enabled().unwrap_or(false),
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Patch Pilot", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &replay, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &replay, &at_login, &quit])?;
 
-    TrayIconBuilder::with_id("patchpilot")
+    TrayIconBuilder::with_id(ID)
         .icon(Image::from_bytes(ICON)?)
         .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Patch Pilot")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
+        .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => show_main(app),
             "replay" => {
                 show_main(app);
                 let _ = app.emit_to(MAIN, "replay-first-run", ());
+            }
+            "login" => {
+                // The menu has already flipped the tick; make the OS match it.
+                let autolaunch = app.autolaunch();
+                let _ = if at_login.is_checked().unwrap_or(false) {
+                    autolaunch.enable()
+                } else {
+                    autolaunch.disable()
+                };
+                let _ = at_login.set_checked(autolaunch.is_enabled().unwrap_or(false));
             }
             "quit" => app.exit(0),
             _ => {}
@@ -80,6 +104,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                set_dock_icon(window.app_handle(), false);
             }
         });
     }
@@ -161,10 +186,18 @@ fn popover_position(
 pub fn show_main(app: &AppHandle) {
     hide_popover(app);
     if let Some(main) = app.get_webview_window(MAIN) {
+        set_dock_icon(app, true);
         let _ = main.unminimize();
         let _ = main.show();
         let _ = main.set_focus();
     }
+}
+
+/// macOS: Patch Pilot is a menu bar app with a Dock icon only while its main
+/// window is open, like other always-on utilities.
+pub fn set_dock_icon(_app: &AppHandle, _visible: bool) {
+    #[cfg(target_os = "macos")]
+    let _ = _app.set_dock_visibility(_visible);
 }
 
 /// The popover's Expand and Up To Speed buttons, row clicks and double-clicks. `machine` opens Compare on

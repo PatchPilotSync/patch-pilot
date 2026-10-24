@@ -8,6 +8,7 @@ becomes its release notes, which the app shows when it offers that update
 
 ### New
 
+- Patch Pilot now opens when you log in and keeps watching quietly from the menu bar or tray. When you install, update or remove a plug-in, it rescans by itself a few seconds later, so every score stays current. Turn this off with "Open at Login" in the tray icon's menu.
 - A short tour on first launch explains the Golden Rig, comparisons and the parity score, Up To Speed and snapshots. Skip it any time, and reopen it from "How it works".
 
 ### Improved

@@ -15,6 +15,22 @@ use tauri::{AppHandle, Emitter, State};
 #[derive(Default)]
 pub struct Scanning(AtomicBool);
 
+impl Scanning {
+    /// Claims the scanner; false when a scan is already running.
+    pub fn start(&self) -> bool {
+        !self.0.swap(true, Ordering::SeqCst)
+    }
+
+    pub fn finish(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Emitted after a scan saved a snapshot that differs from the previous one,
+/// whether the user or the background watcher started it. Live sync uploads
+/// after it.
+pub const RIG_CHANGED: &str = "rig-changed";
+
 /// Everything the first-run screens show. Mirrored in `src/api.ts`.
 #[derive(Debug, Serialize)]
 pub struct Overview {
@@ -84,14 +100,14 @@ pub async fn scan_machine(
     scanning: State<'_, Scanning>,
     name: Option<String>,
 ) -> Result<ScanReport, String> {
-    if scanning.0.swap(true, Ordering::SeqCst) {
+    if !scanning.start() {
         return Err("a scan is already running".to_owned());
     }
-    let result = tauri::async_runtime::spawn_blocking(move || scan_blocking(&app, name))
+    let result = tauri::async_runtime::spawn_blocking(move || scan_blocking(&app, name, true))
         .await
         .map_err(|e| e.to_string())
         .and_then(|r| r);
-    scanning.0.store(false, Ordering::SeqCst);
+    scanning.finish();
     result
 }
 
@@ -124,8 +140,34 @@ pub async fn make_golden() -> Result<Overview, String> {
     load_overview(&store, Some(&id))
 }
 
-fn scan_blocking(app: &AppHandle, name: Option<String>) -> Result<ScanReport, String> {
+/// Rescan this machine without progress events, for the background watcher.
+/// Does nothing (returns `None`) until the user has scanned it once. The
+/// caller holds [`Scanning`].
+pub(crate) fn rescan_quietly(app: &AppHandle) -> Result<Option<ScanReport>, String> {
+    let db = db_path()?;
+    if !db.exists() {
+        return Ok(None);
+    }
+    let Some(id) = patchpilot_store::read_machine_id(patchpilot_local::app_dir(&db))
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    if open(&db)?.latest_manifest(&id).map_err(err)?.is_none() {
+        return Ok(None);
+    }
+    scan_blocking(app, None, false).map(Some)
+}
+
+fn scan_blocking(
+    app: &AppHandle,
+    name: Option<String>,
+    progress: bool,
+) -> Result<ScanReport, String> {
     let emit = |step: usize, label: &'static str| {
+        if !progress {
+            return;
+        }
         // Progress is best effort; a closed window shouldn't fail the scan.
         let _ = app.emit(
             "scan-progress",
@@ -156,6 +198,9 @@ fn scan_blocking(app: &AppHandle, name: Option<String>) -> Result<ScanReport, St
     })?;
     emit(4, "Saving the snapshot");
     let info = patchpilot_local::save_scan(&mut store, &scan.manifest).map_err(err)?;
+    if !info.unchanged {
+        let _ = app.emit(RIG_CHANGED, ());
+    }
     Ok(ScanReport {
         overview: load_overview(&store, Some(&id))?,
         unchanged: info.unchanged,
