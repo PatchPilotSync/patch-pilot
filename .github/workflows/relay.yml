@@ -1,0 +1,71 @@
+# The sync relay (relay/, decision #38): type-check and test it on every PR
+# that touches it; deploy it to Cloudflare from main once the account secrets
+# exist (see relay/README.md).
+name: Relay
+
+on:
+  push:
+    branches: [main]
+    paths: ["relay/**", ".github/workflows/relay.yml"]
+  pull_request:
+    paths: ["relay/**", ".github/workflows/relay.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: relay-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: relay
+
+jobs:
+  test:
+    name: Type-check and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check the Cloudflare secrets
+        id: secrets
+        working-directory: .
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Relay not deployed: add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to the repo secrets (relay/README.md)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.ok == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.ok == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - if: steps.secrets.outputs.ok == 'true'
+        run: npm ci
+      - if: steps.secrets.outputs.ok == 'true'
+        # Secrets pasted with a trailing newline break wrangler; trim them.
+        run: |
+          export CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')"
+          export CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          npx wrangler deploy

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import {
   compareMachine,
@@ -16,7 +16,9 @@ import {
 import { Button, Mark, scoreColor, timeAgo } from "../ui";
 
 // The tray / menu bar popover (decision #35): the compact view of every
-// machine's parity. It loads when it is shown and never polls.
+// machine's parity. It loads when it is shown and never polls. Every route
+// into the main window is visible (decision #37): a labelled Expand button,
+// clickable machine and need rows, and a double-click on any empty spot.
 
 const SHOWN = 5;
 const WORK = ["missing", "incomplete", "outdated"] as const;
@@ -68,9 +70,20 @@ export function Tray() {
   const rank = (r: ComparisonRow) =>
     WORK.indexOf(r.state as (typeof WORK)[number]) * 10 + KIND_ORDER.indexOf(r.kind);
   todo.sort((a, b) => rank(a) - rank(b));
+  const behind = target && todo.length > 0 ? target.machine : null;
+
+  // Double-click on anything that isn't a control opens the main window,
+  // on the machine that needs work if there is one.
+  function onDoubleClick(e: MouseEvent<HTMLDivElement>) {
+    if ((e.target as Element).closest("button, a, input")) return;
+    openMainWindow(behind?.id ?? null);
+  }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden border border-line bg-panel">
+    <div
+      onDoubleClick={onDoubleClick}
+      className="flex h-full cursor-default select-none flex-col overflow-hidden border border-line bg-panel"
+    >
       <header className="flex h-10 shrink-0 items-center gap-2 px-3.5">
         <Mark className="text-accent-text" />
         <span className="font-semibold">Patch Pilot</span>
@@ -86,6 +99,9 @@ export function Tray() {
         {overview && !machine && <Hint text="Scan this machine to get started." />}
         {machine && view?.golden_version === null && <Hint text="Make a Golden Rig to compare your machines." />}
 
+        {view && view.golden_version !== null && (
+          <h2 className="px-1 text-[11px] text-dim">Parity with Golden Rig v{view.golden_version}</h2>
+        )}
         {view && view.golden_version !== null && (
           <ul className="flex flex-col gap-0.5">
             {view.machines.map((m) => (
@@ -108,7 +124,7 @@ export function Tray() {
                 <h2 className="px-3 pb-0.5 pt-1 text-[11px] text-dim">{target.machine.name} needs</h2>
                 <ul>
                   {todo.slice(0, SHOWN).map((r) => (
-                    <NeedRow key={r.product_id} r={r} />
+                    <NeedRow key={r.product_id} r={r} onOpen={() => openMainWindow(target.machine.id)} />
                   ))}
                 </ul>
                 {todo.length > SHOWN && (
@@ -123,6 +139,8 @@ export function Tray() {
             )}
           </section>
         )}
+
+        {machine && <p className="mt-auto pt-2 text-center text-[11px] text-dim/70">Double-click to open the full window</p>}
       </div>
 
       <footer className="flex h-12 shrink-0 items-center gap-1 border-t border-line px-2.5">
@@ -130,14 +148,20 @@ export function Tray() {
           <path d="M20 11a8 8 0 1 0-2.3 5.7" />
           <path d="M20 4v7h-7" />
         </IconButton>
-        <IconButton label="Open the full window" onClick={() => openMainWindow()}>
-          <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />
-        </IconButton>
         <span className="flex-1" />
-        {target && todo.length > 0 ? (
-          <Button onClick={() => openMainWindow(target.machine.id, true)}>Up To Speed</Button>
+        {behind ? (
+          <>
+            <Button variant="quiet" title="Open the full window" onClick={() => openMainWindow(behind.id)}>
+              <ExpandIcon />
+              Expand
+            </Button>
+            <Button onClick={() => openMainWindow(behind.id, true)}>Up To Speed</Button>
+          </>
         ) : (
-          <Button onClick={() => openMainWindow()}>Open</Button>
+          <Button title="Open the full window" onClick={() => openMainWindow()}>
+            <ExpandIcon />
+            Open Patch Pilot
+          </Button>
         )}
       </footer>
     </div>
@@ -155,6 +179,7 @@ function MachineRow({ m, active, onOpen }: { m: MachineCard; active: boolean; on
     <li>
       <button
         onClick={onOpen}
+        title={`Open ${m.name} in the full window`}
         className={`flex h-12 w-full items-center gap-3 rounded-md border px-3 text-left ${
           active ? "border-line bg-canvas" : "border-transparent hover:bg-sel/50"
         }`}
@@ -189,7 +214,7 @@ const KIND_NOTE: Record<ComparisonRow["kind"], string> = {
   config: "config",
 };
 
-function NeedRow({ r }: { r: ComparisonRow }) {
+function NeedRow({ r, onOpen }: { r: ComparisonRow; onOpen: () => void }) {
   const missing = r.state === "missing";
   const note = missing
     ? KIND_NOTE[r.kind]
@@ -199,13 +224,23 @@ function NeedRow({ r }: { r: ComparisonRow }) {
         ? `${r.machine_version} → ${r.golden_version}`
         : r.state;
   return (
-    <li className="flex h-7 items-center gap-2.5 px-3">
-      <span className={`w-3 shrink-0 text-center text-[13px] font-semibold ${missing ? "text-bad" : "text-warn"}`} aria-hidden="true">
-        {missing ? "✕" : "!"}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{r.name}</span>
-      <span className="shrink-0 text-[11px] text-dim">{note}</span>
+    <li>
+      <button onClick={onOpen} className="flex h-7 w-full items-center gap-2.5 px-3 text-left hover:bg-sel/50">
+        <span className={`w-3 shrink-0 text-center text-[13px] font-semibold ${missing ? "text-bad" : "text-warn"}`} aria-hidden="true">
+          {missing ? "✕" : "!"}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{r.name}</span>
+        <span className="shrink-0 text-[11px] text-dim">{note}</span>
+      </button>
     </li>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="-ml-0.5 mr-1.5">
+      <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />
+    </svg>
   );
 }
 

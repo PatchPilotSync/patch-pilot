@@ -1,6 +1,6 @@
 [package]
 name = "patchpilot-app"
-version = "0.1.0"
+version = "0.2.0"
 description = "Patch Pilot desktop app"
 edition = "2024"
 rust-version = "1.88"
@@ -28,8 +28,21 @@ patchpilot-local = { path = "../../crates/local" }
 patchpilot-scanner = { path = "../../crates/scanner" }
 patchpilot-parity = { path = "../../crates/parity" }
 patchpilot-store = { path = "../../crates/store" }
+patchpilot-sync = { path = "../../crates/sync" }
+# Live sync transport (decision #38). rustls with ring, like the updater, so no
+# C toolchain is needed for aws-lc on Windows.
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1", features = ["macros", "time", "sync", "net"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [lints.rust]
 unsafe_code = "forbid"

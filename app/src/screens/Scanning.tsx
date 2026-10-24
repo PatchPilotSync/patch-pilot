@@ -11,7 +11,10 @@ export function Scanning({ progress }: { progress: Progress | null }) {
   const current = progress?.step ?? 0;
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-4 px-6 pt-[16vh]">
-      <h1 className="text-lg font-semibold">Scanning…</h1>
+      <div>
+        <h1 className="text-lg font-semibold">Scanning this machine…</h1>
+        <p className="mt-1 text-dim">Reading what's installed. Nothing is changed.</p>
+      </div>
       <div className="h-[3px] overflow-hidden rounded-full bg-track">
         <div
           className="h-full rounded-full bg-accent transition-all duration-300"

@@ -96,8 +96,7 @@ export function Compare({ view, focus, onError }: Props) {
           ))}
         </ul>
         <p className="p-4 text-[11px] leading-relaxed text-dim">
-          Add a machine: on it, run <code className="font-mono">patchpilot export</code>, then drop the file on this
-          window.
+          Your other machines show up here once they're linked. Use Link a machine in the top bar.
         </p>
       </aside>
 
@@ -120,7 +119,7 @@ export function Compare({ view, focus, onError }: Props) {
 
       <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel">
         {row && data ? <Detail row={row} machine={data.machine} /> : (
-          <p className="p-4 text-xs text-dim">Select a product to see versions on both sides.</p>
+          <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Golden Rig.</p>
         )}
       </aside>
     </div>
@@ -208,7 +207,7 @@ function Diff({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{machine.name}</h1>
           <p className="truncate text-xs text-dim">
-            vs Golden Rig v{data.golden_version} · {machine.profile ? `${machine.profile.name} profile` : "no profile"} ·
+            compared with Golden Rig v{data.golden_version} · {machine.profile ? `${machine.profile.name} profile` : "no profile"} ·
             scanned {timeAgo(machine.scanned_at)}
           </p>
         </div>

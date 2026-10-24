@@ -26,7 +26,7 @@ cargo run -p patchpilot-cli -- scan --name "Studio PC" --out studio.json
 cargo run -p patchpilot-cli -- diff studio.json laptop.json --profile travel.json
 ```
 
-The full alpha-tester instructions are in the README. CI runs `cargo fmt --check`, clippy with `-D warnings` and tests on both OSes.
+The full alpha-tester instructions are in docs/cli.md. CI runs `cargo fmt --check`, clippy with `-D warnings` and tests on both OSes.
 
 ## Decisions waiting on you
 
