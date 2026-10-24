@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, inputClass } from "../ui";
 
-export function Welcome({ onScan }: { onScan: (name: string) => void }) {
+export function Welcome({ onScan, onTour }: { onScan: (name: string) => void; onTour: () => void }) {
   const [name, setName] = useState("");
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-5 px-6 pt-[16vh]">
@@ -9,7 +9,10 @@ export function Welcome({ onScan }: { onScan: (name: string) => void }) {
         <h1 className="text-lg font-semibold">Let's see what's on this machine</h1>
         <p className="mt-1.5 leading-relaxed text-dim">
           Patch Pilot reads your plug-in folders, vendor apps and Reaper templates. It only reads
-          metadata: nothing is loaded, changed or uploaded.
+          metadata: nothing is loaded, changed or uploaded.{" "}
+          <button type="button" onClick={onTour} className="text-accent-text hover:underline">
+            How it works
+          </button>
         </p>
       </div>
       <form
