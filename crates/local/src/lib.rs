@@ -158,6 +158,9 @@ pub fn scan_this_machine(
         None => 0,
     };
     let ableton = ableton.map_or(0, |dirs| add_ableton(&mut manifest, &dirs));
+    if opts.default_folders {
+        add_presets(&mut manifest, &preset_folders(os));
+    }
     // One ID per product across formats, with the catalog's names.
     patchpilot_catalog::current().canonicalize(&mut manifest);
     Ok(LocalScan {
@@ -340,6 +343,39 @@ pub fn add_ableton(manifest: &mut Manifest, dirs: &AbletonDirs) -> usize {
             &patchpilot_scanner::normalize_name(&r.name).name,
         ))
     });
+    let n = items.len();
+    manifest.products.extend(products);
+    manifest.items.extend(items);
+    n
+}
+
+/// Known third-party preset folders that exist on this machine.
+pub fn preset_folders(os: Os) -> Vec<patchpilot_parity::presets::PresetFolder> {
+    use patchpilot_parity::presets::{PresetBases, find_preset_folders};
+    let var = |k: &str| std::env::var(k).unwrap_or_default();
+    let bases = PresetBases::standard(
+        os,
+        &home_dir().unwrap_or_default(),
+        &var("APPDATA"),
+        &var("ProgramData"),
+    );
+    find_preset_folders(os, &bases)
+}
+
+/// Add preset folders as items, each under its own logical root. Returns how
+/// many were added.
+pub fn add_presets(
+    manifest: &mut Manifest,
+    folders: &[patchpilot_parity::presets::PresetFolder],
+) -> usize {
+    let (products, items) = patchpilot_parity::presets::preset_items(folders, manifest.machine.os);
+    for f in folders {
+        manifest
+            .machine
+            .path_map
+            .roots
+            .insert(f.root.clone(), f.path.to_string_lossy().into_owned());
+    }
     let n = items.len();
     manifest.products.extend(products);
     manifest.items.extend(items);
