@@ -1,5 +1,6 @@
 //! Watching this machine's plug-in and template folders, so the app can
-//! rescan on its own when something is installed, updated or removed.
+//! rescan on its own when something is installed, updated or removed, and
+//! the Downloads folder for new installers (Installer Vault).
 //!
 //! Uses the OS's change notifications (FSEvents on macOS,
 //! ReadDirectoryChangesW on Windows), never polling, so an idle machine costs
@@ -16,7 +17,13 @@ use patchpilot_core::Os;
 use patchpilot_scanner::{SystemDirs, default_roots};
 
 /// Reaper resource subfolders holding the templates a scan reads (#37).
-const REAPER_TEMPLATE_DIRS: [&str; 3] = ["TrackTemplates", "ProjectTemplates", "FXChains"];
+const REAPER_TEMPLATE_DIRS: [&str; 5] = [
+    "TrackTemplates",
+    "ProjectTemplates",
+    "FXChains",
+    "Scripts",
+    "ColorThemes",
+];
 
 /// User Library subfolders holding what a scan shares. Not `Samples/`
 /// (Live writes freezes there), nor the preferences folder (Live writes its
@@ -72,6 +79,25 @@ pub fn watch_folders(
     quiet: Duration,
     on_change: impl FnMut() + Send + 'static,
 ) -> notify::Result<FolderWatch> {
+    watch(folders, RecursiveMode::Recursive, quiet, on_change)
+}
+
+/// Like [`watch_folders`], but only the files directly in `folder` (the
+/// Downloads folder, where unpacked archives shouldn't wake us).
+pub fn watch_folder_flat(
+    folder: PathBuf,
+    quiet: Duration,
+    on_change: impl FnMut() + Send + 'static,
+) -> notify::Result<FolderWatch> {
+    watch(vec![folder], RecursiveMode::NonRecursive, quiet, on_change)
+}
+
+fn watch(
+    folders: Vec<PathBuf>,
+    mode: RecursiveMode,
+    quiet: Duration,
+    on_change: impl FnMut() + Send + 'static,
+) -> notify::Result<FolderWatch> {
     let (tx, rx) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
         // Reads (our own scans included) aren't changes.
@@ -81,7 +107,7 @@ pub fn watch_folders(
     })?;
     let folders = folders
         .into_iter()
-        .filter(|f| watcher.watch(f, RecursiveMode::Recursive).is_ok())
+        .filter(|f| watcher.watch(f, mode).is_ok())
         .collect();
     thread::Builder::new()
         .name("patchpilot-watch".to_owned())

@@ -153,13 +153,64 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
 }
 
 async fn upload(relay: &Relay, this: &str, rig: &RigKey) -> Result<(), String> {
-    let out = {
+    let (out, files) = {
         let store = open(&db_path()?)?;
-        patchpilot_local::sync::outgoing(&store, this, rig)?
+        let files = store
+            .latest_manifest(this)
+            .map_err(crate::rig::err)?
+            .map(|m| patchpilot_local::bring::shared_files(&m))
+            .unwrap_or_default();
+        (patchpilot_local::sync::outgoing(&store, this, rig)?, files)
     };
-    match out {
-        Some((object, sealed)) => relay.put(&object, sealed).await,
-        None => Ok(()),
+    let Some((object, sealed)) = out else {
+        return Ok(());
+    };
+    relay.put(&object, sealed).await?;
+    upload_files(relay, rig, &files).await
+}
+
+/// Put this machine's shareable files (templates, scripts, themes) on the
+/// relay, so others can bring them over (decision #45). Content-addressed:
+/// only files no machine has uploaded yet are sent.
+async fn upload_files(
+    relay: &Relay,
+    rig: &RigKey,
+    files: &[patchpilot_local::bring::SharedFile],
+) -> Result<(), String> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    let there: std::collections::HashSet<String> =
+        relay.list().await?.into_iter().map(|o| o.name).collect();
+    for file in files {
+        if there.contains(&rig.file_object(&file.hash)) {
+            continue;
+        }
+        // Changed since the scan: the next scan uploads the new one.
+        let Ok(bytes) = std::fs::read(&file.path) else {
+            continue;
+        };
+        if patchpilot_sync::content_hash(&bytes) != file.hash {
+            continue;
+        }
+        let sealed = rig.seal_file(&file.hash, &bytes);
+        relay.put(&rig.file_object(&file.hash), sealed).await?;
+    }
+    Ok(())
+}
+
+/// Fetch one shared file by hash; `None` when no machine has uploaded it.
+pub(crate) async fn fetch_file(
+    rig: &RigKey,
+    hash: &patchpilot_core::ContentHash,
+) -> Result<Option<Vec<u8>>, String> {
+    let relay = Relay::new(rig);
+    match relay.get(&rig.file_object(hash)).await? {
+        Some(sealed) => rig
+            .open_file(hash, &sealed)
+            .map(Some)
+            .map_err(|e| e.to_string()),
+        None => Ok(None),
     }
 }
 
@@ -439,15 +490,15 @@ fn ws_base() -> String {
     relay_url().replacen("http", "ws", 1)
 }
 
-fn app_dir() -> Result<std::path::PathBuf, String> {
+pub(crate) fn app_dir() -> Result<std::path::PathBuf, String> {
     Ok(patchpilot_local::app_dir(&db_path()?).to_owned())
 }
 
-fn load_rig() -> Result<Option<RigKey>, String> {
+pub(crate) fn load_rig() -> Result<Option<RigKey>, String> {
     patchpilot_local::sync::load_rig(&app_dir()?)
 }
 
-fn this_machine() -> Result<String, String> {
+pub(crate) fn this_machine() -> Result<String, String> {
     patchpilot_store::read_machine_id(&app_dir()?)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Scan this machine first.".to_owned())
@@ -493,6 +544,33 @@ mod tests {
         // Another rig can't read it.
         let other = Relay::new(&RigKey::generate());
         assert!(other.get("machine/abc").await.is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a relay (PATCHPILOT_RELAY)"]
+    async fn shared_files_travel_once_and_open_only_by_hash() {
+        let path =
+            std::env::temp_dir().join(format!("pp-{}.RfxChain", RigKey::generate().rig_id()));
+        std::fs::write(&path, "<FXCHAIN\n>\n").unwrap();
+        let hash = patchpilot_sync::content_hash(b"<FXCHAIN\n>\n");
+        let files = [patchpilot_local::bring::SharedFile {
+            hash: hash.clone(),
+            path: path.clone(),
+        }];
+
+        let rig = RigKey::generate();
+        let relay = Relay::new(&rig);
+        // The machine object claims the rig first, as `upload` does.
+        relay.put("machine/abc", b"sealed".to_vec()).await.unwrap();
+        assert_eq!(fetch_file(&rig, &hash).await.unwrap(), None);
+        upload_files(&relay, &rig, &files).await.unwrap();
+        upload_files(&relay, &rig, &files).await.unwrap();
+        assert_eq!(relay.list().await.unwrap().len(), 2);
+        assert_eq!(
+            fetch_file(&rig, &hash).await.unwrap().unwrap(),
+            b"<FXCHAIN\n>\n"
+        );
+        let _ = std::fs::remove_file(path);
     }
 
     #[tokio::test]

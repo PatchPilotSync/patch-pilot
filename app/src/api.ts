@@ -165,12 +165,47 @@ export interface Step {
   details: string[];
   products: string[];
   after: number[];
+  /** Vendor app this step uses (e.g. "native-access"), so it can be opened. */
+  app: string | null;
 }
 
 export const machines = () => invoke<MachinesView>("machines");
 export const compareMachine = (id: string) => invoke<MachineComparison>("compare_machine", { id });
 export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machine", { id });
 export const importBundle = (path: string) => invoke<{ lines: string[] }>("import_bundle", { path });
+
+// Bring over (decision #45); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
+
+export interface FileToBring {
+  /** Group heading: "Reaper". */
+  app: string;
+  /** "Track template", "FX chain", "Script", "Theme", ... */
+  kind: string;
+  root: string;
+  /** `/`-separated path below the root. */
+  rel: string;
+  hash: string;
+  size: number | null;
+  /** This machine has a different copy, backed up before it is replaced. */
+  replaces: boolean;
+  too_large: boolean;
+}
+
+export interface BringView {
+  linked: boolean;
+  files: FileToBring[];
+}
+
+export interface BringResult {
+  written: number;
+  backed_up: number;
+  backup_dir: string | null;
+  unavailable: string[];
+}
+
+export const fileKey = (f: FileToBring) => `${f.root}/${f.rel}`;
+export const filesToBring = () => invoke<BringView>("files_to_bring");
+export const bringFiles = (keys: string[]) => invoke<BringResult>("bring_files", { keys });
 
 export const STATE_LABEL: Record<ParityState, string> = {
   missing: "Missing",
@@ -224,7 +259,91 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
 
-// Reaper extras (decision #45): ReaPack restore and folder settings.
+// Installer Vault and vendor apps (src-tauri/src/vault.rs).
+
+export type Arch = "x86_64" | "aarch64" | "universal";
+
+export interface Product {
+  canonical_id: string;
+  vendor: string;
+  name: string;
+}
+
+export interface VaultEntry {
+  id: string;
+  hash: string;
+  size: number;
+  file: string;
+  vendor: string;
+  product: string;
+  product_id?: string;
+  version?: string;
+  os?: Os;
+  arch?: Arch;
+  source_name: string;
+  signer?: string;
+  added_at: number;
+  fits_here: boolean;
+  missing: boolean;
+}
+
+export interface InboxItem {
+  path: string;
+  file_name: string;
+  size: number;
+  modified: number;
+  guess: { name: string; version: string | null; os: Os | null; arch: Arch | null };
+  product: Product | null;
+}
+
+export interface VaultView {
+  root: string | null;
+  suggested_root: string | null;
+  downloads: string | null;
+  entries: VaultEntry[];
+  inbox: InboxItem[];
+  products: Product[];
+  problem: string | null;
+}
+
+export interface NewEntry {
+  vendor: string;
+  product: string;
+  product_id: string | null;
+  version: string | null;
+  os: Os | null;
+  arch: Arch | null;
+}
+
+export interface VaultMatch {
+  product_id: string;
+  entry_id: string;
+  file_name: string;
+  version: string | null;
+}
+
+export interface VendorApp {
+  id: string;
+  name: string;
+  installed: boolean;
+  can_open: boolean;
+  download_url: string;
+}
+
+export const vaultStatus = () => invoke<VaultView>("vault_status");
+export const vaultSetRoot = (path: string) => invoke<VaultView>("vault_set_root", { path });
+export const vaultAdd = (path: string, meta: NewEntry) =>
+  invoke<{ entry: VaultEntry; already: boolean; signer_warning: string | null }>("vault_add", { path, meta });
+export const vaultInspect = (paths: string[]) => invoke<InboxItem[]>("vault_inspect", { paths });
+export const vaultDismiss = (path: string) => invoke<void>("vault_dismiss", { path });
+export const vaultMatches = (products: string[]) => invoke<VaultMatch[]>("vault_matches", { products });
+export const vaultRun = (entryId: string) => invoke<void>("vault_run", { entryId });
+export const vaultReveal = (entryId: string | null = null) => invoke<void>("vault_reveal", { entryId });
+export const vendorApps = () => invoke<VendorApp[]>("vendor_apps");
+export const openVendorApp = (id: string) => invoke<"app" | "download_page">("open_vendor_app", { id });
+export const onVaultChanged = (f: () => void): Promise<UnlistenFn> => listen("vault-changed", () => f());
+
+// Reaper extras (decision #46): ReaPack restore and folder settings.
 export interface ReaPackRemote {
   name: string;
   url: string;

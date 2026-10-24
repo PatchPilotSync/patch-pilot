@@ -13,7 +13,7 @@
 //! SQLite file `ReaPack/registry.db` (read in `patchpilot-local`). Packages
 //! are free scripts, effects and themes that ReaPack itself downloads; Patch
 //! Pilot never copies them. Restoring adds the missing repositories and lets
-//! ReaPack's own "Synchronize packages" install the rest (decision #45).
+//! ReaPack's own "Synchronize packages" install the rest (decision #46).
 
 use patchpilot_core::{Confidence, Item, ItemKind, Manifest, Os, PortablePath, Product, ProductId};
 use serde::Serialize;

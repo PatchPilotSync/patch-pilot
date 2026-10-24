@@ -31,6 +31,12 @@ pub struct VendorAdapter {
     /// Paths relative to a macOS root (`/` or the home folder). The first that
     /// exists wins. `.app` bundles give a version from their `Info.plist`.
     pub macos_paths: &'static [&'static str],
+    /// Executable names inside the Windows install folder, used to open the
+    /// app when its uninstall entry has no `DisplayIcon` pointing at it.
+    pub windows_exes: &'static [&'static str],
+    /// The vendor's page for downloading the app, opened when it isn't
+    /// installed. Empty if there is no separate download.
+    pub download_url: &'static str,
 }
 
 pub const ADAPTERS: &[VendorAdapter] = &[
@@ -41,6 +47,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Native Access"],
         windows_publisher: Some("Native Instruments"),
         macos_paths: &["Applications/Native Access.app"],
+        windows_exes: &["Native Access.exe"],
+        download_url: "https://www.native-instruments.com/en/specials/native-access/",
     },
     VendorAdapter {
         id: "waves-central",
@@ -49,6 +57,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Waves Central"],
         windows_publisher: Some("Waves"),
         macos_paths: &["Applications/Waves Central.app"],
+        windows_exes: &["Waves Central.exe"],
+        download_url: "https://www.waves.com/downloads/central",
     },
     VendorAdapter {
         id: "ua-connect",
@@ -57,6 +67,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["UA Connect"],
         windows_publisher: Some("Universal Audio"),
         macos_paths: &["Applications/UA Connect.app"],
+        windows_exes: &["UA Connect.exe"],
+        download_url: "https://www.uaudio.com/downloads",
     },
     VendorAdapter {
         id: "arturia-software-center",
@@ -65,6 +77,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Arturia Software Center"],
         windows_publisher: Some("Arturia"),
         macos_paths: &["Applications/Arturia Software Center.app"],
+        windows_exes: &["Arturia Software Center.exe"],
+        download_url: "https://www.arturia.com/support/downloads-manuals",
     },
     VendorAdapter {
         id: "izotope-product-portal",
@@ -76,6 +90,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
             "Applications/iZotope Product Portal.app",
             "Applications/iZotope/iZotope Product Portal.app",
         ],
+        windows_exes: &["iZotope Product Portal.exe"],
+        download_url: "https://www.izotope.com/en/products/product-portal.html",
     },
     VendorAdapter {
         id: "plugin-alliance-installation-manager",
@@ -84,6 +100,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Plugin Alliance Installation Manager"],
         windows_publisher: Some("Plugin Alliance"),
         macos_paths: &["Applications/Plugin Alliance Installation Manager.app"],
+        windows_exes: &["Plugin Alliance Installation Manager.exe"],
+        download_url: "https://www.plugin-alliance.com/en/installation-manager.html",
     },
     VendorAdapter {
         id: "spitfire-audio",
@@ -92,6 +110,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Spitfire Audio"],
         windows_publisher: Some("Spitfire"),
         macos_paths: &["Applications/Spitfire Audio.app"],
+        windows_exes: &["Spitfire Audio.exe"],
+        download_url: "https://www.spitfireaudio.com/info/library-manager/",
     },
     VendorAdapter {
         id: "ilok-license-manager",
@@ -100,6 +120,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["iLok License Manager"],
         windows_publisher: Some("PACE"),
         macos_paths: &["Applications/iLok License Manager.app"],
+        windows_exes: &["iLok License Manager.exe"],
+        download_url: "https://www.ilok.com/#!license-manager",
     },
     VendorAdapter {
         id: "pace-license-support",
@@ -109,6 +131,8 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_publisher: Some("PACE"),
         // Presence only: the helper has no Info.plist, so no version on macOS.
         macos_paths: &["Library/PrivilegedHelperTools/com.paceap.eden.licensed"],
+        windows_exes: &[],
+        download_url: "https://www.ilok.com/#!license-manager",
     },
 ];
 
@@ -120,6 +144,8 @@ pub struct UninstallEntry {
     pub display_version: Option<String>,
     pub publisher: Option<String>,
     pub install_location: Option<String>,
+    /// Often the app's own `.exe`, sometimes with an icon index (`,0`).
+    pub display_icon: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +224,32 @@ pub fn detect_macos(roots: &[PathBuf]) -> Vec<VendorAppStatus> {
         .collect()
 }
 
+/// The app's `.exe` on Windows: the uninstall entry's `DisplayIcon` when it
+/// is an existing `.exe`, else one of the adapter's `windows_exes` in its
+/// install folder.
+pub fn windows_executable(adapter: &VendorAdapter, entries: &[UninstallEntry]) -> Option<PathBuf> {
+    let e = entries.iter().find(|e| windows_matches(adapter, e))?;
+    let icon = e.display_icon.as_deref().map(|i| {
+        let i = i.trim();
+        // `"C:\...\App.exe",0` → `C:\...\App.exe`
+        let i = match i.rsplit_once(',') {
+            Some((path, n)) if n.trim().parse::<i32>().is_ok() => path,
+            _ => i,
+        };
+        PathBuf::from(i.trim().trim_matches('"'))
+    });
+    let from_icon = icon
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) && p.is_file());
+    from_icon.or_else(|| {
+        let dir = PathBuf::from(non_empty(e.install_location.as_deref())?.trim_matches('"'));
+        adapter
+            .windows_exes
+            .iter()
+            .map(|x| dir.join(x))
+            .find(|p| p.is_file())
+    })
+}
+
 fn app_version(path: &Path) -> Option<String> {
     if !path.is_dir() {
         return None;
@@ -245,6 +297,7 @@ pub fn read_uninstall_entries() -> Vec<UninstallEntry> {
                 display_version: get("DisplayVersion"),
                 publisher: get("Publisher"),
                 install_location: get("InstallLocation"),
+                display_icon: get("DisplayIcon"),
             });
         }
     }
@@ -272,5 +325,31 @@ mod tests {
         };
         let waves = ADAPTERS.iter().find(|a| a.id == "waves-central").unwrap();
         assert!(!windows_matches(waves, &entry));
+    }
+
+    #[test]
+    fn finds_the_windows_exe_from_the_icon_or_the_install_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("Native Access.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let na = ADAPTERS.iter().find(|a| a.id == "native-access").unwrap();
+        let entry = |icon: Option<String>, location: Option<String>| UninstallEntry {
+            display_name: Some("Native Access 2".into()),
+            publisher: Some("Native Instruments".into()),
+            display_icon: icon,
+            install_location: location,
+            ..Default::default()
+        };
+        let icon = format!("\"{}\",0", exe.display());
+        assert_eq!(
+            windows_executable(na, &[entry(Some(icon), None)]),
+            Some(exe.clone())
+        );
+        let folder = dir.path().to_string_lossy().into_owned();
+        assert_eq!(
+            windows_executable(na, &[entry(Some("C:\\missing.ico".into()), Some(folder))]),
+            Some(exe)
+        );
+        assert_eq!(windows_executable(na, &[entry(None, None)]), None);
     }
 }

@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "The main window: core events, app commands, update check and restart, and the Rig Report's Save dialog.",
   "windows": ["main"],
-  "permissions": ["core:default", "updater:default", "process:allow-restart", "dialog:allow-save"]
+  "permissions": ["core:default", "updater:default", "process:allow-restart", "dialog:allow-save", "dialog:allow-open"]
 }
