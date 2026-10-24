@@ -238,7 +238,7 @@ function Diff({
         <p className="text-xs text-ok">At parity with the Golden Rig.</p>
       )}
 
-      <TemplatesNotice comparison={c} />
+      <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
 
       <div className="flex flex-wrap items-center gap-1 border-b border-line pb-2">
         {STATE_ORDER.filter((s) => counts.get(s)).map((s) => (
@@ -334,37 +334,78 @@ interface NeededPlugin {
   id: string;
   name: string;
   vendor: string;
+  /** Its comparison row, when the Golden Rig has it. */
+  row: ComparisonRow | null;
   /** Template paths, e.g. `FXChains/Bus Glue.RfxChain`. */
   templates: string[];
 }
 
-/** Templates that would open with empty plug-in slots: one line, expandable to the plug-ins. */
-function TemplatesNotice({ comparison: c }: { comparison: MachineComparison["comparison"] }) {
+/** The not-ready templates of one app, with the plug-ins they lack. */
+interface AppTemplates {
+  app: string;
+  templates: number;
+  plugins: NeededPlugin[];
+}
+
+/** The app a template product belongs to, from its ID prefix: `reaper-template/...` -> Reaper. */
+function templateApp(productId: string): string {
+  const app = productId.split("/")[0].split("-")[0];
+  return app ? app.charAt(0).toUpperCase() + app.slice(1) : "Other";
+}
+
+/**
+ * Templates that would open with empty plug-in slots: one line, expandable to
+ * the plug-ins they lack, grouped by the app the templates belong to.
+ */
+function TemplatesNotice({
+  data,
+  selected,
+  onSelect,
+  onPlan,
+}: {
+  data: MachineComparison;
+  selected: ComparisonRow | null;
+  onSelect: (r: ComparisonRow) => void;
+  onPlan: () => void;
+}) {
+  const c = data.comparison;
   const [open, setOpen] = useState(false);
-  const [notReady, plugins] = useMemo(() => {
-    const notReady = c.templates.filter((t) => t.missing.length > 0);
+  const apps = useMemo(() => {
     const rows = new Map(c.rows.map((r) => [r.product_id, r]));
-    const byId = new Map<string, NeededPlugin>();
-    for (const t of notReady) {
+    const byApp = new Map<string, { templates: number; plugins: Map<string, NeededPlugin> }>();
+    for (const t of c.templates) {
+      if (!t.missing.length) continue;
+      const app = templateApp(t.product_id);
+      let group = byApp.get(app);
+      if (!group) byApp.set(app, (group = { templates: 0, plugins: new Map() }));
+      group.templates += 1;
       for (const id of t.missing) {
-        let p = byId.get(id);
+        let p = group.plugins.get(id);
         if (!p) {
-          const row = rows.get(id);
-          p = row ? { id, name: row.name, vendor: row.vendor, templates: [] } : { id, ...nameFromId(id), templates: [] };
-          byId.set(id, p);
+          const row = rows.get(id) ?? null;
+          p = { id, ...(row ? { name: row.name, vendor: row.vendor } : nameFromId(id)), row, templates: [] };
+          group.plugins.set(id, p);
         }
         p.templates.push(t.name);
       }
     }
-    const plugins = [...byId.values()].sort(
-      (a, b) => b.templates.length - a.templates.length || a.name.localeCompare(b.name),
-    );
-    return [notReady, plugins] as const;
+    return [...byApp]
+      .map(([app, g]): AppTemplates => ({
+        app,
+        templates: g.templates,
+        plugins: [...g.plugins.values()].sort(
+          (a, b) => b.templates.length - a.templates.length || a.name.localeCompare(b.name),
+        ),
+      }))
+      .sort((a, b) => a.app.localeCompare(b.app));
   }, [c]);
-  if (!notReady.length) return null;
+  if (!apps.length) return null;
 
-  const t = notReady.length;
-  const p = plugins.length;
+  const t = apps.reduce((n, a) => n + a.templates, 0);
+  const p = new Set(apps.flatMap((a) => a.plugins.map((n) => n.id))).size;
+  const anyInGolden = apps.some((a) => a.plugins.some((n) => n.row));
+  const anyOutside = apps.some((a) => a.plugins.some((n) => !n.row));
+  const who = data.machine.is_this_machine ? "this machine doesn't" : `${data.machine.name} doesn't`;
   return (
     <div className="text-xs">
       <button
@@ -374,8 +415,8 @@ function TemplatesNotice({ comparison: c }: { comparison: MachineComparison["com
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">
-          {t} Reaper template{t === 1 ? "" : "s"} use{t === 1 ? "s" : ""}{" "}
-          {p === 1 ? "a plug-in" : `${p} plug-ins`} this machine doesn't have
+          {t} {apps.length === 1 ? `${apps[0].app} ` : ""}template{t === 1 ? "" : "s"} need{t === 1 ? "s" : ""}{" "}
+          {p === 1 ? "a plug-in" : `${p} plug-ins`} {who} have
         </span>
         <span className="shrink-0 text-dim">{open ? "Hide" : "Show"}</span>
         <svg
@@ -389,27 +430,79 @@ function TemplatesNotice({ comparison: c }: { comparison: MachineComparison["com
         </svg>
       </button>
       {open && (
-        <div className="mt-1 rounded-md border border-line bg-panel px-3 py-2">
-          <p className="pb-1.5 text-dim">
-            These FX chains, track and project templates would open in Reaper with empty plug-in slots. Only plug-ins
-            that are also in the Golden Rig count toward the score.
-          </p>
-          <ul className="flex flex-col">
-            {plugins.map((n) => (
-              <li key={n.id} className="flex items-baseline gap-2 py-0.5" title={n.templates.join("\n")}>
-                <span className="shrink-0">
-                  {n.name}
-                  {n.vendor && <span className="ml-1.5 text-dim">{n.vendor}</span>}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-right text-[11px] text-dim">
-                  {n.templates.length === 1 ? templateLabel(n.templates[0]) : `${n.templates.length} templates`}
-                  {n.templates.length > 1 && ` · ${n.templates.map(templateLabel).join(", ")}`}
-                </span>
-              </li>
-            ))}
-          </ul>
+        <div className="mt-1 flex flex-col gap-2.5 rounded-md border border-line bg-panel px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 text-dim">
+              These templates would open with empty plug-in slots until these plug-ins are installed.
+              {anyInGolden && " Up To Speed lists the ones in the Golden Rig."}
+              {anyOutside && " The rest don't count in the score: install them if you use those templates."}
+            </p>
+            {anyInGolden && (
+              <Button variant="quiet" onClick={onPlan} className="shrink-0 text-accent-text!">
+                Open Up To Speed
+              </Button>
+            )}
+          </div>
+          {apps.map((a) => (
+            <AppGroup key={a.app} group={a} selected={selected} onSelect={onSelect} />
+          ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function AppGroup({
+  group: g,
+  selected,
+  onSelect,
+}: {
+  group: AppTemplates;
+  selected: ComparisonRow | null;
+  onSelect: (r: ComparisonRow) => void;
+}) {
+  return (
+    <div>
+      <h3 className="pb-0.5 text-[11px]">
+        <span className="font-medium">{g.app}</span>{" "}
+        <span className="text-dim">
+          {g.templates} template{g.templates === 1 ? "" : "s"} · {g.plugins.length} plug-in
+          {g.plugins.length === 1 ? "" : "s"}
+        </span>
+      </h3>
+      <ul className="-mx-2 flex flex-col">
+        {g.plugins.map((n) => {
+          const body = (
+            <>
+              <span className="shrink-0">
+                {n.name}
+                {n.vendor && <span className="ml-1.5 text-dim">{n.vendor}</span>}
+              </span>
+              {!n.row && <Badge>not in Golden Rig</Badge>}
+              <span className="min-w-0 flex-1 truncate text-right text-[11px] text-dim">
+                {n.templates.length === 1
+                  ? templateLabel(n.templates[0])
+                  : `${n.templates.length} templates · ${n.templates.map(templateLabel).join(", ")}`}
+              </span>
+            </>
+          );
+          const look = "flex h-6 w-full items-center gap-2 rounded-[5px] px-2 text-left";
+          return (
+            <li key={n.id} title={`Used by:\n${n.templates.join("\n")}`}>
+              {n.row ? (
+                <button
+                  onClick={() => n.row && onSelect(n.row)}
+                  className={`${look} ${selected?.product_id === n.id ? "bg-sel" : "hover:bg-sel/50"}`}
+                >
+                  {body}
+                </button>
+              ) : (
+                <div className={look}>{body}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

@@ -56,7 +56,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Compare and catch drift",
-    body: "Compare shows what each machine is missing next to the Golden Rig, and the parity score sums it up with the reasons. Link your machines with a short code and Compare updates live, end-to-end encrypted.",
+    body: "Compare shows what each machine is missing next to the Golden Rig, and the parity score sums it up with the reasons. It also flags Reaper templates that would open with empty plug-in slots, and which plug-ins they need. Link your machines with a short code and Compare updates live, end-to-end encrypted.",
     art: <CompareArt />,
   },
   {
