@@ -16,9 +16,10 @@ patchpilot-scanner = { path = "../scanner" }
 patchpilot-store = { path = "../store" }
 patchpilot-sync = { path = "../sync" }
 thiserror = "2.0.21"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.27.0"
 
 [lints]
 workspace = true
 
-[dev-dependencies]
-tempfile = "3.27.0"

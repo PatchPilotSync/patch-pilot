@@ -6,6 +6,7 @@
 
 mod anonymize;
 pub mod restore;
+pub mod reaper_extras;
 pub mod sync;
 mod watch;
 
@@ -133,9 +134,17 @@ pub fn scan_this_machine(
         Some(dir) => add_templates(&mut manifest, dir),
         None => 0,
     };
+    let mut warnings = output.warnings;
+    if let Some(dir) = &reaper_dir {
+        warnings.extend(reaper_extras::add_reaper_extras(
+            &mut manifest,
+            dir,
+            home_dir().as_deref(),
+        ));
+    }
     Ok(LocalScan {
         manifest,
-        warnings: output.warnings,
+        warnings,
         templates,
     })
 }

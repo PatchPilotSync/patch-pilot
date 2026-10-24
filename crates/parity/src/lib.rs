@@ -1,6 +1,10 @@
 //! Identity resolution, manifest diff, parity scoring and plan generation.
 
+pub mod reapack;
 pub mod reaper;
+pub mod reaper_folders;
+
+mod ini;
 
 mod comparison;
 mod diff;

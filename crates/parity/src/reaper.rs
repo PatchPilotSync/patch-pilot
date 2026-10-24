@@ -319,7 +319,7 @@ pub fn template_items(
 }
 
 /// Lowercase ASCII alphanumeric words joined by `-`.
-fn slug(s: &str) -> String {
+pub(crate) fn slug(s: &str) -> String {
     s.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .map(str::to_lowercase)
