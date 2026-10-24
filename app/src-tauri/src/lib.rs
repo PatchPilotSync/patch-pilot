@@ -3,11 +3,14 @@
 
 mod alerts;
 mod background;
+mod bring;
 mod compare;
+mod history;
 mod report;
 mod rig;
 mod sync;
 mod tray;
+mod vault;
 
 use serde::Serialize;
 
@@ -53,6 +56,7 @@ pub fn run() {
             let app = app.handle();
             sync::setup(app);
             alerts::setup(app);
+            vault::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -74,6 +78,13 @@ pub fn run() {
             compare::import_bundle,
             compare::add_to_golden,
             compare::ignore_suggestion,
+            history::history,
+            history::undo_preview,
+            history::undo_change,
+            history::go_back_plan,
+            history::go_back,
+            bring::files_to_bring,
+            bring::bring_files,
             report::rig_report_preview,
             report::save_rig_report,
             sync::sync_status,
@@ -81,6 +92,16 @@ pub fn run() {
             sync::link_join,
             sync::unlink,
             tray::open_main_window,
+            vault::vault_status,
+            vault::vault_set_root,
+            vault::vault_add,
+            vault::vault_inspect,
+            vault::vault_dismiss,
+            vault::vault_matches,
+            vault::vault_run,
+            vault::vault_reveal,
+            vault::vendor_apps,
+            vault::open_vendor_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Patch Pilot")

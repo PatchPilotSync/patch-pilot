@@ -29,6 +29,7 @@ patchpilot-scanner = { path = "../../crates/scanner" }
 patchpilot-parity = { path = "../../crates/parity" }
 patchpilot-store = { path = "../../crates/store" }
 patchpilot-sync = { path = "../../crates/sync" }
+patchpilot-vault = { path = "../../crates/vault" }
 # Live sync transport (decision #38). rustls with ring, like the updater, so no
 # C toolchain is needed for aws-lc on Windows.
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
@@ -40,13 +41,14 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
-# Quiet drift alerts (decision #43); sent from Rust only, so no JS permission.
+# Quiet drift alerts (decision #47); sent from Rust only, so no JS permission.
 tauri-plugin-notification = "2"
 # The Rig Report's Save dialog. Rust writes the file, so no fs permissions.
 tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

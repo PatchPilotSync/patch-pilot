@@ -1,1 +1,51 @@
-fake rack
+<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="12.0_12117" Creator="Ableton Live 12.1.5">
+	<GroupDevicePreset>
+		<Device>
+			<PluginDevice Id="0">
+				<PluginDesc>
+					<Vst3PluginInfo Id="0">
+						<WinPosX Value="120" />
+						<Preset>
+							<Vst3Preset Id="1">
+								<Name Value="My Saved Patch" />
+							</Vst3Preset>
+						</Preset>
+						<Name Value="Acme Verb" />
+						<Uid>
+							<Fields.0 Value="1448301379" />
+							<Fields.1 Value="-1" />
+							<Fields.2 Value="0" />
+							<Fields.3 Value="16" />
+						</Uid>
+						<DeviceType Value="2" />
+					</Vst3PluginInfo>
+				</PluginDesc>
+			</PluginDevice>
+			<PluginDevice Id="1">
+				<PluginDesc>
+					<VstPluginInfo Id="0">
+						<Path Value="C:\Program Files\VSTPlugins\Acme Comp x64.dll" />
+						<PlugName Value="Acme Comp x64" />
+						<UniqueId Value="1094807365" />
+					</VstPluginInfo>
+				</PluginDesc>
+			</PluginDevice>
+			<AuPluginDevice Id="2">
+				<PluginDesc>
+					<AuPluginInfo Id="0">
+						<Name Value="Acme Synth" />
+						<Manufacturer Value="Acme Audio" />
+					</AuPluginInfo>
+				</PluginDesc>
+			</AuPluginDevice>
+			<PluginDevice Id="3">
+				<PluginDesc>
+					<Vst3PluginInfo Id="0">
+						<Name Value="Acme Verb" />
+					</Vst3PluginInfo>
+				</PluginDesc>
+			</PluginDevice>
+		</Device>
+	</GroupDevicePreset>
+</Ableton>

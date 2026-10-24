@@ -2,12 +2,17 @@
 //!
 //! The glue between the OS and the other crates, shared by the `patchpilot`
 //! CLI and the desktop app so both scan the same way. Read-only except for
-//! Patch Pilot's own app-data folder.
+//! Patch Pilot's own app-data folder and the Installer Vault folder the user
+//! picked.
 
 mod anonymize;
 pub mod apps;
+pub mod bring;
 pub mod golden;
+pub mod open;
+pub mod restore;
 pub mod sync;
+pub mod vault;
 mod watch;
 
 use std::path::{Path, PathBuf};
@@ -17,7 +22,7 @@ use patchpilot_scanner::{PluginRoot, ScanInput, SystemDirs, default_roots};
 use patchpilot_store::{SnapshotInfo, SnapshotReason, Store, StoreError};
 
 pub use anonymize::anonymize;
-pub use watch::{FolderWatch, watch_folders, watched_folders};
+pub use watch::{FolderWatch, watch_folder_flat, watch_folders, watched_folders};
 
 /// What to scan besides the defaults.
 #[derive(Debug, Clone)]
@@ -254,8 +259,9 @@ fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
     patchpilot_parity::reaper::reaper_resource_dir(os, &appdata, &dirs.home).filter(|d| d.is_dir())
 }
 
-/// Add Reaper templates under `dir` as items that require their plug-ins.
-/// Returns how many were added.
+/// Add Reaper templates under `dir` as items that require their plug-ins,
+/// plus the scripts and themes Bring over shares (#45). Returns how many
+/// templates were added.
 pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};
     let (products, items) = template_items(dir, manifest.machine.os, |r| {
@@ -274,8 +280,11 @@ pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
         REAPER_RESOURCES.to_owned(),
         dir.to_string_lossy().into_owned(),
     );
+    let n = products
+        .iter()
+        .filter(|p| p.canonical_id.0.starts_with("reaper-template/"))
+        .count();
     manifest.products.extend(products);
-    let n = items.len();
     manifest.items.extend(items);
     n
 }
@@ -316,7 +325,12 @@ pub fn add_ableton(manifest: &mut Manifest, dirs: &AbletonDirs) -> usize {
                 .insert(root.to_owned(), dir.to_string_lossy().into_owned());
         }
     }
-    let (products, items) = settings_items(user_library, prefs, manifest.machine.os);
+    let (products, items) = settings_items(user_library, prefs, manifest.machine.os, |r| {
+        Some(patchpilot_scanner::product_id(
+            r.vendor.as_deref(),
+            &patchpilot_scanner::normalize_name(&r.name).name,
+        ))
+    });
     let n = items.len();
     manifest.products.extend(products);
     manifest.items.extend(items);

@@ -51,7 +51,7 @@ fn stable_ordered_plan() {
             (
                 6,
                 Phase::Manual,
-                "Copy 1 DAW file from the Golden machine (file sync comes later)",
+                "Bring over 1 DAW file from the Golden Rig",
                 vec![]
             ),
         ]
@@ -63,6 +63,19 @@ fn stable_ordered_plan() {
     assert_eq!(
         plan.steps[4].details,
         ["Acme Gate 1.2", "Acme Verb: add AAX"]
+    );
+    // Steps that use a vendor app name it, so the app can open it.
+    let apps: Vec<_> = plan.steps.iter().map(|s| s.app.as_deref()).collect();
+    assert_eq!(
+        apps,
+        [
+            Some("ilok-license-manager"),
+            Some("native-access"),
+            Some("native-access"),
+            Some("waves-central"),
+            None,
+            None,
+        ]
     );
     // Same input, same plan.
     assert_eq!(plan, plan_for(&TargetProfile::default()));
