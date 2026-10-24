@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 
 use patchpilot_core::{ContentHash, Item, Manifest, Os, PortablePath, TargetProfile};
 use patchpilot_parity::ableton::{
-    ABLETON_PREFS, ABLETON_USER_LIBRARY, prefs_label, user_library_label,
+    ABLETON_PREFS, ABLETON_USER_LIBRARY, merge_incoming, prefs_label, shared_view,
+    user_library_label,
 };
 use patchpilot_parity::apply_profile;
 use patchpilot_parity::reaper::{REAPER_RESOURCES, reaper_resource_dir, resource_kind};
@@ -22,6 +23,9 @@ use crate::restore::{ChangeSet, Daw, FileChange, apply_changes};
 
 /// The relay keeps objects up to 2 MB; leave room for the envelope.
 pub const MAX_FILE_BYTES: u64 = 1_900_000;
+
+/// See [`SharedRoot::merge`].
+pub type MergeFn = fn(&str, Option<&[u8]>, Vec<u8>) -> Result<Vec<u8>, String>;
 
 /// A logical root whose files may be brought over, and how.
 pub struct SharedRoot {
@@ -36,6 +40,13 @@ pub struct SharedRoot {
     /// Checked before writing under the root, e.g. "Close the DAW first"
     /// for its settings (CLAUDE.md rule 5).
     pub guard: fn() -> Result<(), String>,
+    /// The bytes others get for a file here (`rel`, its bytes): the file
+    /// itself, or for a settings file only its shareable part.
+    pub view: fn(&str, Vec<u8>) -> Vec<u8>,
+    /// What to write given what's there now (`rel`, current bytes, incoming
+    /// bytes): the incoming file, or the current one with the shared part
+    /// merged in.
+    pub merge: MergeFn,
     /// The DAW a restore point is tagged with; `Some` also makes
     /// [`apply_changes`] refuse while that DAW runs.
     pub daw: Option<Daw>,
@@ -51,6 +62,8 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         // Templates, scripts and themes aren't Reaper's settings, and Reaper
         // reads them when they are used, so writing them while it runs is safe.
         guard: || Ok(()),
+        view: |_, bytes| bytes,
+        merge: |_, _, incoming| Ok(incoming),
         daw: None,
     },
     // Ableton (decision #41): Live indexes the User Library and reads
@@ -61,6 +74,8 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         kind: user_library_label,
         default_dir: || crate::standard_ableton_dirs()?.user_library,
         guard: || crate::apps::write_guard(ABLETON_USER_LIBRARY),
+        view: |_, bytes| bytes,
+        merge: |_, _, incoming| Ok(incoming),
         daw: Some(Daw::Ableton),
     },
     SharedRoot {
@@ -69,6 +84,10 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         kind: prefs_label,
         default_dir: || crate::standard_ableton_dirs()?.prefs,
         guard: || crate::apps::write_guard(ABLETON_PREFS),
+        // Library.cfg shares only its Collection names, merged into this
+        // machine's own file so its paths and Places stay.
+        view: |rel, bytes| shared_view(ABLETON_PREFS, rel, bytes),
+        merge: |rel, current, incoming| merge_incoming(ABLETON_PREFS, rel, current, incoming),
         daw: Some(Daw::Ableton),
     },
 ];
@@ -112,6 +131,16 @@ pub struct FileToBring {
 pub struct SharedFile {
     pub hash: ContentHash,
     pub path: PathBuf,
+    pub root: String,
+    pub rel: String,
+}
+
+/// The bytes to upload for a shared file, as of now: `None` if it can't be
+/// read or has changed since the scan (the next scan shares the new one).
+pub fn read_shared(file: &SharedFile) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(&file.path).ok()?;
+    let bytes = (shared_root(&file.root)?.view)(&file.rel, bytes);
+    (patchpilot_sync::content_hash(&bytes) == file.hash).then_some(bytes)
 }
 
 /// The files on this machine others may bring over: every item in its latest
@@ -122,11 +151,13 @@ pub fn shared_files(machine: &Manifest) -> Vec<SharedFile> {
         .iter()
         .filter(|i| i.size.is_some_and(|s| s <= MAX_FILE_BYTES))
         .filter_map(|i| {
-            classify(&i.path)?;
+            let (shared, rel, _) = classify(&i.path)?;
             let path = machine.machine.path_map.resolve(&i.path)?;
             Some(SharedFile {
                 hash: i.content_hash.clone()?,
                 path: PathBuf::from(path),
+                root: shared.root.to_owned(),
+                rel: rel.to_owned(),
             })
         })
         .collect()
@@ -249,15 +280,20 @@ pub fn write_files(
             return Err(format!("{rel}: not a file {} can receive", shared.app));
         }
         let target = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
-        match std::fs::read(&target) {
-            Ok(old) if old == *bytes => continue,
-            Ok(_) => backed_up += 1,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        let current = match std::fs::read(&target) {
+            Ok(old) => Some(old),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(format!("{}: {e}", target.display())),
+        };
+        let bytes = (shared.merge)(rel, current.as_deref(), bytes.clone())?;
+        match current {
+            Some(old) if old == bytes => continue,
+            Some(_) => backed_up += 1,
+            None => {}
         }
         changes.push(FileChange {
             path: target,
-            contents: Some(bytes.clone()),
+            contents: Some(bytes),
         });
     }
     let req = ChangeSet {
@@ -378,6 +414,48 @@ mod tests {
     }
 
     #[test]
+    fn collection_names_merge_into_this_machines_library_cfg() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/parity/ableton/prefs-mac/Live 12.1.5/Library.cfg");
+        let tmp = tempfile::tempdir().unwrap();
+        let prefs = tmp.path().join("Live 12.1.5");
+        std::fs::create_dir_all(&prefs).unwrap();
+        std::fs::copy(&fixture, prefs.join("Library.cfg")).unwrap();
+
+        // What this machine shares is the names, checked against the scan's hash.
+        let names = b"1\tFaves\n2\tSynths & Keys\n3\t\n4\t\n5\t\n6\t\n7\t\n";
+        let file = SharedFile {
+            hash: patchpilot_sync::content_hash(names),
+            path: prefs.join("Library.cfg"),
+            root: ABLETON_PREFS.into(),
+            rel: "Library.cfg".into(),
+        };
+        assert_eq!(read_shared(&file).unwrap(), names);
+
+        let mut store = Store::open_in_memory().unwrap();
+        let result = write_files(
+            &mut store,
+            &tmp.path().join("blobs"),
+            "m1",
+            "Brought over 1 Ableton file",
+            ABLETON_PREFS,
+            &prefs,
+            &[("Library.cfg".into(), b"1\tDrums\n2\tKeys\n".to_vec())],
+            1,
+        );
+        // Only possible while Live is closed, as on CI.
+        if crate::apps::ableton_live_running() {
+            assert!(result.is_err());
+            return;
+        }
+        assert_eq!(result.unwrap().backed_up, 1);
+        let cfg = std::fs::read_to_string(prefs.join("Library.cfg")).unwrap();
+        assert!(cfg.contains(r#"Uri="color:colors=1" DisplayName="Drums""#));
+        assert!(cfg.contains(r#"Uri="color:colors=2" DisplayName="Keys""#));
+        assert!(cfg.contains(r#"<ProjectPath Value="/Users/alice/Music/Ableton/User Library" />"#));
+    }
+
+    #[test]
     fn ableton_settings_are_listed_under_ableton() {
         let at = |root: &str, rel: &str, body: &str| {
             let mut item = template(Os::Windows, rel, body);
@@ -423,7 +501,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         for (root, rel) in [
             (ABLETON_PREFS, "Preferences.cfg"),
-            (ABLETON_PREFS, "Library.cfg"),
+            (ABLETON_PREFS, "Log.txt"),
             (ABLETON_USER_LIBRARY, "Samples/Imported/kick.wav"),
         ] {
             let dir = tmp.path().join(root);
@@ -466,10 +544,14 @@ mod tests {
                 SharedFile {
                     hash: hash("vocal"),
                     path: PathBuf::from(format!("{dir}/FXChains/Vocal Bus.RfxChain")),
+                    root: REAPER_RESOURCES.into(),
+                    rel: "FXChains/Vocal Bus.RfxChain".into(),
                 },
                 SharedFile {
                     hash: hash("nudge"),
                     path: PathBuf::from(format!("{dir}/Scripts/Tools/Nudge.lua")),
+                    root: REAPER_RESOURCES.into(),
+                    rel: "Scripts/Tools/Nudge.lua".into(),
                 },
             ]
         );

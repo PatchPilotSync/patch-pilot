@@ -8,5 +8,7 @@ folders. File contents are placeholders; only paths and hashes matter.
   (`Samples/`, project `Backup/` folders, other file types).
 - `prefs-mac/`: `Live x.y.z/` folders as on macOS. The newest release
   (12.1.5) wins over an older release and over a newer beta. Only
-  `Options.txt` is shared; `Preferences.cfg` and `Library.cfg` never are.
+  `Options.txt` is shared, and only the Collection names from `Library.cfg`
+  (its structure follows a real Live 12.4 file; paths are made up).
+  `Preferences.cfg` never is.
 - `prefs-win/`: the same on Windows, where files sit in `Preferences/`.
