@@ -51,7 +51,7 @@ fn stable_ordered_plan() {
             (
                 6,
                 Phase::Manual,
-                "Copy 1 DAW file from the Golden machine (file sync comes later)",
+                "Bring over 1 DAW file from the Golden Rig",
                 vec![]
             ),
         ]
