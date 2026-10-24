@@ -84,7 +84,7 @@ cargo test -p patchpilot-scanner --test bench -- --ignored --nocapture   # 500-p
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on `windows-latest` and `macos-latest` for every PR, for the crates and (separately) for the app. Keep it green on both.
 
-The alpha CLI is `crates/cli` (`cargo run -p patchpilot-cli -- scan --out rig.json`, `... -- diff golden.json machine.json`); see README.
+The alpha CLI is `crates/cli` (`cargo run -p patchpilot-cli -- scan --out rig.json`, `... -- diff golden.json machine.json`); see docs/cli.md.
 
 The desktop app lives in `app/` (Node 22). `app/src-tauri` is its own Cargo workspace with its own `Cargo.lock`, so Tauri's dependencies stay out of the core crates' builds; it depends on the crates by path. Keep the Tauri npm packages (`@tauri-apps/api`, `@tauri-apps/cli`) on the same minor version as the `tauri` crate in `Cargo.lock`, or `tauri build` refuses to run.
 
