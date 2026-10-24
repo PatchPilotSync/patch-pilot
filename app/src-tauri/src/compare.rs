@@ -1,13 +1,16 @@
 //! Comparison view (#41): every machine's score against the Golden Rig
 //! through its target profile, the diff with reasons, the Up To Speed plan,
-//! and importing another machine's export file.
+//! suggestions for the Golden Rig (M9), and importing another machine's
+//! export file.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use patchpilot_core::{Bundle, Os};
-use patchpilot_parity::{Comparison, Plan, compare, up_to_speed};
+use patchpilot_parity::{Comparison, Plan, compare, suggestion_key, up_to_speed};
 use patchpilot_store::{GoldenImport, Store};
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 use crate::rig::{db_path, err, open, scanned_at};
 
@@ -27,6 +30,8 @@ pub struct MachineCard {
     pub profile: Option<ProfileRef>,
     /// None until there is a Golden Rig.
     pub score: Option<u8>,
+    /// Products here the Golden Rig lacks or has older, not ignored.
+    pub suggestions: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,6 +45,9 @@ pub struct MachineComparison {
     pub machine: MachineCard,
     pub golden_version: u32,
     pub comparison: Comparison,
+    /// Product IDs of `comparison.rows` that could go into the Golden Rig
+    /// (newer here or not in Golden), without the ones the user ignored.
+    pub suggested: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,18 +127,63 @@ pub async fn import_bundle(path: PathBuf) -> Result<ImportSummary, String> {
     Ok(ImportSummary { lines })
 }
 
+/// "Add to Golden Rig" on a suggestion: a new Golden version taking these
+/// products from `machine`. Every linked machine gets it through sync.
+#[tauri::command]
+pub async fn add_to_golden(
+    app: AppHandle,
+    machine: String,
+    products: Vec<String>,
+) -> Result<u32, String> {
+    let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    let v = patchpilot_local::golden::add_to_golden(
+        &mut store,
+        &machine,
+        &products,
+        patchpilot_local::now(),
+    )?;
+    changed_here(&app, &store);
+    Ok(v.version)
+}
+
+/// "Ignore" on a suggestion: stop offering this version of the product, on
+/// every linked machine.
+#[tauri::command]
+pub async fn ignore_suggestion(
+    app: AppHandle,
+    product: String,
+    version: Option<String>,
+) -> Result<(), String> {
+    let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    store
+        .ignore_suggestion(&product, version.as_deref(), patchpilot_local::now())
+        .map_err(err)?;
+    changed_here(&app, &store);
+    Ok(())
+}
+
+/// After a change made on this machine: no alert about it here, upload it,
+/// and refresh the windows.
+fn changed_here(app: &AppHandle, store: &Store) {
+    crate::alerts::rebaseline(app, store);
+    crate::sync::nudge(app);
+    let _ = app.emit("data-changed", ());
+}
+
 const NO_GOLDEN: &str = "no Golden Rig yet";
 
 pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<MachinesView, String> {
     let golden = store.golden(None).map_err(err)?;
+    let ignored = patchpilot_local::golden::ignored_keys(store)?;
     let mut machines = Vec::new();
     for info in store.machines().map_err(err)? {
         let profile = store.machine_profile(&info.id).map_err(err)?;
-        let score = match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
+        let (score, suggestions) = match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
             (Some(g), Some(scan)) => {
-                Some(compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan).score)
+                let c = compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan);
+                (Some(c.score), suggested(&c, &ignored).len())
             }
-            _ => None,
+            _ => (None, 0),
         };
         machines.push(MachineCard {
             scanned_at: scanned_at(store, &info.id)?,
@@ -140,6 +193,7 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
                 name: p.name,
             }),
             score,
+            suggestions,
             id: info.id,
             name: info.name,
             os: info.os,
@@ -170,6 +224,7 @@ pub(crate) fn comparison(
         &profile.clone().unwrap_or_default(),
         &scan,
     );
+    let suggested = suggested(&comparison, &patchpilot_local::golden::ignored_keys(store)?);
     Ok(MachineComparison {
         machine: MachineCard {
             scanned_at: scanned_at(store, id)?,
@@ -179,13 +234,27 @@ pub(crate) fn comparison(
                 name: p.name,
             }),
             score: Some(comparison.score),
+            suggestions: suggested.len(),
             id: info.id,
             name: info.name,
             os: info.os,
         },
         golden_version: golden.info.version,
         comparison,
+        suggested,
     })
+}
+
+fn suggested(c: &Comparison, ignored: &BTreeSet<String>) -> Vec<String> {
+    patchpilot_parity::suggestions(c)
+        .filter(|r| {
+            !ignored.contains(&suggestion_key(
+                &r.product_id.0,
+                r.machine_version.as_deref(),
+            ))
+        })
+        .map(|r| r.product_id.0.clone())
+        .collect()
 }
 
 fn existing_store() -> Result<Option<Store>, String> {

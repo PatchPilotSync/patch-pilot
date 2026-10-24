@@ -6,6 +6,7 @@
 
 mod anonymize;
 pub mod apps;
+pub mod golden;
 pub mod sync;
 mod watch;
 

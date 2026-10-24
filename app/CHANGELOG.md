@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### New
+
+- Propose to Golden: when a machine has a plug-in the Golden Rig doesn't, or a newer version of one, Compare offers to add it. Click Add and every linked machine is compared with the new Golden Rig; click Ignore and that version isn't suggested again, on any machine. The tray popover shows when there are suggestions.
+- Drift alerts: a quiet notification when one of your machines falls behind the Golden Rig, or when this machine gets something new the Golden Rig doesn't have. Each change is mentioned once. Turn them off with "Drift Alerts" in the tray icon's menu.
+
 ## 0.2.0 - 2026-10-24
 
 ### New

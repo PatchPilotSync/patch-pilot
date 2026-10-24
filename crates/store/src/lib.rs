@@ -12,8 +12,8 @@ use std::path::Path;
 
 use patchpilot_core::{
     Bundle, BundleGolden, BundleMachine, Confidence, ContentHash, GoldenVersion, GoldenVersionInfo,
-    Item, MachineInfo, Manifest, PathMap, PortablePath, Product, ProfileRule, TargetProfile,
-    golden_machine_id, golden_name,
+    IgnoredSuggestion, Item, MachineInfo, Manifest, PathMap, PortablePath, Product, ProfileRule,
+    TargetProfile, golden_machine_id, golden_name,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
@@ -129,6 +129,8 @@ pub struct ImportReport {
     pub profiles_added: Vec<String>,
     /// Profiles whose ID exists here with different rules; left as they are.
     pub profiles_conflicting: Vec<String>,
+    /// Golden suggestions ignored on the other machine and now here too.
+    pub ignored_added: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -371,6 +373,7 @@ impl Store {
             .filter(|p| !p.builtin)
             .map(|p| p.profile)
             .collect();
+        bundle.ignored = self.ignored_suggestions()?;
         Ok(bundle)
     }
 
@@ -426,6 +429,11 @@ impl Store {
         }
 
         report.golden = self.import_golden(bundle)?;
+        for i in &bundle.ignored {
+            if self.ignore_suggestion(&i.product_id, i.version.as_deref(), i.ignored_at)? {
+                report.ignored_added += 1;
+            }
+        }
         Ok(report)
     }
 
@@ -478,6 +486,48 @@ impl Store {
             added.push(info.version);
         }
         Ok(GoldenImport::Imported(added))
+    }
+
+    /// Stop suggesting this product version for the Golden Rig (M9). Kept in
+    /// the `decisions` table as an `ignore` of state `suggestion`, with the
+    /// version in `note`. False if it was already ignored.
+    pub fn ignore_suggestion(
+        &mut self,
+        product_id: &str,
+        version: Option<&str>,
+        now: i64,
+    ) -> Result<bool> {
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM decisions WHERE state = 'suggestion'
+                 AND decision = 'ignore' AND product_id = ?1 AND note IS ?2)",
+            params![product_id, version],
+            |r| r.get(0),
+        )?;
+        if exists {
+            return Ok(false);
+        }
+        self.conn.execute(
+            "INSERT INTO decisions (machine_id, product_id, state, decision, decided_at, note)
+             VALUES (NULL, ?1, 'suggestion', 'ignore', ?2, ?3)",
+            params![product_id, now, version],
+        )?;
+        Ok(true)
+    }
+
+    /// Every ignored Golden suggestion, oldest first.
+    pub fn ignored_suggestions(&self) -> Result<Vec<IgnoredSuggestion>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT product_id, note, decided_at FROM decisions
+             WHERE state = 'suggestion' AND decision = 'ignore' ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(IgnoredSuggestion {
+                product_id: r.get(0)?,
+                version: r.get(1)?,
+                ignored_at: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Every machine with saved scans (not Golden versions), by name.

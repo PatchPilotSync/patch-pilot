@@ -1,6 +1,7 @@
 //! Patch Pilot desktop shell (#33). Commands here are the UI's only way into
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
+mod alerts;
 mod background;
 mod compare;
 mod rig;
@@ -43,11 +44,13 @@ pub fn run() {
         // installs when the user says so.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(rig::Scanning::default())
         .manage(tray::LastHidden::default())
         .setup(|app| {
             let app = app.handle();
             sync::setup(app);
+            alerts::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -67,6 +70,8 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            compare::add_to_golden,
+            compare::ignore_suggestion,
             sync::sync_status,
             sync::link_start,
             sync::link_join,
