@@ -683,6 +683,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
+name = "patchpilot-catalog"
+version = "0.1.0"
+dependencies = [
+ "patchpilot-core",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "patchpilot-cli"
 version = "0.1.0"
 dependencies = [
@@ -712,6 +722,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "notify",
+ "patchpilot-catalog",
  "patchpilot-core",
  "patchpilot-parity",
  "patchpilot-scanner",
@@ -730,6 +741,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "flate2",
+ "patchpilot-catalog",
  "patchpilot-core",
  "serde",
  "serde_json",

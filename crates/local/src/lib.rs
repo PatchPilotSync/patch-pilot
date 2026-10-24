@@ -157,6 +157,8 @@ pub fn scan_this_machine(
         None => 0,
     };
     let ableton = ableton.map_or(0, |dirs| add_ableton(&mut manifest, &dirs));
+    // One ID per product across formats, with the catalog's names.
+    patchpilot_catalog::current().canonicalize(&mut manifest);
     Ok(LocalScan {
         manifest,
         warnings: output.warnings,
