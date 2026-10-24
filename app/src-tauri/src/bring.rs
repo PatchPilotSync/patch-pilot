@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use patchpilot_core::Os;
 use patchpilot_local::bring::{self, FileToBring};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -83,10 +84,21 @@ pub async fn bring_files(
     let app_dir = app_dir()?;
     let blobs = app_dir.join("blobs");
     let mut store = open(&db_path()?)?;
+    let golden = store.golden(None).map_err(err)?.map(|g| g.manifest);
     for ((root, app_name), files) in by_root {
         let dir = bring::root_dir(machine.as_ref(), &root).ok_or_else(|| {
             format!("Can't find {app_name}'s folder on this machine. Open {app_name} once, then try again.")
         })?;
+        let files: Vec<Fetched> = match (&golden, Os::current()) {
+            (Some(g), Some(os)) => files
+                .into_iter()
+                .map(|(rel, bytes)| {
+                    let bytes = bring::adapt_for_here(g, &root, &rel, &dir, os, bytes);
+                    (rel, bytes)
+                })
+                .collect(),
+            _ => files,
+        };
         let label = format!(
             "Brought over {} {app_name} file{} from the Golden Rig",
             files.len(),

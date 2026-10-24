@@ -50,6 +50,10 @@ pub struct SharedRoot {
     /// The DAW a restore point is tagged with; `Some` also makes
     /// [`apply_changes`] refuse while that DAW runs.
     pub daw: Option<Daw>,
+    /// A DAW that must be closed before writing this path, because it
+    /// rewrites the file itself (CLAUDE.md rule 5), for roots whose other
+    /// files may be written while it runs.
+    pub closed_daw: fn(&str) -> Option<Daw>,
 }
 
 /// Every root Bring over knows. Add one entry per app's root.
@@ -65,6 +69,12 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         view: |_, bytes| bytes,
         merge: |_, _, incoming| Ok(incoming),
         daw: None,
+        // Key maps and menus are Reaper's own settings: only while it's closed.
+        closed_daw: |rel| {
+            resource_kind(rel)
+                .is_some_and(|k| k.needs_reaper_closed())
+                .then_some(Daw::Reaper)
+        },
     },
     // Ableton (decision #41): Live indexes the User Library and reads
     // Options.txt at launch, so both wait until Live is closed.
@@ -77,6 +87,7 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         view: |_, bytes| bytes,
         merge: |_, _, incoming| Ok(incoming),
         daw: Some(Daw::Ableton),
+        closed_daw: |_| None,
     },
     SharedRoot {
         root: ABLETON_PREFS,
@@ -89,6 +100,7 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         view: |rel, bytes| shared_view(ABLETON_PREFS, rel, bytes),
         merge: |rel, current, incoming| merge_incoming(ABLETON_PREFS, rel, current, incoming),
         daw: Some(Daw::Ableton),
+        closed_daw: |_| None,
     },
 ];
 
@@ -255,6 +267,33 @@ pub struct WriteReport {
     pub restore_point: Option<i64>,
 }
 
+/// A file from the Golden Rig made right for this machine before it is
+/// written: script paths in Reaper's key map that point into Golden's
+/// resource folder are moved to this machine's (`dir`). Anything else is
+/// returned as it came.
+pub fn adapt_for_here(
+    golden: &Manifest,
+    root: &str,
+    rel: &str,
+    dir: &Path,
+    os: Os,
+    bytes: Vec<u8>,
+) -> Vec<u8> {
+    use patchpilot_parity::reaper::{ResourceKind, remap_key_map};
+    if root != REAPER_RESOURCES || resource_kind(rel) != Some(ResourceKind::KeyMap) {
+        return bytes;
+    }
+    let Some(from) = golden.machine.path_map.roots.get(REAPER_RESOURCES) else {
+        return bytes;
+    };
+    let text = match String::from_utf8(bytes) {
+        Ok(t) => t,
+        // Not UTF-8: leave it alone rather than mangle it.
+        Err(e) => return e.into_bytes(),
+    };
+    remap_key_map(&text, from, golden.machine.os, &dir.to_string_lossy(), os).into_bytes()
+}
+
 /// Write files (`rel` below `root`, which is at `dir` here, and their bytes)
 /// through [`crate::restore::apply_changes`]: every file it replaces is saved
 /// first, each is written to a temp file beside it and renamed into place,
@@ -275,6 +314,7 @@ pub fn write_files(
     (shared.guard)()?;
     let mut changes = Vec::new();
     let mut backed_up = 0;
+    let mut daw = None;
     for (rel, bytes) in files {
         if (shared.kind)(rel).is_none() {
             return Err(format!("{rel}: not a file {} can receive", shared.app));
@@ -291,6 +331,7 @@ pub fn write_files(
             Some(_) => backed_up += 1,
             None => {}
         }
+        daw = daw.or((shared.closed_daw)(rel));
         changes.push(FileChange {
             path: target,
             contents: Some(bytes),
@@ -300,8 +341,9 @@ pub fn write_files(
         machine_id: machine_id.to_owned(),
         label: label.to_owned(),
         // Reaper's templates, scripts and themes aren't rewritten on exit, so
-        // Reaper may stay open; Ableton's root sets `Daw::Ableton`.
-        daw: shared.daw,
+        // Reaper may stay open, but key maps and menus need it closed;
+        // Ableton's root sets `Daw::Ableton`.
+        daw: shared.daw.or(daw),
         changes,
         now,
     };
@@ -634,5 +676,47 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("reaper.ini"));
         assert!(!reaper.exists());
+    }
+
+    #[test]
+    fn key_maps_and_menus_need_reaper_closed() {
+        let reaper = &SHARED_ROOTS[0];
+        assert_eq!((reaper.closed_daw)("reaper-kb.ini"), Some(Daw::Reaper));
+        assert_eq!((reaper.closed_daw)("reaper-menu.ini"), Some(Daw::Reaper));
+        assert_eq!((reaper.closed_daw)("Scripts/a.lua"), None);
+        assert_eq!((reaper.kind)("reaper-kb.ini"), Some("Key map"));
+        assert_eq!((reaper.kind)("reaper.ini"), None);
+    }
+
+    #[test]
+    fn key_map_script_paths_are_moved_to_this_machine() {
+        let golden = manifest(
+            Os::Windows,
+            r"C:\Users\j\AppData\Roaming\REAPER",
+            Vec::new(),
+        );
+        let kb = b"SCR 4 0 RS1 \"Custom: a.lua\" \"C:\\Users\\j\\AppData\\Roaming\\REAPER\\Scripts\\a.lua\"\n".to_vec();
+        let here = Path::new("/Users/j/Library/Application Support/REAPER");
+        let out = adapt_for_here(
+            &golden,
+            REAPER_RESOURCES,
+            "reaper-kb.ini",
+            here,
+            Os::Macos,
+            kb.clone(),
+        );
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "SCR 4 0 RS1 \"Custom: a.lua\" \"/Users/j/Library/Application Support/REAPER/Scripts/a.lua\"\n"
+        );
+        let menus = adapt_for_here(
+            &golden,
+            REAPER_RESOURCES,
+            "reaper-menu.ini",
+            here,
+            Os::Macos,
+            kb.clone(),
+        );
+        assert_eq!(menus, kb, "only the key map is rewritten");
     }
 }
