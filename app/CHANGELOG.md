@@ -4,12 +4,27 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
-## Unreleased
+## 0.3.0 - 2026-10-24
 
 ### New
 
-- Propose to Golden: when a machine has a plug-in the Golden Rig doesn't, or a newer version of one, Compare offers to add it. Click Add and every linked machine is compared with the new Golden Rig; click Ignore and that version isn't suggested again, on any machine. The tray popover shows when there are suggestions.
-- Drift alerts: a quiet notification when one of your machines falls behind the Golden Rig, or when this machine gets something new the Golden Rig doesn't have. Each change is mentioned once. Turn them off with "Drift Alerts" in the tray icon's menu.
+- Bring over: copy your Golden Rig's own files to the machine you're on with one click. For Reaper that means templates, FX chains, scripts, themes, key maps and menus. For Ableton it means templates, presets, racks, Collections and Options.txt. Files travel encrypted between your linked machines. Plug-ins, sample libraries and anything licensed are never copied.
+- Reaper setup: Get Up To Speed restores missing ReaPack repositories and packages, and points Reaper's folder settings at this machine's folders.
+- Ableton: Collection names stay the same on every machine, and Patch Pilot warns when a set or rack uses a plug-in this machine doesn't have.
+- History and undo: Patch Pilot saves a restore point before it changes any file. Undo a change, or go back to an earlier scan, from History. It never writes to Reaper or Ableton files while that app is open.
+- Set up a new machine: a guided checklist that ticks itself off as you install things, then ends with a setup report you can save.
+- Installer Vault: keep your installers in one folder you choose. Patch Pilot spots new ones in Downloads, runs the right installer for whatever is missing, and opens vendor apps and iLok for you. It never runs an installer without you.
+- Propose to Golden: when a machine has a plug-in, or a newer version of one, that the Golden Rig lacks, Compare offers to add it. Add updates the Golden Rig for every linked machine; Ignore stops suggesting that version.
+- Drift alerts: a quiet notification when a machine falls behind the Golden Rig or picks up something new. Turn them off with "Drift Alerts" in the tray menu.
+- Update alerts: find out when a newer version of a plug-in is on another machine, in the Golden Rig, or available from its maker.
+- Preset folders: third-party preset folders are found and compared between machines.
+- Share a Rig Report: a web page or text listing of your plug-ins and score for forums or collaborators. It never includes file paths or licence details.
+
+### Improved
+
+- "Templates not ready" in Compare is now one tidy line. Expand it to see which plug-ins are missing, grouped by app, and which templates use each one. Reaper's built-in plug-ins no longer show as missing.
+- The Up To Speed button is now called Get Up To Speed.
+- The tour covers the new features.
 
 ## 0.2.0 - 2026-10-24
 
