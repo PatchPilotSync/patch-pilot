@@ -287,6 +287,13 @@ pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     n
 }
 
+/// [`default_ableton_dirs`] for this OS, if it is supported.
+pub(crate) fn standard_ableton_dirs() -> Option<AbletonDirs> {
+    let os = Os::current()?;
+    let dirs = SystemDirs::from_env()?;
+    Some(default_ableton_dirs(os, &dirs))
+}
+
 /// Live's newest preferences folder and the User Library it points at
 /// (else the standard one), each only if it exists.
 fn default_ableton_dirs(os: Os, dirs: &SystemDirs) -> AbletonDirs {
