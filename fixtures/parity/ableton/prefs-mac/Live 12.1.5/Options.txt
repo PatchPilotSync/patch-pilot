@@ -1,0 +1,2 @@
+-ShowDeviceSlots
+-_ForceGdiBackend
