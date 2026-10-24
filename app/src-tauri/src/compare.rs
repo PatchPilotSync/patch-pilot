@@ -4,10 +4,13 @@
 //! export file.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use patchpilot_core::{Bundle, Os};
-use patchpilot_parity::{Comparison, Plan, compare, suggestion_key, up_to_speed};
+use patchpilot_local::up_to_speed::{PlanStart, load_up_to_speed, save_up_to_speed};
+use patchpilot_parity::{
+    Comparison, Plan, SetupProgress, compare, plan_still_covers, suggestion_key, up_to_speed,
+};
 use patchpilot_store::{GoldenImport, Store};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -85,6 +88,92 @@ pub async fn plan_machine(id: String) -> Result<Plan, String> {
     let (mut g, mut m) = (golden.manifest, scan);
     patchpilot_parity::align_products(&mut g, &mut m);
     Ok(up_to_speed(&g, &profile, &m))
+}
+
+/// Get Up To Speed for a machine, with each step ticked off once a rescan
+/// shows it done. The checklist keeps the scan it was made from; a new one
+/// starts when the Golden Rig or the machine's profile changes, or when
+/// something new is missing.
+#[tauri::command]
+pub async fn plan_progress(id: String) -> Result<SetupProgress, String> {
+    let db = db_path()?;
+    let store = existing_store()?.ok_or("no saved scans yet")?;
+    plan_view(&store, patchpilot_local::app_dir(&db), &id)
+}
+
+/// Mark a Get Up To Speed step done by hand (`done` false undoes it), for
+/// things Patch Pilot can't see.
+#[tauri::command]
+pub async fn plan_tick(id: String, key: String, done: bool) -> Result<SetupProgress, String> {
+    let db = db_path()?;
+    let dir = patchpilot_local::app_dir(&db);
+    let store = existing_store()?.ok_or("no saved scans yet")?;
+    plan_view(&store, dir, &id)?;
+    let mut state = load_up_to_speed(dir)?;
+    if let Some(start) = state.machines.get_mut(&id) {
+        if done {
+            start.ticked.insert(key);
+        } else {
+            start.ticked.remove(&key);
+        }
+        save_up_to_speed(dir, &state)?;
+    }
+    plan_view(&store, dir, &id)
+}
+
+fn plan_view(store: &Store, dir: &Path, id: &str) -> Result<SetupProgress, String> {
+    let golden = store.golden(None).map_err(err)?.ok_or(NO_GOLDEN)?;
+    let machine = store
+        .latest_manifest(id)
+        .map_err(err)?
+        .ok_or("no saved scan of that machine")?;
+    let latest = store
+        .snapshots(id)
+        .map_err(err)?
+        .first()
+        .ok_or("no saved scan of that machine")?
+        .id;
+    let profile = store.machine_profile(id).map_err(err)?;
+    let profile_id = profile.as_ref().map(|p| p.id.clone());
+    let profile = profile.unwrap_or_default();
+
+    let mut state = load_up_to_speed(dir)?;
+    let kept = match state.machines.get(id) {
+        Some(s) if s.golden_version == golden.info.version && s.profile_id == profile_id => {
+            match store.snapshot_manifest(s.snapshot) {
+                Ok(baseline)
+                    if plan_still_covers(&golden.manifest, &profile, &baseline, &machine) =>
+                {
+                    Some((baseline, s.ticked.clone()))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let (baseline, ticked) = match kept {
+        Some(k) => k,
+        None => {
+            state.machines.insert(
+                id.to_owned(),
+                PlanStart {
+                    snapshot: latest,
+                    golden_version: golden.info.version,
+                    profile_id,
+                    ticked: BTreeSet::new(),
+                },
+            );
+            save_up_to_speed(dir, &state)?;
+            (machine.clone(), BTreeSet::new())
+        }
+    };
+    Ok(patchpilot_parity::plan_progress(
+        &golden.manifest,
+        &profile,
+        &baseline,
+        &machine,
+        &ticked,
+    ))
 }
 
 /// Add another machine's `patchpilot export` file to this database.
@@ -280,6 +369,37 @@ mod tests {
             .join("../../fixtures")
             .join(rel);
         Manifest::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn up_to_speed_keeps_its_steps_and_ticks_them_off() {
+        let studio = load("parity/plan/golden.json");
+        let laptop = load("parity/plan/laptop.json");
+        let dir = tempfile_dir();
+        let mut store = Store::open_in_memory().unwrap();
+        patchpilot_local::save_scan(&mut store, &studio).unwrap();
+        store
+            .save_golden(&studio, Some(&studio.machine.id), None, 1)
+            .unwrap();
+        patchpilot_local::save_scan(&mut store, &laptop).unwrap();
+        let id = laptop.machine.id.as_str();
+
+        let start = plan_view(&store, &dir, id).unwrap();
+        assert!(start.total > 0);
+        assert_eq!(start.done, 0);
+
+        // Everything gets installed: same steps, all crossed off.
+        let mut done = studio.clone();
+        done.machine = laptop.machine.clone();
+        patchpilot_local::save_scan(&mut store, &done).unwrap();
+        let p = plan_view(&store, &dir, id).unwrap();
+        assert_eq!((p.done, p.total), (start.total, start.total));
+        assert!(p.complete);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tempfile_dir() -> PathBuf {
+        std::env::temp_dir().join(format!("pp-uts-{}", patchpilot_local::random_id()))
     }
 
     #[test]

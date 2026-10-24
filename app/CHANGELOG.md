@@ -6,6 +6,11 @@ becomes its release notes, which the app shows when it offers that update
 
 ## Unreleased
 
+### Improved
+
+- Get Up To Speed crosses steps off by itself. Install something on the list and, a few seconds after the installer finishes, its step is ticked and marked "Installed" instead of disappearing. Steps that are partly done tick off each plug-in as it arrives, and "Mark done" covers anything Patch Pilot can't see. Installing a vendor app or iLok now triggers a rescan too, not just plug-ins.
+- "Scanned" times now show when Patch Pilot last checked the machine, even when nothing had changed.
+
 ### Fixed
 
 - Patch Pilot now notices new versions while it keeps running in the menu bar or tray: it checks again when you open its window, at most once an hour.

@@ -164,6 +164,7 @@ function Progress({
     open: (id) => openVendorApp(id).then(() => {}, (e) => onError(String(e))),
     run: (entry) => vaultRun(entry).catch((e) => onError(String(e))),
     onError,
+    bringOver: true,
   };
   const notReady = p.templates.filter((t) => t.missing.length > 0);
   return (
@@ -251,15 +252,17 @@ const MARK: Record<SetupStep["status"], { icon: string; className: string }> = {
   todo: { icon: "", className: "border border-line" },
 };
 
-interface Actions {
+export interface Actions {
   app: (id: string) => VendorApp | undefined;
   installer: (product: string) => VaultMatch | undefined;
   open: (id: string) => void;
   run: (entry: string) => void;
   onError: (e: string) => void;
+  /** Show Bring over inside its step (this machine's own checklist). */
+  bringOver: boolean;
 }
 
-function StepRow({
+export function StepRow({
   step: s,
   onTick,
   actions,
@@ -296,6 +299,9 @@ function StepRow({
           {s.number ? `${s.number}. ` : ""}
           {s.title}
         </span>
+        {s.automatic && s.status === "done" && (
+          <span className="ml-2 text-[11px] text-ok">{s.title.startsWith("Bring over") ? "Done" : "Installed"}</span>
+        )}
         {!finished && s.open.length > 0 && (
           <ul className="mt-0.5 text-xs text-dim">
             {s.open.map((d, n) => {
@@ -324,7 +330,7 @@ function StepRow({
             ))}
           </ul>
         )}
-        {!finished && s.automatic && s.title.startsWith("Bring over") && (
+        {!finished && actions.bringOver && s.automatic && s.title.startsWith("Bring over") && (
           <div className="mt-1.5">
             <BringOver onError={actions.onError} />
           </div>

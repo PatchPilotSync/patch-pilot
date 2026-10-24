@@ -29,7 +29,10 @@ const BUSY_RETRY: Duration = Duration::from_secs(2);
 
 pub struct Watcher {
     rescan: Sender<()>,
+    /// Plug-in, template and preset folders, recursively.
     watch: Mutex<Option<FolderWatch>>,
+    /// Where vendor apps and licensing tools land, one level deep.
+    apps: Mutex<Option<FolderWatch>>,
 }
 
 /// True when this launch came from the login item.
@@ -43,6 +46,7 @@ pub fn start(app: &AppHandle) {
     app.manage(Watcher {
         rescan: tx.clone(),
         watch: Mutex::new(None),
+        apps: Mutex::new(None),
     });
     let handle = app.clone();
     let _ = thread::Builder::new()
@@ -57,26 +61,58 @@ pub fn start(app: &AppHandle) {
     rewatch(app);
 }
 
-/// (Re)start the watch when the set of folders changed, e.g. an installer
+/// (Re)start the watches when the set of folders changed, e.g. an installer
 /// created the first CLAP folder.
 fn rewatch(app: &AppHandle) {
     let state = app.state::<Watcher>();
-    let folders = patchpilot_local::watched_folders();
-    let Ok(mut current) = state.watch.lock() else {
-        return;
-    };
+    let watching = restart(
+        &state.watch,
+        patchpilot_local::watched_folders(),
+        &state.rescan,
+        patchpilot_local::watch_folders,
+    );
+    restart(
+        &state.apps,
+        patchpilot_local::app_folders(),
+        &state.rescan,
+        patchpilot_local::watch_folders_flat,
+    );
+    if let Some(watching) = watching {
+        set_tooltip(app, &watching);
+    }
+}
+
+/// Returns the folders now watched, or None when nothing changed.
+fn restart<W, E>(
+    slot: &Mutex<Option<FolderWatch>>,
+    folders: Vec<PathBuf>,
+    rescan: &Sender<()>,
+    watch: W,
+) -> Option<Vec<PathBuf>>
+where
+    W: FnOnce(Vec<PathBuf>, Duration, Box<dyn FnMut() + Send>) -> Result<FolderWatch, E>,
+{
+    let mut current = slot.lock().ok()?;
     if current.as_ref().is_some_and(|w| w.folders == folders) {
-        return;
+        return None;
     }
     // Stop the old watch before starting the new one.
     *current = None;
-    let rescan = state.rescan.clone();
-    *current = patchpilot_local::watch_folders(folders, QUIET, move || {
-        let _ = rescan.send(());
-    })
+    let rescan = rescan.clone();
+    *current = watch(
+        folders,
+        QUIET,
+        Box::new(move || {
+            let _ = rescan.send(());
+        }),
+    )
     .ok();
-    let watching = current.as_ref().map_or(&[][..], |w| &w.folders[..]);
-    set_tooltip(app, watching);
+    Some(
+        current
+            .as_ref()
+            .map(|w| w.folders.clone())
+            .unwrap_or_default(),
+    )
 }
 
 fn set_tooltip(app: &AppHandle, watching: &[PathBuf]) {

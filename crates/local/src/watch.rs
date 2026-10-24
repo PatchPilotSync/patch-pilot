@@ -7,14 +7,14 @@
 //! nothing. Changes are batched: an installer writes thousands of files, and
 //! the callback runs once the folders have been quiet for a while.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use patchpilot_core::Os;
-use patchpilot_scanner::{SystemDirs, default_roots};
+use patchpilot_scanner::{ADAPTERS, SystemDirs, default_roots};
 
 /// Reaper resource subfolders holding the templates a scan reads (#37).
 const REAPER_TEMPLATE_DIRS: [&str; 5] = [
@@ -54,8 +54,57 @@ pub fn watched_folders() -> Vec<PathBuf> {
         folders.extend(ABLETON_WATCHED_DIRS.map(|d| lib.join(d)));
     }
     folders.extend(crate::preset_folders(os).into_iter().map(|f| f.path));
+    if os == Os::Windows {
+        // Nearly every installer adds a Start menu shortcut, often in a
+        // vendor subfolder; vendor apps themselves are found in the registry.
+        for var in ["ProgramData", "APPDATA"] {
+            if let Some(base) = std::env::var_os(var).filter(|v| !v.is_empty()) {
+                folders.push(PathBuf::from(base).join(START_MENU_PROGRAMS));
+            }
+        }
+    }
     folders.retain(|f| f.is_dir());
     outermost(folders)
+}
+
+const START_MENU_PROGRAMS: &str = r"Microsoft\Windows\Start Menu\Programs";
+
+/// Where vendor apps and licensing tools are installed, to watch one level
+/// deep: a new Native Access or iLok License Manager shows up there, while
+/// writes inside other apps don't wake us. On Windows that's Program Files;
+/// on macOS the folders holding each known app (`/Applications`,
+/// `~/Applications`, `/Library/PrivilegedHelperTools` for PACE, ...).
+pub fn app_folders() -> Vec<PathBuf> {
+    let (Some(os), Some(dirs)) = (Os::current(), SystemDirs::from_env()) else {
+        return Vec::new();
+    };
+    let mut folders = match os {
+        Os::Macos => macos_app_folders(&dirs.home),
+        Os::Windows => ["ProgramFiles", "ProgramFiles(x86)"]
+            .into_iter()
+            .filter_map(std::env::var_os)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .collect(),
+    };
+    folders.retain(|f| f.is_dir());
+    folders
+}
+
+fn macos_app_folders(home: &str) -> Vec<PathBuf> {
+    let mut roots = vec![PathBuf::from("/")];
+    if !home.is_empty() {
+        roots.push(PathBuf::from(home));
+    }
+    let mut folders: Vec<PathBuf> = ADAPTERS
+        .iter()
+        .flat_map(|a| a.macos_paths)
+        .filter_map(|rel| Path::new(rel).parent())
+        .flat_map(|parent| roots.iter().map(move |r| r.join(parent)))
+        .collect();
+    folders.sort();
+    folders.dedup();
+    folders
 }
 
 fn outermost(mut folders: Vec<PathBuf>) -> Vec<PathBuf> {
@@ -90,7 +139,16 @@ pub fn watch_folder_flat(
     quiet: Duration,
     on_change: impl FnMut() + Send + 'static,
 ) -> notify::Result<FolderWatch> {
-    watch(vec![folder], RecursiveMode::NonRecursive, quiet, on_change)
+    watch_folders_flat(vec![folder], quiet, on_change)
+}
+
+/// [`watch_folder_flat`] for several folders, e.g. [`app_folders`].
+pub fn watch_folders_flat(
+    folders: Vec<PathBuf>,
+    quiet: Duration,
+    on_change: impl FnMut() + Send + 'static,
+) -> notify::Result<FolderWatch> {
+    watch(folders, RecursiveMode::NonRecursive, quiet, on_change)
 }
 
 fn watch(
@@ -139,6 +197,20 @@ fn settle(rx: &Receiver<()>, quiet: Duration, mut on_change: impl FnMut()) {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn mac_app_folders_hold_every_known_app() {
+        let got = macos_app_folders("/Users/a");
+        for want in [
+            "/Applications",
+            "/Applications/iZotope",
+            "/Library/PrivilegedHelperTools",
+            "/Users/a/Applications",
+        ] {
+            assert!(got.contains(&PathBuf::from(want)), "{want} in {got:?}");
+        }
+        assert!(!got.contains(&PathBuf::from("/")));
+    }
 
     #[test]
     fn nested_folders_are_covered_by_their_parent() {
