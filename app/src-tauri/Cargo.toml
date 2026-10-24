@@ -30,6 +30,8 @@ patchpilot-parity = { path = "../../crates/parity" }
 patchpilot-store = { path = "../../crates/store" }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 
 [lints.rust]
 unsafe_code = "forbid"

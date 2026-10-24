@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 blake3 = "1.8.7"
+notify = "8.2.0"
 patchpilot-core = { path = "../core" }
 patchpilot-parity = { path = "../parity" }
 patchpilot-scanner = { path = "../scanner" }
