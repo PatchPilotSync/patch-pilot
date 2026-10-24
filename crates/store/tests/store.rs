@@ -448,6 +448,7 @@ fn bundle_moves_machines_golden_and_profiles_between_stores() {
             golden: GoldenImport::Imported(vec![1]),
             profiles_added: vec!["laptop".into()],
             profiles_conflicting: vec![],
+            ignored_added: 0,
         }
     );
     assert_eq!(
@@ -593,4 +594,29 @@ fn newer_bundles_are_refused() {
         Bundle::from_json(&bundle.to_json_pretty()),
         Err(ManifestError::UnsupportedVersion(_))
     ));
+}
+
+#[test]
+fn ignored_suggestions_are_kept_once_and_travel_in_bundles() {
+    let mut pc = Store::open_in_memory().unwrap();
+    assert!(pc.ignore_suggestion("acme/delay", Some("1.0"), 5).unwrap());
+    assert!(!pc.ignore_suggestion("acme/delay", Some("1.0"), 6).unwrap());
+    assert!(pc.ignore_suggestion("acme/delay", None, 7).unwrap());
+    let ignored = pc.ignored_suggestions().unwrap();
+    assert_eq!(ignored.len(), 2);
+    assert_eq!(ignored[0].version.as_deref(), Some("1.0"));
+    assert_eq!(ignored[1].version, None);
+
+    let bundle = pc.export_bundle(&[], Some("PC"), 10).unwrap();
+    assert_eq!(bundle.ignored, ignored);
+    let mut mac = Store::open_in_memory().unwrap();
+    assert_eq!(
+        mac.import_bundle(&bundle, None, 11).unwrap().ignored_added,
+        2
+    );
+    assert_eq!(
+        mac.import_bundle(&bundle, None, 12).unwrap().ignored_added,
+        0
+    );
+    assert_eq!(mac.ignored_suggestions().unwrap(), ignored);
 }
