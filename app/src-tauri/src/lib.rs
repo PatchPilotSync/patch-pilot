@@ -2,6 +2,7 @@
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
 mod background;
+mod bring;
 mod compare;
 mod rig;
 mod sync;
@@ -67,6 +68,8 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            bring::files_to_bring,
+            bring::bring_files,
             sync::sync_status,
             sync::link_start,
             sync::link_join,
