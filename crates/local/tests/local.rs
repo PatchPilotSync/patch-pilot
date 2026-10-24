@@ -50,7 +50,7 @@ fn scan_save_and_summarize_a_fixture_tree() {
     );
     assert!(scan.plugins() >= 2, "{:?}", scan.manifest.items);
     assert!(scan.templates >= 1);
-    assert_eq!(scan.ableton, 8);
+    assert_eq!(scan.ableton, 9);
     let roots = &scan.manifest.machine.path_map.roots;
     assert!(roots.contains_key(patchpilot_parity::ableton::ABLETON_USER_LIBRARY));
     assert!(roots.contains_key(patchpilot_parity::ableton::ABLETON_PREFS));
