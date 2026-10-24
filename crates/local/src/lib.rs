@@ -5,6 +5,7 @@
 //! Patch Pilot's own app-data folder.
 
 mod anonymize;
+pub mod sync;
 mod watch;
 
 use std::path::{Path, PathBuf};

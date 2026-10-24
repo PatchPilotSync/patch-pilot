@@ -96,8 +96,7 @@ export function Compare({ view, focus, onError }: Props) {
           ))}
         </ul>
         <p className="p-4 text-[11px] leading-relaxed text-dim">
-          Add a machine: on it, run <code className="font-mono">patchpilot export</code>, then drop the file on this
-          window.
+          Your other machines show up here once they're linked. Use Link a machine in the top bar.
         </p>
       </aside>
 

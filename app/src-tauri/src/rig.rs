@@ -113,7 +113,7 @@ pub async fn scan_machine(
 
 /// Make this machine's latest saved scan Golden Rig v1.
 #[tauri::command]
-pub async fn make_golden() -> Result<Overview, String> {
+pub async fn make_golden(app: AppHandle) -> Result<Overview, String> {
     let db = db_path()?;
     let mut store = open(&db)?;
     let id = patchpilot_store::read_machine_id(patchpilot_local::app_dir(&db))
@@ -137,6 +137,7 @@ pub async fn make_golden() -> Result<Overview, String> {
             patchpilot_local::now(),
         )
         .map_err(err)?;
+    crate::sync::nudge(&app);
     load_overview(&store, Some(&id))
 }
 

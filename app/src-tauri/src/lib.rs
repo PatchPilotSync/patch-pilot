@@ -4,6 +4,7 @@
 mod background;
 mod compare;
 mod rig;
+mod sync;
 mod tray;
 
 use serde::Serialize;
@@ -46,6 +47,7 @@ pub fn run() {
         .manage(tray::LastHidden::default())
         .setup(|app| {
             let app = app.handle();
+            sync::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -65,6 +67,10 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            sync::sync_status,
+            sync::link_start,
+            sync::link_join,
+            sync::unlink,
             tray::open_main_window,
         ])
         .build(tauri::generate_context!())

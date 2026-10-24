@@ -46,7 +46,7 @@ interface Step {
 const STEPS: Step[] = [
   {
     title: "Every rig, ready for the session",
-    body: "Patch Pilot keeps your studio, laptop and travel machines in step, so a project that opens on one opens on all of them. It only reads what's installed: nothing is loaded, changed or copied.",
+    body: "Patch Pilot keeps your studio, laptop and travel machines in step, so a project that opens on one opens on all of them. It only reads what's installed: nothing is loaded, changed or copied, and what your machines share is end-to-end encrypted.",
     art: <MachinesArt />,
   },
   {
@@ -56,7 +56,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Compare and catch drift",
-    body: "Compare shows what each machine is missing next to the Golden Rig. Anything missing, older or short a format is drift, and the parity score sums it up, always with the reasons behind it.",
+    body: "Compare shows what each machine is missing next to the Golden Rig, and the parity score sums it up with the reasons. Link your machines with a short code and Compare updates live, end-to-end encrypted.",
     art: <CompareArt />,
   },
   {
