@@ -20,6 +20,7 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
+import { BringOver } from "../BringOver";
 import { Badge, Button, inputClass, Pill, ScoreBar, scoreColor, timeAgo } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
@@ -623,8 +624,8 @@ function PlanView({
           <h1 className="truncate text-sm font-semibold">Up To Speed: {name}</h1>
           <p className="text-xs text-dim">
             {here
-              ? "A checklist. Open the apps and installers from here; you install, then Patch Pilot rescans."
-              : "A checklist. Patch Pilot doesn't install or copy anything; rescan when you're done."}
+              ? "A checklist. Bring templates, scripts and themes over below and open the apps and installers from here; you install plug-ins, then Patch Pilot rescans."
+              : `A checklist. Open Patch Pilot on ${name} to bring templates, scripts and themes over there.`}
           </p>
         </div>
         <span className="text-xs tabular-nums text-dim">
@@ -634,6 +635,7 @@ function PlanView({
           Back to diff
         </Button>
       </header>
+      {here && <BringOver onError={onError} />}
       {steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       <ol className="-mx-2 flex flex-col">
         {steps.map((s, i) => (

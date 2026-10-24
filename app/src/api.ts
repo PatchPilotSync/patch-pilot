@@ -174,6 +174,39 @@ export const compareMachine = (id: string) => invoke<MachineComparison>("compare
 export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machine", { id });
 export const importBundle = (path: string) => invoke<{ lines: string[] }>("import_bundle", { path });
 
+// Bring over (decision #46); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
+
+export interface FileToBring {
+  /** Group heading: "Reaper". */
+  app: string;
+  /** "Track template", "FX chain", "Script", "Theme", ... */
+  kind: string;
+  root: string;
+  /** `/`-separated path below the root. */
+  rel: string;
+  hash: string;
+  size: number | null;
+  /** This machine has a different copy, backed up before it is replaced. */
+  replaces: boolean;
+  too_large: boolean;
+}
+
+export interface BringView {
+  linked: boolean;
+  files: FileToBring[];
+}
+
+export interface BringResult {
+  written: number;
+  backed_up: number;
+  backup_dir: string | null;
+  unavailable: string[];
+}
+
+export const fileKey = (f: FileToBring) => `${f.root}/${f.rel}`;
+export const filesToBring = () => invoke<BringView>("files_to_bring");
+export const bringFiles = (keys: string[]) => invoke<BringResult>("bring_files", { keys });
+
 export const STATE_LABEL: Record<ParityState, string> = {
   missing: "Missing",
   incomplete: "Incomplete",
@@ -226,7 +259,7 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
 
-// Update alerts (decision #45): a newer version on another machine, in the
+// Update alerts (decision #46): a newer version on another machine, in the
 // Golden Rig, or in the plug-in catalog.
 export type UpdateSource =
   | { kind: "machine"; name: string }
