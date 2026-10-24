@@ -14,6 +14,7 @@ patchpilot-core = { path = "../core" }
 patchpilot-parity = { path = "../parity" }
 patchpilot-scanner = { path = "../scanner" }
 patchpilot-store = { path = "../store" }
+patchpilot-sync = { path = "../sync" }
 
 [lints]
 workspace = true

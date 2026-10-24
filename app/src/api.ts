@@ -205,3 +205,21 @@ export const PHASE_LABEL: Record<Phase, string> = {
 /** Shows the main window (from the tray popover), optionally on one machine's comparison or plan. */
 export const openMainWindow = (machine: string | null = null, plan = false) =>
   invoke<void>("open_main_window", { machine, plan });
+
+// Live sync (src-tauri/src/sync.rs, decision #38).
+
+export interface SyncStatus {
+  linked: boolean;
+  online: boolean;
+  error: string | null;
+}
+
+export const syncStatus = () => invoke<SyncStatus>("sync_status");
+/** Shows a code for another machine to type. `link-finished` fires when it has joined. */
+export const linkStart = () => invoke<string>("link_start");
+export const linkJoin = (code: string) => invoke<void>("link_join", { code });
+export const unlink = () => invoke<void>("unlink");
+export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
+  listen<SyncStatus>("sync-status", (e) => f(e.payload));
+export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
+  listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));

@@ -6,12 +6,16 @@ import {
   machines as loadMachines,
   makeGolden,
   onScanProgress,
+  onSyncStatus,
   overview as loadOverview,
   scanMachine,
+  syncStatus as loadSyncStatus,
   type MachinesView,
   type Overview,
   type Progress,
+  type SyncStatus,
 } from "./api";
+import { LinkDialog, SyncBadge } from "./Link";
 import { Compare, type Focus } from "./screens/Compare";
 import { Rig } from "./screens/Rig";
 import { Scanning } from "./screens/Scanning";
@@ -38,6 +42,8 @@ export default function App() {
   // the welcome screen and tour as a new user sees them. Saved data is untouched;
   // scanning from there just rescans this machine.
   const [replay, setReplay] = useState(false);
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [linking, setLinking] = useState(false);
 
   const refresh = useCallback(() => {
     loadOverview().then(setOverview, (e) => setError(String(e)));
@@ -49,6 +55,8 @@ export default function App() {
     refresh();
     // Event-driven, no polling: nothing runs while the app sits idle.
     const unlistenProgress = onScanProgress(setProgress);
+    loadSyncStatus().then(setSync, () => {});
+    const unlistenSync = onSyncStatus(setSync);
     // Drop a `patchpilot export` file anywhere to add that machine.
     const unlistenDrop = getCurrentWebview().onDragDropEvent(async (e) => {
       if (e.payload.type !== "drop") return;
@@ -82,6 +90,7 @@ export default function App() {
       unlistenChanged.then((f) => f());
       unlistenReplay.then((f) => f());
       unlistenProgress.then((f) => f());
+      unlistenSync.then((f) => f());
       unlistenDrop.then((f) => f());
     };
   }, [refresh]);
@@ -143,6 +152,7 @@ export default function App() {
             </button>
           ))}
           <span className="flex-1" />
+          <SyncBadge status={sync} onClick={() => setLinking(true)} />
           <button onClick={() => setTour(true)} className="text-dim hover:text-fg">
             How it works
           </button>
@@ -195,6 +205,7 @@ export default function App() {
         )}
       </div>
       {tour && overview !== null && !scanning && <Tour onClose={() => setTour(false)} />}
+      {linking && <LinkDialog status={sync} onClose={() => setLinking(false)} />}
     </main>
   );
 }

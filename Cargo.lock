@@ -680,6 +680,7 @@ dependencies = [
  "patchpilot-parity",
  "patchpilot-scanner",
  "patchpilot-store",
+ "patchpilot-sync",
  "tempfile",
 ]
 
