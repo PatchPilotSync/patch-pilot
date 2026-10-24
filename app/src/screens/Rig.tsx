@@ -165,6 +165,22 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
         </section>
       ))}
 
+      {inv.presets.length > 0 && (
+        <section>
+          <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">
+            Preset folders · compared with your other machines, never copied
+          </h3>
+          <ul>
+            {inv.presets.map((p) => (
+              <li key={p.name} className="flex h-7 items-center justify-between px-4 hover:bg-sel/60">
+                <span>{p.name}</span>
+                <span className="font-mono text-[11px] text-dim">{formatSize(p.size)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {inv.apps.length > 0 && (
         <section>
           <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">Vendor apps and licensing tools installed</h3>
@@ -189,6 +205,13 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
       )}
     </div>
   );
+}
+
+function formatSize(bytes: number | null): string {
+  if (bytes === null) return "";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 function Updates({ alerts }: { alerts: UpdateAlert[] }) {
