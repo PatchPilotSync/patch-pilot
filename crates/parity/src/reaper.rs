@@ -224,10 +224,17 @@ pub enum ResourceKind {
     Script,
     /// Anything under `ColorThemes/`.
     Theme,
+    /// `reaper-kb.ini`: shortcuts and custom actions. Reaper's own settings,
+    /// so only written while Reaper is closed.
+    KeyMap,
+    /// `reaper-menu.ini`: customized menus and toolbars. Only written while
+    /// Reaper is closed.
+    Menus,
 }
 
 impl ResourceKind {
-    /// The subfolder of the resource folder it lives in.
+    /// The subfolder of the resource folder it lives in, or for a
+    /// single-file kind, the file's name there.
     pub fn folder(self) -> &'static str {
         match self {
             Self::TrackTemplate => "TrackTemplates",
@@ -235,7 +242,20 @@ impl ResourceKind {
             Self::FxChain => "FXChains",
             Self::Script => "Scripts",
             Self::Theme => "ColorThemes",
+            Self::KeyMap => "reaper-kb.ini",
+            Self::Menus => "reaper-menu.ini",
         }
+    }
+
+    /// One file at the top of the resource folder rather than a folder.
+    pub fn is_single_file(self) -> bool {
+        matches!(self, Self::KeyMap | Self::Menus)
+    }
+
+    /// Reaper keeps it open and rewrites it, so it may only be written while
+    /// Reaper is closed (CLAUDE.md rule 5).
+    pub fn needs_reaper_closed(self) -> bool {
+        self.is_single_file()
     }
 
     pub fn label(self) -> &'static str {
@@ -245,6 +265,8 @@ impl ResourceKind {
             Self::FxChain => "FX chain",
             Self::Script => "Script",
             Self::Theme => "Theme",
+            Self::KeyMap => "Key map",
+            Self::Menus => "Menus and toolbars",
         }
     }
 
@@ -261,7 +283,7 @@ impl ResourceKind {
             Self::TrackTemplate => Some("rtracktemplate"),
             Self::ProjectTemplate => Some("rpp"),
             Self::FxChain => Some("rfxchain"),
-            Self::Script | Self::Theme => None,
+            Self::Script | Self::Theme | Self::KeyMap | Self::Menus => None,
         }
     }
 
@@ -269,17 +291,20 @@ impl ResourceKind {
         match self {
             Self::Script => "reaper-script",
             Self::Theme => "reaper-theme",
+            Self::KeyMap | Self::Menus => "reaper-config",
             _ => "reaper-template",
         }
     }
 }
 
-const RESOURCE_KINDS: [ResourceKind; 5] = [
+const RESOURCE_KINDS: [ResourceKind; 7] = [
     ResourceKind::TrackTemplate,
     ResourceKind::ProjectTemplate,
     ResourceKind::FxChain,
     ResourceKind::Script,
     ResourceKind::Theme,
+    ResourceKind::KeyMap,
+    ResourceKind::Menus,
 ];
 
 /// Compiled code is never brought over, even if it sits in `Scripts/`: it is
@@ -293,6 +318,11 @@ const NEVER_SHARED_EXT: [&str; 8] = ["dll", "dylib", "so", "exe", "app", "msi", 
 /// before writing a file that came from another machine.
 pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
     let parts: Vec<&str> = rel.split('/').collect();
+    if let [name] = parts[..] {
+        return RESOURCE_KINDS
+            .into_iter()
+            .find(|k| k.is_single_file() && k.folder().eq_ignore_ascii_case(name));
+    }
     let safe = parts.len() >= 2
         && parts.iter().all(|p| {
             !p.is_empty() && !p.starts_with('.') && !p.contains(['\\', ':']) && *p != "__pycache__"
@@ -302,7 +332,7 @@ pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
     }
     let kind = RESOURCE_KINDS
         .into_iter()
-        .find(|k| k.folder().eq_ignore_ascii_case(parts[0]))?;
+        .find(|k| !k.is_single_file() && k.folder().eq_ignore_ascii_case(parts[0]))?;
     let ext = Path::new(parts[parts.len() - 1])
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase());
@@ -317,6 +347,13 @@ pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
 pub fn find_resources(resource_dir: &Path) -> Vec<(PathBuf, String, ResourceKind)> {
     let mut out = Vec::new();
     for kind in RESOURCE_KINDS {
+        if kind.is_single_file() {
+            let path = resource_dir.join(kind.folder());
+            if path.is_file() {
+                out.push((path, kind.folder().to_owned(), kind));
+            }
+            continue;
+        }
         let walk = walkdir::WalkDir::new(resource_dir.join(kind.folder()))
             .follow_links(true)
             .into_iter()
@@ -436,6 +473,53 @@ pub fn template_items(
     (products, items)
 }
 
+/// `reaper-kb.ini` text from another machine, with script paths under that
+/// machine's resource folder (`from_dir`, spelled for `from_os`) moved under
+/// this machine's (`to_dir`, for `to_os`). Paths elsewhere stay as they are.
+pub fn remap_key_map(text: &str, from_dir: &str, from_os: Os, to_dir: &str, to_os: Os) -> String {
+    let from = from_dir.trim_end_matches(['/', '\\']);
+    if from.is_empty() {
+        return text.to_owned();
+    }
+    let to = to_dir.trim_end_matches(['/', '\\']);
+    let fold = |c: char| match c {
+        '\\' => '/',
+        c => c.to_ascii_lowercase(),
+    };
+    let needle: Vec<char> = from.chars().map(fold).collect();
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let hit = chars.len() - i >= needle.len()
+            && chars[i..i + needle.len()]
+                .iter()
+                .map(|&c| fold(c))
+                .eq(needle.iter().copied())
+            && chars
+                .get(i + needle.len())
+                .is_some_and(|&c| c == '/' || c == '\\');
+        if !hit {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        out.push_str(to);
+        i += needle.len();
+        // The rest of the path, up to its closing quote or the line's end.
+        while i < chars.len() && !matches!(chars[i], '"' | '\r' | '\n') {
+            let c = chars[i];
+            out.push(if c == '/' || (c == '\\' && from_os == Os::Windows) {
+                to_os.separator()
+            } else {
+                c
+            });
+            i += 1;
+        }
+    }
+    out
+}
+
 /// Lowercase ASCII alphanumeric words joined by `-`.
 pub(crate) fn slug(s: &str) -> String {
     s.split(|c: char| !c.is_alphanumeric())
@@ -448,6 +532,38 @@ pub(crate) fn slug(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_maps_and_menus_are_single_files() {
+        assert_eq!(resource_kind("reaper-kb.ini"), Some(ResourceKind::KeyMap));
+        assert_eq!(resource_kind("REAPER-MENU.INI"), Some(ResourceKind::Menus));
+        assert_eq!(resource_kind("reaper.ini"), None);
+        assert_eq!(
+            resource_kind("Scripts/reaper-kb.ini"),
+            Some(ResourceKind::Script)
+        );
+        assert!(ResourceKind::KeyMap.needs_reaper_closed());
+        assert!(!ResourceKind::Script.needs_reaper_closed());
+    }
+
+    #[test]
+    fn key_map_script_paths_follow_the_resource_folder() {
+        let kb = "SCR 4 0 RS1 \"Custom: a.lua\" \"C:\\Users\\josh\\AppData\\Roaming\\REAPER\\Scripts\\Tools\\a.lua\"\r\n\
+                  SCR 4 0 RS2 \"Custom: b.lua\" \"D:\\Other\\b.lua\"\r\n\
+                  SCR 4 0 RS3 \"Custom: c.lua\" Tools/c.lua\r\n";
+        let out = remap_key_map(
+            kb,
+            r"C:\Users\josh\AppData\Roaming\REAPER",
+            Os::Windows,
+            "/Users/josh/Library/Application Support/REAPER",
+            Os::Macos,
+        );
+        assert!(out.contains(
+            "\"/Users/josh/Library/Application Support/REAPER/Scripts/Tools/a.lua\"\r\n"
+        ));
+        assert!(out.contains(r#""D:\Other\b.lua""#));
+        assert!(out.contains("Tools/c.lua\r\n"));
+    }
 
     #[test]
     fn tokenizes_reaper_quoting() {
@@ -520,7 +636,6 @@ mod tests {
         }
         for bad in [
             "reaper.ini",
-            "reaper-kb.ini",
             "FXChains/../reaper.ini",
             "FXChains/../../x.RfxChain",
             "/FXChains/a.RfxChain",
