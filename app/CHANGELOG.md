@@ -4,10 +4,11 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
-## Unreleased
+## 0.2.0 - 2026-10-24
 
 ### New
 
+- Link your machines live over the internet. Click "Link a machine" in the top bar, show a code on one machine and type it on the other. Linked machines appear in Compare by themselves and stay current as each one changes. Everything is encrypted on your machine before it leaves, so the sync server can't read your rig.
 - Patch Pilot now opens when you log in and keeps watching quietly from the menu bar or tray. When you install, update or remove a plug-in, it rescans by itself a few seconds later, so every score stays current. Turn this off with "Open at Login" in the tray icon's menu.
 - A short tour on first launch explains the Golden Rig, comparisons and the parity score, Up To Speed, and the tray or menu bar icon. Skip it any time, and reopen it from "How it works".
 
