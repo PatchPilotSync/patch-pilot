@@ -4,9 +4,11 @@
 //! never in user folders (CLAUDE.md rule 3). Schema changes are embedded SQL
 //! migrations tracked with `PRAGMA user_version`.
 
+mod blobs;
 mod machine_id;
 mod migrations;
 mod paths;
+mod restore_points;
 
 use std::path::Path;
 
@@ -19,9 +21,11 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+pub use blobs::BlobStore;
 pub use machine_id::{load_or_create_machine_id, read_machine_id};
 pub use migrations::{LATEST_VERSION, MIGRATIONS};
 pub use paths::default_db_path;
+pub use restore_points::{FileRecord, NewRestorePoint, RestoreKind, RestorePointRecord};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

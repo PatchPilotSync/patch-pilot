@@ -4,6 +4,7 @@
 mod background;
 mod bring;
 mod compare;
+mod history;
 mod report;
 mod rig;
 mod setup;
@@ -80,6 +81,11 @@ pub fn run() {
             setup::setup_close,
             setup::setup_report_text,
             setup::setup_save_report,
+            history::history,
+            history::undo_preview,
+            history::undo_change,
+            history::go_back_plan,
+            history::go_back,
             bring::files_to_bring,
             bring::bring_files,
             report::rig_report_preview,

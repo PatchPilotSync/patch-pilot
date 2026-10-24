@@ -9,6 +9,7 @@ mod anonymize;
 pub mod apps;
 pub mod bring;
 pub mod open;
+pub mod restore;
 pub mod setup;
 pub mod sync;
 pub mod vault;

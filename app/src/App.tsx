@@ -22,6 +22,7 @@ import {
 import { LinkDialog, SyncBadge } from "./Link";
 import { ReportDialog } from "./Report";
 import { Compare, type Focus } from "./screens/Compare";
+import { History } from "./screens/History";
 import { Rig } from "./screens/Rig";
 import { Vault } from "./screens/Vault";
 import { Scanning } from "./screens/Scanning";
@@ -31,7 +32,7 @@ import { resetTour, Tour, tourPending } from "./Tour";
 import { Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
-type Tab = "rig" | "compare" | "vault" | "setup";
+type Tab = "rig" | "compare" | "history" | "vault" | "setup";
 
 export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -52,6 +53,8 @@ export default function App() {
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [linking, setLinking] = useState(false);
   const [setup, setSetup] = useState<SetupView | null>(null);
+  // Bumped on every refresh so History reloads with the rest.
+  const [dataVersion, setDataVersion] = useState(0);
   const [dropped, setDropped] = useState<{ paths: string[]; at: number } | null>(null);
   const [vaultCount, setVaultCount] = useState(0);
   const [reporting, setReporting] = useState(false);
@@ -60,6 +63,7 @@ export default function App() {
     loadOverview().then(setOverview, (e) => setError(String(e)));
     loadMachines().then(setView, (e) => setError(String(e)));
     loadSetupView().then(setSetup, (e) => setError(String(e)));
+    setDataVersion((v) => v + 1);
   }, []);
   const onError = useCallback((e: string) => setError(e), []);
   const onNotice = useCallback((lines: string[]) => setNotice(lines), []);
@@ -128,6 +132,7 @@ export default function App() {
       const report = await scanMachine(name);
       setOverview(report.overview);
       setWarnings(report.warnings);
+      setDataVersion((v) => v + 1);
       loadMachines().then(setView, (e) => setError(String(e)));
       loadSetupView().then(setSetup, (e) => setError(String(e)));
     } catch (e) {
@@ -165,6 +170,7 @@ export default function App() {
               ["rig", "This machine"],
               ["compare", "Compare"],
               ["vault", "Vault"],
+              ["history", "History"],
               ...(setup?.active || tab === "setup" ? ([["setup", "Set up"]] as const) : []),
             ] as const
           ).map(([t, label]) => (
@@ -226,6 +232,8 @@ export default function App() {
           <Setup onRescan={() => scan(null)} onError={onError} onChange={setSetup} />
         ) : tab === "vault" ? (
           <Vault dropped={dropped} onError={onError} onNotice={onNotice} onCount={setVaultCount} />
+        ) : tab === "history" ? (
+          <History refreshKey={dataVersion} onError={onError} />
         ) : tab === "compare" && view && canCompare ? (
           <Compare view={view} focus={focus} onError={onError} />
         ) : (

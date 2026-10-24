@@ -47,7 +47,7 @@ pub fn lists_ableton_live(list: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn process_list() -> Option<String> {
+pub(crate) fn process_list() -> Option<String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let out = Command::new("tasklist")
@@ -61,7 +61,7 @@ fn process_list() -> Option<String> {
 }
 
 #[cfg(not(windows))]
-fn process_list() -> Option<String> {
+pub(crate) fn process_list() -> Option<String> {
     let out = Command::new("ps").args(["-axo", "comm="]).output().ok()?;
     out.status
         .success()
