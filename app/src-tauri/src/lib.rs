@@ -8,6 +8,7 @@ mod rig;
 mod setup;
 mod sync;
 mod tray;
+mod vault;
 
 use serde::Serialize;
 
@@ -51,6 +52,7 @@ pub fn run() {
         .setup(|app| {
             let app = app.handle();
             sync::setup(app);
+            vault::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -84,6 +86,16 @@ pub fn run() {
             sync::link_join,
             sync::unlink,
             tray::open_main_window,
+            vault::vault_status,
+            vault::vault_set_root,
+            vault::vault_add,
+            vault::vault_inspect,
+            vault::vault_dismiss,
+            vault::vault_matches,
+            vault::vault_run,
+            vault::vault_reveal,
+            vault::vendor_apps,
+            vault::open_vendor_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Patch Pilot")

@@ -61,6 +61,8 @@ pub struct SetupStep {
     /// "Foundation", "Vendor apps", ..., "Final checks".
     pub group: String,
     pub title: String,
+    /// The vendor app or licensing tool the step uses (scanner adapter ID).
+    pub app: Option<String>,
     pub status: StepStatus,
     /// Patch Pilot ticks it after a rescan; false for final checks.
     pub automatic: bool,
@@ -132,6 +134,7 @@ pub fn setup_progress(
             number: None,
             group: CHECKS_GROUP.to_owned(),
             title: (*title).to_owned(),
+            app: None,
             automatic: false,
             open: vec![(*detail).to_owned()],
             finished: Vec::new(),
@@ -208,6 +211,7 @@ fn plan_step(
         number: Some(s.number),
         group: s.phase.title().to_owned(),
         title: s.title.clone(),
+        app: s.app.clone(),
         status,
         automatic: true,
         open: open_lines,

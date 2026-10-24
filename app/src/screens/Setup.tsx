@@ -8,9 +8,16 @@ import {
   setupStart,
   setupTick,
   setupView,
+  openVendorApp,
+  vaultMatches,
+  vaultRun,
+  vendorApps,
   type SetupStep,
   type SetupView,
+  type VaultMatch,
+  type VendorApp,
 } from "../api";
+import { AppButton } from "./Compare";
 import { Button, scoreColor, timeAgo } from "../ui";
 
 interface Props {
@@ -69,6 +76,7 @@ export function Setup({ onRescan, onError, onChange }: Props) {
       onFinish={() => run(setupFinish())}
       onReport={() => setupReportText().then(setReport, (e) => onError(String(e)))}
       onClose={() => run(setupClose())}
+      onError={onError}
     />
   );
 }
@@ -125,6 +133,7 @@ function Progress({
   onFinish,
   onReport,
   onClose,
+  onError,
 }: {
   view: SetupView;
   onRescan: () => void;
@@ -132,9 +141,28 @@ function Progress({
   onFinish: () => void;
   onReport: () => void;
   onClose: () => void;
+  onError: (e: string) => void;
 }) {
   const a = view.active!;
   const p = a.progress;
+  // Open buttons for vendor apps, and installers kept in the Installer Vault.
+  const [apps, setApps] = useState<VendorApp[]>([]);
+  const [installers, setInstallers] = useState<Map<string, VaultMatch>>(new Map());
+  const wanted = p.steps.flatMap((s) => s.open_products).join("\n");
+  useEffect(() => {
+    vendorApps().then(setApps, () => {});
+    const products = wanted ? wanted.split("\n") : [];
+    vaultMatches(products).then(
+      (m) => setInstallers(new Map(m.map((x) => [x.product_id, x]))),
+      () => {},
+    );
+  }, [wanted]);
+  const actions: Actions = {
+    app: (id) => apps.find((x) => x.id === id),
+    installer: (product) => installers.get(product),
+    open: (id) => openVendorApp(id).then(() => {}, (e) => onError(String(e))),
+    run: (entry) => vaultRun(entry).catch((e) => onError(String(e))),
+  };
   const notReady = p.templates.filter((t) => t.missing.length > 0);
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
@@ -180,7 +208,7 @@ function Progress({
             {(i === 0 || p.steps[i - 1].group !== s.group) && (
               <h3 className="px-2 pb-0.5 pt-3 text-[11px] text-dim">{s.group}</h3>
             )}
-            <StepRow step={s} onTick={onTick} />
+            <StepRow step={s} onTick={onTick} actions={actions} />
           </li>
         ))}
       </ol>
@@ -221,7 +249,22 @@ const MARK: Record<SetupStep["status"], { icon: string; className: string }> = {
   todo: { icon: "", className: "border border-line" },
 };
 
-function StepRow({ step: s, onTick }: { step: SetupStep; onTick: (key: string, done: boolean) => void }) {
+interface Actions {
+  app: (id: string) => VendorApp | undefined;
+  installer: (product: string) => VaultMatch | undefined;
+  open: (id: string) => void;
+  run: (entry: string) => void;
+}
+
+function StepRow({
+  step: s,
+  onTick,
+  actions,
+}: {
+  step: SetupStep;
+  onTick: (key: string, done: boolean) => void;
+  actions: Actions;
+}) {
   const finished = s.status === "done" || s.status === "skipped";
   const mark = MARK[s.status];
   const box = (
@@ -252,9 +295,23 @@ function StepRow({ step: s, onTick }: { step: SetupStep; onTick: (key: string, d
         </span>
         {!finished && s.open.length > 0 && (
           <ul className="mt-0.5 text-xs text-dim">
-            {s.open.map((d) => (
-              <li key={d}>{d}</li>
-            ))}
+            {s.open.map((d, n) => {
+              const installer = s.automatic ? actions.installer(s.open_products[n]) : undefined;
+              return (
+                <li key={d} className="flex items-center gap-2">
+                  <span className="min-w-0 truncate">{d}</span>
+                  {installer && (
+                    <button
+                      className="shrink-0 text-accent-text hover:underline"
+                      title={`From your Installer Vault: ${installer.file_name}`}
+                      onClick={() => actions.run(installer.entry_id)}
+                    >
+                      Run installer{installer.version ? ` ${installer.version}` : ""}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
         {s.automatic && s.finished.length > 0 && s.status === "partly" && (
@@ -271,6 +328,7 @@ function StepRow({ step: s, onTick }: { step: SetupStep; onTick: (key: string, d
         )}
         {s.status === "skipped" && <span className="mt-0.5 block text-[11px] text-dim">Marked done by you</span>}
       </span>
+      {!finished && s.app && <AppButton app={actions.app(s.app)} onOpen={actions.open} />}
       {s.automatic && s.status !== "done" && (
         <button
           onClick={() => onTick(s.key, s.status !== "skipped")}

@@ -681,6 +681,7 @@ dependencies = [
  "patchpilot-scanner",
  "patchpilot-store",
  "patchpilot-sync",
+ "patchpilot-vault",
  "serde",
  "serde_json",
  "tempfile",
@@ -738,6 +739,19 @@ dependencies = [
  "serde",
  "serde_json",
  "spake2",
+ "thiserror",
+]
+
+[[package]]
+name = "patchpilot-vault"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "patchpilot-core",
+ "patchpilot-parity",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
 ]
 

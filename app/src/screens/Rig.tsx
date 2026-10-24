@@ -1,5 +1,13 @@
-import { useMemo, useState } from "react";
-import { FORMAT_LABEL, type Overview, type PluginFormat, type ProductRow } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import {
+  FORMAT_LABEL,
+  openVendorApp,
+  vendorApps,
+  type Overview,
+  type PluginFormat,
+  type ProductRow,
+  type VendorApp,
+} from "../api";
 import { Badge, Button, inputClass, Pill, timeAgo } from "../ui";
 
 type Grouping = "vendor" | "format";
@@ -17,6 +25,10 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
   const { machine, inventory: inv, golden } = overview;
   const [grouping, setGrouping] = useState<Grouping>("vendor");
   const [query, setQuery] = useState("");
+  const [launchable, setLaunchable] = useState<VendorApp[]>([]);
+  useEffect(() => {
+    vendorApps().then((a) => setLaunchable(a.filter((x) => x.can_open)), () => {});
+  }, [overview]);
 
   const groups = useMemo(() => {
     if (!inv) return [];
@@ -139,8 +151,17 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
           <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">Vendor apps and licensing tools installed</h3>
           <ul>
             {inv.apps.map((a) => (
-              <li key={a.name} className="flex h-7 items-center justify-between px-4 hover:bg-sel/60">
-                <span>{a.name}</span>
+              <li key={a.name} className="group flex h-7 items-center gap-3 px-4 hover:bg-sel/60">
+                <span className="flex-1">{a.name}</span>
+                {launchable.some((x) => x.name === a.name) && (
+                  <Button
+                    variant="quiet"
+                    className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    onClick={() => openVendorApp(launchable.find((x) => x.name === a.name)!.id).catch(() => {})}
+                  >
+                    Open
+                  </Button>
+                )}
                 <span className="font-mono text-[11px] text-dim">{a.version ?? ""}</span>
               </li>
             ))}

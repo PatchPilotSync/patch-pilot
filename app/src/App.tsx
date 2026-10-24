@@ -7,10 +7,12 @@ import {
   makeGolden,
   onScanProgress,
   onSyncStatus,
+  onVaultChanged,
   overview as loadOverview,
   scanMachine,
   setupView as loadSetupView,
   syncStatus as loadSyncStatus,
+  vaultStatus,
   type MachinesView,
   type Overview,
   type Progress,
@@ -21,6 +23,7 @@ import { LinkDialog, SyncBadge } from "./Link";
 import { ReportDialog } from "./Report";
 import { Compare, type Focus } from "./screens/Compare";
 import { Rig } from "./screens/Rig";
+import { Vault } from "./screens/Vault";
 import { Scanning } from "./screens/Scanning";
 import { Setup, SetupOffer } from "./screens/Setup";
 import { Welcome } from "./screens/Welcome";
@@ -28,7 +31,7 @@ import { resetTour, Tour, tourPending } from "./Tour";
 import { Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
-type Tab = "rig" | "compare" | "setup";
+type Tab = "rig" | "compare" | "vault" | "setup";
 
 export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -49,6 +52,8 @@ export default function App() {
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [linking, setLinking] = useState(false);
   const [setup, setSetup] = useState<SetupView | null>(null);
+  const [dropped, setDropped] = useState<{ paths: string[]; at: number } | null>(null);
+  const [vaultCount, setVaultCount] = useState(0);
   const [reporting, setReporting] = useState(false);
 
   const refresh = useCallback(() => {
@@ -57,6 +62,7 @@ export default function App() {
     loadSetupView().then(setSetup, (e) => setError(String(e)));
   }, []);
   const onError = useCallback((e: string) => setError(e), []);
+  const onNotice = useCallback((lines: string[]) => setNotice(lines), []);
 
   useEffect(() => {
     refresh();
@@ -67,6 +73,12 @@ export default function App() {
     // Drop a `patchpilot export` file anywhere to add that machine.
     const unlistenDrop = getCurrentWebview().onDragDropEvent(async (e) => {
       if (e.payload.type !== "drop") return;
+      // Anything else (installers, a folder) goes to the Installer Vault.
+      const others = e.payload.paths.filter((p) => !p.toLowerCase().endsWith(".json"));
+      if (others.length > 0) {
+        setDropped({ paths: others, at: Date.now() });
+        setTab("vault");
+      }
       for (const path of e.payload.paths.filter((p) => p.toLowerCase().endsWith(".json"))) {
         try {
           setNotice((await importBundle(path)).lines);
@@ -85,6 +97,10 @@ export default function App() {
     });
     // A rescan from the tray popover.
     const unlistenChanged = listen("data-changed", refresh);
+    // The Vault tab's badge: installers waiting in Downloads.
+    const vaultCount = () => vaultStatus().then((v) => setVaultCount(v.inbox.length), () => {});
+    vaultCount();
+    const unlistenVault = onVaultChanged(vaultCount);
     const unlistenReplay = listen("replay-first-run", () => {
       resetTour();
       setReplay(true);
@@ -95,6 +111,7 @@ export default function App() {
     return () => {
       unlistenShow.then((f) => f());
       unlistenChanged.then((f) => f());
+      unlistenVault.then((f) => f());
       unlistenReplay.then((f) => f());
       unlistenProgress.then((f) => f());
       unlistenSync.then((f) => f());
@@ -147,6 +164,7 @@ export default function App() {
             [
               ["rig", "This machine"],
               ["compare", "Compare"],
+              ["vault", "Vault"],
               ...(setup?.active || tab === "setup" ? ([["setup", "Set up"]] as const) : []),
             ] as const
           ).map(([t, label]) => (
@@ -158,6 +176,9 @@ export default function App() {
               className={`disabled:opacity-40 ${tab === t ? "font-medium text-fg" : "text-dim hover:text-fg"}`}
             >
               {label}
+              {t === "vault" && vaultCount > 0 && (
+                <span className="ml-1 rounded bg-accent px-1 text-[10px] font-semibold text-on-accent">{vaultCount}</span>
+              )}
             </button>
           ))}
           <span className="flex-1" />
@@ -203,6 +224,8 @@ export default function App() {
           <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
         ) : tab === "setup" ? (
           <Setup onRescan={() => scan(null)} onError={onError} onChange={setSetup} />
+        ) : tab === "vault" ? (
+          <Vault dropped={dropped} onError={onError} onNotice={onNotice} onCount={setVaultCount} />
         ) : tab === "compare" && view && canCompare ? (
           <Compare view={view} focus={focus} onError={onError} />
         ) : (
