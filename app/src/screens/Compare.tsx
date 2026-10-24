@@ -211,7 +211,7 @@ function Diff({
             scanned {timeAgo(machine.scanned_at)}
           </p>
         </div>
-        {hasWork && <Button onClick={onPlan}>Up To Speed</Button>}
+        {hasWork && <Button onClick={onPlan}>Get Up To Speed</Button>}
       </header>
 
       {c.reasons.length > 0 ? (

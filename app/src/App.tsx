@@ -71,7 +71,7 @@ export default function App() {
       }
       refresh();
     });
-    // The tray popover's Expand / Up To Speed buttons land here.
+    // The tray popover's Expand / Get Up To Speed buttons land here.
     const unlistenShow = listen<{ id: string; plan: boolean }>("show-machine", (e) => {
       setFocus({ ...e.payload, at: Date.now() });
       setTab("compare");
