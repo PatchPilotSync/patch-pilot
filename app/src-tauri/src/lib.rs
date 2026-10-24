@@ -4,6 +4,7 @@
 mod alerts;
 mod background;
 mod bring;
+mod catalog;
 mod compare;
 mod history;
 mod report;
@@ -56,6 +57,7 @@ pub fn run() {
             let app = app.handle();
             sync::setup(app);
             alerts::setup(app);
+            catalog::setup(app);
             vault::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
@@ -85,6 +87,7 @@ pub fn run() {
             history::go_back,
             bring::files_to_bring,
             bring::bring_files,
+            catalog::updates,
             report::rig_report_preview,
             report::save_rig_report,
             sync::sync_status,

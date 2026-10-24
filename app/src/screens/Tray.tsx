@@ -7,6 +7,7 @@ import {
   openMainWindow,
   overview as loadOverview,
   scanMachine,
+  updates as loadUpdates,
   type ComparisonRow,
   type MachineCard,
   type MachineComparison,
@@ -28,11 +29,13 @@ export function Tray() {
   const [view, setView] = useState<MachinesView | null>(null);
   const [target, setTarget] = useState<MachineComparison | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [updateCount, setUpdateCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [o, v] = await Promise.all([loadOverview(), loadMachines()]);
+      const [o, v, u] = await Promise.all([loadOverview(), loadMachines(), loadUpdates()]);
+      setUpdateCount(u.alerts.length);
       setOverview(o);
       setView(v);
       const worst = pickTarget(v);
@@ -159,6 +162,15 @@ export function Tray() {
               </>
             )}
           </section>
+        )}
+
+        {updateCount > 0 && (
+          <button
+            onClick={() => openMainWindow()}
+            className="rounded-md px-3 py-1.5 text-left text-xs text-accent-text hover:bg-sel/50"
+          >
+            {updateCount} plug-in update{updateCount === 1 ? "" : "s"} available on this machine
+          </button>
         )}
 
         {machine && <p className="mt-auto pt-2 text-center text-[11px] text-dim/70">Double-click to open the full window</p>}

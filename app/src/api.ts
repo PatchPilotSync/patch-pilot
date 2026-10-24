@@ -184,7 +184,7 @@ export const ignoreSuggestion = (product: string, version: string | null) =>
   invoke<void>("ignore_suggestion", { product, version });
 export const importBundle = (path: string) => invoke<{ lines: string[] }>("import_bundle", { path });
 
-// Bring over (decision #45); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
+// Bring over (decision #47); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
 
 export interface FileToBring {
   /** Group heading: "Reaper". */
@@ -268,6 +268,43 @@ export const onSyncStatus = (f: (s: SyncStatus) => void): Promise<UnlistenFn> =>
   listen<SyncStatus>("sync-status", (e) => f(e.payload));
 export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => void): Promise<UnlistenFn> =>
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
+
+// Update alerts (decision #47): a newer version on another machine, in the
+// Golden Rig, or in the plug-in catalog.
+export type UpdateSource =
+  | { kind: "machine"; name: string }
+  | { kind: "golden"; version: number }
+  | { kind: "catalog"; released: string | null };
+
+export interface UpdateAlert {
+  id: string;
+  vendor: string;
+  name: string;
+  formats: PluginFormat[];
+  installed: string;
+  latest: string;
+  source: UpdateSource;
+  website: string | null;
+}
+
+export interface UpdatesView {
+  alerts: UpdateAlert[];
+  catalog_updated: string;
+}
+
+export const updates = () => invoke<UpdatesView>("updates");
+
+export function sourceLabel(s: UpdateSource): string {
+  switch (s.kind) {
+    case "machine":
+      return `on ${s.name}`;
+    case "golden":
+      return `in Golden Rig v${s.version}`;
+    case "catalog":
+      return s.released ? `released ${s.released}` : "latest release";
+  }
+}
+
 
 // Installer Vault and vendor apps (src-tauri/src/vault.rs).
 
