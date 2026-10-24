@@ -10,6 +10,10 @@ becomes its release notes, which the app shows when it offers that update
 
 - A short tour on first launch explains the Golden Rig, comparisons and the parity score, Up To Speed and snapshots. Skip it any time, and reopen it from "How it works".
 
+### Improved
+
+- Easier to get from the tray to the full window: a labelled Expand button, clickable rows, and double-click anywhere in the popover. On Windows, double-click the tray icon.
+
 ## 0.1.0 - 2026-10-23
 
 ### New
