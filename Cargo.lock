@@ -746,6 +746,7 @@ dependencies = [
  "patchpilot-core",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "walkdir",
 ]

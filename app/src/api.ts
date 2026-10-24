@@ -40,6 +40,7 @@ export interface Inventory {
   vendors: VendorGroup[];
   apps: AppRow[];
   templates: number;
+  presets: { name: string; vendor: string; size: number | null }[];
 }
 
 export interface Overview {
@@ -390,7 +391,7 @@ export const vendorApps = () => invoke<VendorApp[]>("vendor_apps");
 export const openVendorApp = (id: string) => invoke<"app" | "download_page">("open_vendor_app", { id });
 export const onVaultChanged = (f: () => void): Promise<UnlistenFn> => listen("vault-changed", () => f());
 
-// Reaper extras (decision #49): ReaPack restore and folder settings.
+// Reaper extras (decision #50): ReaPack restore and folder settings.
 export interface ReaPackRemote {
   name: string;
   url: string;

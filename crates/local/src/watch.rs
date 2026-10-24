@@ -53,6 +53,7 @@ pub fn watched_folders() -> Vec<PathBuf> {
     if let Some(lib) = crate::default_ableton_dirs(os, &dirs).user_library {
         folders.extend(ABLETON_WATCHED_DIRS.map(|d| lib.join(d)));
     }
+    folders.extend(crate::preset_folders(os).into_iter().map(|f| f.path));
     folders.retain(|f| f.is_dir());
     outermost(folders)
 }
