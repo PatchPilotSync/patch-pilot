@@ -23,6 +23,7 @@ import {
   type VendorApp,
 } from "../api";
 import { BringOver } from "../BringOver";
+import { ReaperExtras } from "../ReaperExtras";
 import { Badge, Button, inputClass, Pill, ScoreBar, scoreColor, timeAgo } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
@@ -778,6 +779,7 @@ function PlanView({
         </Button>
       </header>
       {here && <BringOver onError={onError} />}
+      {here && <ReaperExtras onError={onError} />}
       {steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       <ol className="-mx-2 flex flex-col">
         {steps.map((s, i) => (

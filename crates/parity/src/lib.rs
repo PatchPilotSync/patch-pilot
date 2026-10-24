@@ -2,7 +2,11 @@
 
 pub mod ableton;
 pub mod presets;
+pub mod reapack;
 pub mod reaper;
+pub mod reaper_folders;
+
+mod ini;
 
 mod comparison;
 mod diff;

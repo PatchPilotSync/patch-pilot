@@ -7,6 +7,7 @@ mod bring;
 mod catalog;
 mod compare;
 mod history;
+mod reaper;
 mod report;
 mod rig;
 mod setup;
@@ -93,6 +94,9 @@ pub fn run() {
             history::undo_change,
             history::go_back_plan,
             history::go_back,
+            reaper::reaper_extras,
+            reaper::restore_reapack,
+            reaper::fix_reaper_folders,
             bring::files_to_bring,
             bring::bring_files,
             catalog::updates,

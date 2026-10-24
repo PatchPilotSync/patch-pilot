@@ -3055,8 +3055,10 @@ dependencies = [
  "patchpilot-store",
  "patchpilot-sync",
  "patchpilot-vault",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

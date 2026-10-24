@@ -245,6 +245,44 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         );
     }
 
+    // ReaPack installs its own packages once its repositories are there, and
+    // Reaper's folder settings are pointed at this machine's folders; both
+    // are one click in the app (decision #52).
+    let reapack: Vec<&ProductDiff> = todo
+        .iter()
+        .copied()
+        .filter(|p| crate::reapack::is_reapack(&p.product_id))
+        .collect();
+    if !reapack.is_empty() {
+        push(
+            Phase::Manual,
+            format!(
+                "Restore {} (Reaper must be closed)",
+                count_noun(reapack.len(), "ReaPack item")
+            ),
+            &reapack,
+            Vec::new(),
+            None,
+        );
+    }
+    let folders: Vec<&ProductDiff> = todo
+        .iter()
+        .copied()
+        .filter(|p| crate::reaper_folders::is_reaper_folder(&p.product_id))
+        .collect();
+    if !folders.is_empty() {
+        push(
+            Phase::Manual,
+            format!(
+                "Set {} to this machine's folders (Reaper must be closed)",
+                count_noun(folders.len(), "Reaper folder setting")
+            ),
+            &folders,
+            Vec::new(),
+            None,
+        );
+    }
+
     // DAW files and configs are user-owned; linked machines bring them over
     // in one click (decision #45).
     let files: Vec<&ProductDiff> = todo
@@ -254,7 +292,8 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             matches!(
                 kind_of(&p.product_id),
                 ItemKind::DawAsset | ItemKind::Config | ItemKind::Folder
-            )
+            ) && !crate::reapack::is_reapack(&p.product_id)
+                && !crate::reaper_folders::is_reaper_folder(&p.product_id)
         })
         .collect();
     if !files.is_empty() {
@@ -275,6 +314,11 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
     // steps; sort by phase and renumber, keeping dependencies.
     renumber(&mut steps);
     Plan { steps }
+}
+
+/// `1 ReaPack item`, `3 ReaPack items`.
+fn count_noun(n: usize, noun: &str) -> String {
+    format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
 fn add_dep(after: &mut Vec<usize>, n: usize) {

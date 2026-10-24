@@ -445,6 +445,39 @@ export const setupClose = () => invoke<SetupView>("setup_close");
 export const setupReportText = () => invoke<string>("setup_report_text");
 /** Saves the report to Downloads and returns its path. */
 export const setupSaveReport = () => invoke<string>("setup_save_report");
+
+// Reaper extras (decision #52): ReaPack restore and folder settings.
+export interface ReaPackRemote {
+  name: string;
+  url: string;
+  enabled: boolean;
+}
+export interface ReaPackPackage {
+  remote: string;
+  category: string;
+  package: string;
+  desc: string;
+  version: string;
+  kind: number;
+}
+export type FolderSetting = { type: "key"; key: string } | { type: "explorer"; label: string };
+export interface FolderFix {
+  setting: FolderSetting;
+  name: string;
+  golden: string;
+  current: string | null;
+  proposed: string | null;
+}
+export interface ReaperExtras {
+  reaper_found: boolean;
+  reapack_installed: boolean;
+  reapack: { missing_remotes: ReaPackRemote[]; missing_packages: ReaPackPackage[] };
+  folders: FolderFix[];
+}
+export const reaperExtras = () => invoke<ReaperExtras | null>("reaper_extras");
+export const restoreReapack = () => invoke<ReaperExtras | null>("restore_reapack");
+export const fixReaperFolders = () => invoke<ReaperExtras | null>("fix_reaper_folders");
+
 // Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
 
 export interface ReportOptions {

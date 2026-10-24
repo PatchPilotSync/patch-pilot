@@ -118,3 +118,45 @@ fn profile_drops_steps() {
             .is_empty()
     );
 }
+
+#[test]
+fn reaper_extras_get_their_own_steps() {
+    use patchpilot_core::Os;
+    use patchpilot_parity::{reapack, reaper_folders};
+
+    let mut golden = load("golden.json");
+    let mut laptop = load("laptop.json");
+    let remotes =
+        reapack::parse_remotes("[remotes]\nremote0=ReaTeam|https://reateam/index.xml|1|2\n");
+    let packages = [reapack::Package {
+        remote: "ReaTeam".into(),
+        category: "Items".into(),
+        package: "Script: Foo.lua".into(),
+        desc: "Foo".into(),
+        version: "1.0".into(),
+        kind: 1,
+    }];
+    let (p, i) = reapack::reapack_items(&remotes, &packages, Os::Windows);
+    golden.products.extend(p);
+    golden.items.extend(i);
+    let settings = reaper_folders::read_folder_settings("[REAPER]\ndefrecpath=D:\\Rec\n");
+    let (p, i) = reaper_folders::folder_items(&settings, &golden.machine.path_map);
+    golden.products.extend(p);
+    golden.items.extend(i);
+
+    align_products(&mut golden, &mut laptop);
+    let plan = up_to_speed(&golden, &TargetProfile::default(), &laptop);
+    let titles: Vec<_> = plan.steps.iter().map(|s| s.title.as_str()).collect();
+    assert!(
+        titles.contains(&"Restore 2 ReaPack items (Reaper must be closed)"),
+        "{titles:?}"
+    );
+    assert!(titles.contains(
+        &"Set 1 Reaper folder setting to this machine's folders (Reaper must be closed)"
+    ));
+    assert!(
+        !titles
+            .iter()
+            .any(|t| t.starts_with("Copy") && t.contains("3 DAW"))
+    );
+}
