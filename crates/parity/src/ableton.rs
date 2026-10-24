@@ -12,8 +12,10 @@
 //! Never read or shared: `Preferences.cfg` (binary, and it mixes portable
 //! settings with the audio device, MIDI ports, folder paths, plug-in folders
 //! and the Ableton login), samples, Packs, project `Backup/` folders.
-//! `Library.cfg` holds the Collection names but also machine paths (User
-//! Library, Packs, Places), so it is only read to find the User Library.
+//! `Library.cfg` holds the Collection names next to machine paths (User
+//! Library, Places), so it is shared as its names only
+//! ([`collection_names_text`]) and received by rewriting just the
+//! `DisplayName` of each `<LabelInfo Uri="color:colors=N">`.
 //!
 //! Sets (`.als`) and racks (`.adg`) are gzipped XML; the plug-ins they use
 //! are read from their `<VstPluginInfo>`, `<Vst3PluginInfo>` and
@@ -118,33 +120,137 @@ fn parse_live_folder(name: &str) -> Option<(String, bool)> {
     Some((version.to_owned(), beta))
 }
 
-/// The User Library folder `Library.cfg` points at, if it says.
-///
-/// Live writes it as a `<UserLibrary>` element holding a `<ProjectPath
-/// Value="..."/>` (the folder) and usually a `<ProjectName
-/// Value="User Library"/>`. Older versions store the parent in
-/// `ProjectPath`, so the name is appended when the path doesn't end with it.
-pub fn user_library_from_cfg(cfg: &str, os: Os) -> Option<PathBuf> {
+/// The User Library folder `Library.cfg` points at, if it says: the
+/// `<ProjectPath Value="..."/>` inside `<UserLibrary>`, which is the folder
+/// itself (Live 12 writes `/` even on Windows, and the folder needn't be
+/// named "User Library").
+pub fn user_library_from_cfg(cfg: &str) -> Option<PathBuf> {
     let start = cfg.find("<UserLibrary")?;
     let section = &cfg[start..];
     let section = section
         .find("</UserLibrary>")
         .map_or(section, |end| &section[..end]);
     let path = xml_value(section, "ProjectPath")?;
-    if path.is_empty() {
-        return None;
-    }
-    let name = xml_value(section, "ProjectName").filter(|n| !n.is_empty());
     let trimmed = path.trim_end_matches(['/', '\\']);
-    let last = trimmed.rsplit(['/', '\\']).next().unwrap_or("");
-    let mut dir = trimmed.to_owned();
-    if let Some(name) = name
-        && !last.eq_ignore_ascii_case(&name)
-    {
-        dir.push(os.separator());
-        dir.push_str(&name);
+    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+}
+
+/// The file holding the Collection names, below [`ABLETON_PREFS`].
+pub const LIBRARY_CFG: &str = "Library.cfg";
+
+/// Live's seven Collection colours (`color:colors=1` to `7`).
+const COLLECTIONS: std::ops::RangeInclusive<u8> = 1..=7;
+
+/// The Collection names in `Library.cfg`, by colour number (1-7), from its
+/// `<LabelInfo Uri="color:colors=N" DisplayName="..."/>` elements. Empty
+/// names are kept (Live shows the colour's default). Colours without an
+/// element are left out.
+pub fn collection_names(cfg: &str) -> Vec<(u8, String)> {
+    COLLECTIONS
+        .filter_map(|n| {
+            let elem = label_info(cfg, n)?;
+            Some((n, unescape(&attr(&cfg[elem.clone()], "DisplayName")?.1)))
+        })
+        .collect()
+}
+
+/// The byte range of the `<LabelInfo .../>` element for colour `n`.
+fn label_info(cfg: &str, n: u8) -> Option<std::ops::Range<usize>> {
+    let uri = format!("Uri=\"color:colors={n}\"");
+    let at = cfg.find(&uri)?;
+    let start = cfg[..at].rfind('<')?;
+    let end = at + cfg[at..].find('>')? + 1;
+    cfg[start..]
+        .starts_with("<LabelInfo ")
+        .then_some(start..end)
+}
+
+/// The `name="value"` attribute in one element: the value's byte range in
+/// `elem` and the raw (still escaped) value.
+fn attr(elem: &str, name: &str) -> Option<(std::ops::Range<usize>, String)> {
+    let key = format!(" {name}=\"");
+    let v = elem.find(&key)? + key.len();
+    let end = v + elem[v..].find('"')?;
+    Some((v..end, elem[v..end].to_owned()))
+}
+
+/// What travels between machines for the Collection names: one
+/// `<number>\t<name>` line per colour. Only names, never paths.
+pub fn collection_names_text(names: &[(u8, String)]) -> String {
+    names
+        .iter()
+        .map(|(n, name)| format!("{n}\t{}\n", name.replace(['\t', '\n', '\r'], " ")))
+        .collect()
+}
+
+fn parse_collection_names_text(text: &str) -> Option<Vec<(u8, String)>> {
+    text.lines()
+        .map(|line| {
+            let (n, name) = line.split_once('\t')?;
+            let n: u8 = n.parse().ok()?;
+            COLLECTIONS.contains(&n).then(|| (n, name.to_owned()))
+        })
+        .collect()
+}
+
+/// `cfg` with its Collection names set from `text` (as written by
+/// [`collection_names_text`]). Only the `DisplayName` of each colour's
+/// `<LabelInfo>` changes; the User Library location, Places and every other
+/// byte stay as they are. Errors when `text` is malformed or `cfg` has no
+/// Collections yet (Live writes them the first time its browser opens).
+pub fn set_collection_names(cfg: &str, text: &str) -> Result<String, String> {
+    let names = parse_collection_names_text(text).ok_or("Collection names are unreadable")?;
+    let mut out = cfg.to_owned();
+    for (n, name) in names {
+        let elem = label_info(&out, n).ok_or(
+            "Live hasn't written its Collections on this machine yet. Open Live once, then try again.",
+        )?;
+        let (value, _) = attr(&out[elem.clone()], "DisplayName")
+            .ok_or("Library.cfg has a Collection without a name")?;
+        out.replace_range(
+            elem.start + value.start..elem.start + value.end,
+            &escape(&name),
+        );
     }
-    Some(PathBuf::from(dir))
+    Ok(out)
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// The bytes another machine gets for a shared Ableton file: the file
+/// itself, except `Library.cfg`, which shares only its Collection names.
+pub fn shared_view(root: &str, rel: &str, bytes: Vec<u8>) -> Vec<u8> {
+    if root == ABLETON_PREFS && rel.eq_ignore_ascii_case(LIBRARY_CFG) {
+        collection_names_text(&collection_names(&String::from_utf8_lossy(&bytes))).into_bytes()
+    } else {
+        bytes
+    }
+}
+
+/// What to write for a shared Ableton file given what's there now: the
+/// incoming bytes, except for `Library.cfg`, where only the Collection names
+/// are merged into this machine's own file.
+pub fn merge_incoming(
+    root: &str,
+    rel: &str,
+    current: Option<&[u8]>,
+    incoming: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    if root == ABLETON_PREFS && rel.eq_ignore_ascii_case(LIBRARY_CFG) {
+        let cfg = current.ok_or(
+            "Live hasn't written its settings on this machine yet. Open Live once, then try again.",
+        )?;
+        let cfg = std::str::from_utf8(cfg).map_err(|_| "Library.cfg isn't UTF-8")?;
+        let text = std::str::from_utf8(&incoming).map_err(|_| "Collection names aren't UTF-8")?;
+        set_collection_names(cfg, text).map(String::into_bytes)
+    } else {
+        Ok(incoming)
+    }
 }
 
 /// The `Value` attribute of the first `<tag ... Value="..."/>`, unescaped.
@@ -380,8 +486,12 @@ pub fn user_library_label(rel: &str) -> Option<&'static str> {
 }
 
 /// "Setting" for the preferences files that are safe to share
-/// (`Options.txt`), `None` for everything else in that folder.
+/// (`Options.txt`), "Collection names" for `Library.cfg` (only the names
+/// travel, see [`shared_view`]), `None` for everything else in that folder.
 pub fn prefs_label(rel: &str) -> Option<&'static str> {
+    if rel.eq_ignore_ascii_case(LIBRARY_CFG) {
+        return Some("Collection names");
+    }
     PORTABLE_PREFS
         .iter()
         .any(|f| f.eq_ignore_ascii_case(rel))
@@ -434,6 +544,7 @@ pub fn settings_items(
         files.extend(
             PORTABLE_PREFS
                 .iter()
+                .chain([&LIBRARY_CFG])
                 .map(|f| prefs.join(f))
                 .filter(|p| p.is_file())
                 .map(|p| (ABLETON_PREFS, prefs, p)),
@@ -452,12 +563,22 @@ pub fn settings_items(
         let Some(rel) = rel_string(rel) else {
             continue;
         };
+        let bytes = shared_view(root, &rel, bytes);
+        if bytes.is_empty() {
+            // A Library.cfg without Collections.
+            continue;
+        }
         let short = if root == ABLETON_PREFS {
             "prefs"
         } else {
             "lib"
         };
-        let id = ProductId(format!("{PRODUCT_PREFIX}{short}/{}", slug(&rel)));
+        let collections = root == ABLETON_PREFS && rel.eq_ignore_ascii_case(LIBRARY_CFG);
+        let id = if collections {
+            ProductId(format!("{PRODUCT_PREFIX}prefs/collection-names"))
+        } else {
+            ProductId(format!("{PRODUCT_PREFIX}{short}/{}", slug(&rel)))
+        };
         let path = PortablePath::logical(root, rel.clone());
         let kind = if root == ABLETON_PREFS || describe(&path) == "Collections" {
             ItemKind::Config
@@ -479,7 +600,11 @@ pub fn settings_items(
         products.push(Product {
             canonical_id: id.clone(),
             vendor: VENDOR.into(),
-            name: rel,
+            name: if collections {
+                "Collection names".to_owned()
+            } else {
+                rel
+            },
         });
         items.push(Item {
             kind,
@@ -572,18 +697,19 @@ mod tests {
   </ContentLibrary>
 </Ableton>"#;
         assert_eq!(
-            user_library_from_cfg(cfg, Os::Macos),
+            user_library_from_cfg(cfg),
             Some(PathBuf::from("/Users/alice/Music/Ableton/User Library"))
         );
-        let parent_only = r#"<UserLibrary><LibraryProject>
+        // Live 12 on Windows: forward slashes, and a folder with its own name.
+        let renamed = r#"<UserLibrary><LibraryProject>
             <ProjectName Value="User Library"/>
-            <ProjectPath Value="D:\Music &amp; Stuff\Ableton\"/>
+            <ProjectPath Value="D:/Dropbox/Music &amp; Stuff/!User Library/"/>
         </LibraryProject></UserLibrary>"#;
         assert_eq!(
-            user_library_from_cfg(parent_only, Os::Windows),
-            Some(PathBuf::from(r"D:\Music & Stuff\Ableton\User Library"))
+            user_library_from_cfg(renamed),
+            Some(PathBuf::from("D:/Dropbox/Music & Stuff/!User Library"))
         );
-        assert_eq!(user_library_from_cfg("<Ableton/>", Os::Macos), None);
+        assert_eq!(user_library_from_cfg("<Ableton/>"), None);
     }
 
     #[test]
@@ -616,7 +742,8 @@ mod tests {
             assert_eq!(user_library_label(rel), None, "{rel}");
         }
         assert_eq!(prefs_label("Preferences.cfg"), None);
-        assert_eq!(prefs_label("Library.cfg"), None);
+        assert_eq!(prefs_label("Library.cfg"), Some("Collection names"));
+        assert_eq!(prefs_label("Log.txt"), None);
         assert_eq!(prefs_label("options.txt"), Some("Setting"));
     }
 

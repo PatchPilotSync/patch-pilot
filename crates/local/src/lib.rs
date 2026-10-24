@@ -308,7 +308,7 @@ fn default_ableton_dirs(os: Os, dirs: &SystemDirs) -> AbletonDirs {
     let user_library = prefs
         .as_ref()
         .and_then(|p| std::fs::read_to_string(p.join("Library.cfg")).ok())
-        .and_then(|cfg| user_library_from_cfg(&cfg, os))
+        .and_then(|cfg| user_library_from_cfg(&cfg))
         .filter(|d| d.is_dir())
         .or_else(|| default_user_library(os, &dirs.home).filter(|d| d.is_dir()));
     AbletonDirs {
