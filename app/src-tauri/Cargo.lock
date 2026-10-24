@@ -2969,6 +2969,7 @@ name = "patchpilot-app"
 version = "0.2.0"
 dependencies = [
  "futures-util",
+ "patchpilot-catalog",
  "patchpilot-core",
  "patchpilot-local",
  "patchpilot-parity",
@@ -2993,6 +2994,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "patchpilot-catalog"
+version = "0.1.0"
+dependencies = [
+ "patchpilot-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "patchpilot-core"
 version = "0.1.0"
 dependencies = [
@@ -3008,6 +3019,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "notify",
+ "patchpilot-catalog",
  "patchpilot-core",
  "patchpilot-parity",
  "patchpilot-scanner",
@@ -3025,6 +3037,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "flate2",
+ "patchpilot-catalog",
  "patchpilot-core",
  "serde",
  "thiserror 2.0.21",

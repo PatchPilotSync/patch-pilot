@@ -1,0 +1,45 @@
+# Publishes the plug-in catalog (crates/catalog/data/catalog.json) to the
+# public PatchPilotSync/patch-pilot-releases repo, where the app checks for a
+# newer copy once a day (decision #47). Runs when the catalog changes on main.
+#
+# Secret: RELEASES_TOKEN (contents: write on patch-pilot-releases), the same
+# one the release workflow uses.
+
+name: Publish catalog
+
+on:
+  push:
+    branches: [main]
+    paths: [crates/catalog/data/catalog.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-catalog
+  cancel-in-progress: false
+
+env:
+  RELEASES_REPO: PatchPilotSync/patch-pilot-releases
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the catalog parses
+        run: jq -e '.catalog_version and .updated and (.vendors | type == "array")' crates/catalog/data/catalog.json
+      - name: Upload catalog.json
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          path="repos/$RELEASES_REPO/contents/catalog.json"
+          sha=$(gh api "$path" --jq .sha 2>/dev/null || true)
+          updated=$(jq -r .updated crates/catalog/data/catalog.json)
+          args=(-X PUT "$path"
+            -f message="Catalog $updated (${GITHUB_SHA::7})"
+            -f content="$(base64 -w0 crates/catalog/data/catalog.json)"
+            -f branch=main)
+          if [ -n "$sha" ]; then args+=(-f sha="$sha"); fi
+          gh api "${args[@]}" --jq .content.html_url

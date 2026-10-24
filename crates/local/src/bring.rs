@@ -10,12 +10,15 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use patchpilot_core::{ContentHash, Item, Manifest, Os, PortablePath, TargetProfile};
+use patchpilot_parity::ableton::{
+    ABLETON_PREFS, ABLETON_USER_LIBRARY, prefs_label, user_library_label,
+};
 use patchpilot_parity::apply_profile;
 use patchpilot_parity::reaper::{REAPER_RESOURCES, reaper_resource_dir, resource_kind};
 use patchpilot_store::Store;
 use serde::Serialize;
 
-use crate::restore::{ChangeSet, FileChange, apply_changes};
+use crate::restore::{ChangeSet, Daw, FileChange, apply_changes};
 
 /// The relay keeps objects up to 2 MB; leave room for the envelope.
 pub const MAX_FILE_BYTES: u64 = 1_900_000;
@@ -33,18 +36,42 @@ pub struct SharedRoot {
     /// Checked before writing under the root, e.g. "Close the DAW first"
     /// for its settings (CLAUDE.md rule 5).
     pub guard: fn() -> Result<(), String>,
+    /// The DAW a restore point is tagged with; `Some` also makes
+    /// [`apply_changes`] refuse while that DAW runs.
+    pub daw: Option<Daw>,
 }
 
 /// Every root Bring over knows. Add one entry per app's root.
-pub const SHARED_ROOTS: &[SharedRoot] = &[SharedRoot {
-    root: REAPER_RESOURCES,
-    app: "Reaper",
-    kind: |rel| resource_kind(rel).map(|k| k.label()),
-    default_dir: default_reaper_dir,
-    // Templates, scripts and themes aren't Reaper's settings, and Reaper
-    // reads them when they are used, so writing them while it runs is safe.
-    guard: || Ok(()),
-}];
+pub const SHARED_ROOTS: &[SharedRoot] = &[
+    SharedRoot {
+        root: REAPER_RESOURCES,
+        app: "Reaper",
+        kind: |rel| resource_kind(rel).map(|k| k.label()),
+        default_dir: default_reaper_dir,
+        // Templates, scripts and themes aren't Reaper's settings, and Reaper
+        // reads them when they are used, so writing them while it runs is safe.
+        guard: || Ok(()),
+        daw: None,
+    },
+    // Ableton (decision #41): Live indexes the User Library and reads
+    // Options.txt at launch, so both wait until Live is closed.
+    SharedRoot {
+        root: ABLETON_USER_LIBRARY,
+        app: "Ableton",
+        kind: user_library_label,
+        default_dir: || crate::standard_ableton_dirs()?.user_library,
+        guard: || crate::apps::write_guard(ABLETON_USER_LIBRARY),
+        daw: Some(Daw::Ableton),
+    },
+    SharedRoot {
+        root: ABLETON_PREFS,
+        app: "Ableton",
+        kind: prefs_label,
+        default_dir: || crate::standard_ableton_dirs()?.prefs,
+        guard: || crate::apps::write_guard(ABLETON_PREFS),
+        daw: Some(Daw::Ableton),
+    },
+];
 
 fn shared_root(root: &str) -> Option<&'static SharedRoot> {
     SHARED_ROOTS.iter().find(|r| r.root == root)
@@ -236,9 +263,9 @@ pub fn write_files(
     let req = ChangeSet {
         machine_id: machine_id.to_owned(),
         label: label.to_owned(),
-        // Templates, scripts and themes: Reaper doesn't rewrite them on
-        // exit, so it may stay open (the root's guard covers the rest).
-        daw: None,
+        // Reaper's templates, scripts and themes aren't rewritten on exit, so
+        // Reaper may stay open; Ableton's root sets `Daw::Ableton`.
+        daw: shared.daw,
         changes,
         now,
     };
@@ -348,6 +375,72 @@ mod tests {
             files_to_bring(&golden, &TargetProfile::default(), None).len(),
             4
         );
+    }
+
+    #[test]
+    fn ableton_settings_are_listed_under_ableton() {
+        let at = |root: &str, rel: &str, body: &str| {
+            let mut item = template(Os::Windows, rel, body);
+            item.path = PortablePath::logical(root, rel);
+            item
+        };
+        let golden = manifest(
+            Os::Windows,
+            r"C:\Users\a\AppData\Roaming\REAPER",
+            vec![
+                at(ABLETON_USER_LIBRARY, "Templates/Default.als", "set"),
+                at(
+                    ABLETON_USER_LIBRARY,
+                    "Ableton Folder Info/12/Collections.xmp",
+                    "tags",
+                ),
+                at(ABLETON_USER_LIBRARY, "Samples/Imported/kick.wav", "audio"),
+                at(ABLETON_PREFS, "Options.txt", "-ShowDeviceSlots"),
+                at(ABLETON_PREFS, "Preferences.cfg", "binary"),
+            ],
+        );
+        let list = files_to_bring(&golden, &TargetProfile::default(), None);
+        let got: Vec<_> = list
+            .iter()
+            .map(|f| (f.app.as_str(), f.kind.as_str(), f.rel.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (
+                    "Ableton",
+                    "Collections",
+                    "Ableton Folder Info/12/Collections.xmp"
+                ),
+                ("Ableton", "Setting", "Options.txt"),
+                ("Ableton", "Template", "Templates/Default.als"),
+            ]
+        );
+    }
+
+    #[test]
+    fn never_writes_ableton_preferences_cfg_or_samples() {
+        let tmp = tempfile::tempdir().unwrap();
+        for (root, rel) in [
+            (ABLETON_PREFS, "Preferences.cfg"),
+            (ABLETON_PREFS, "Library.cfg"),
+            (ABLETON_USER_LIBRARY, "Samples/Imported/kick.wav"),
+        ] {
+            let dir = tmp.path().join(root);
+            let mut store = Store::open_in_memory().unwrap();
+            let result = write_files(
+                &mut store,
+                &tmp.path().join("b"),
+                "m1",
+                "x",
+                root,
+                &dir,
+                &[(rel.into(), b"x".to_vec())],
+                1,
+            );
+            assert!(result.is_err(), "{root}/{rel}");
+            assert!(!dir.join(rel).exists());
+        }
     }
 
     #[test]

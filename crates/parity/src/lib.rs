@@ -14,6 +14,7 @@ mod readiness;
 mod report;
 mod score;
 mod setup;
+mod updates;
 mod version;
 
 pub use comparison::{Comparison, ComparisonRow, ItemSide, compare};
@@ -27,4 +28,5 @@ pub use readiness::{TemplateReadiness, required_products, template_readiness};
 pub use report::{ReportOptions, ReportParity, RigReport, rig_report};
 pub use score::{ParityScore, Reason, ScoreWeights, apply_profile, score_machine};
 pub use setup::{ReportInfo, SetupProgress, SetupStep, StepStatus, setup_progress, setup_report};
+pub use updates::{Elsewhere, UpdateAlert, UpdateSource, update_alerts};
 pub use version::{Version, VersionOrder, compare_versions};

@@ -44,7 +44,8 @@ Full product thinking: `docs/strategy.md`. Decisions (authoritative): `docs/deci
 crates/
   core/        # domain types: Item, Product, Manifest, Snapshot, Profile
   scanner/     # plugin + DAW + vendor-app scanners, per-OS modules
-  parity/      # identity resolution, diff, scoring, plan generation
+  catalog/     # plug-in catalog: vendor/product names across formats, latest versions
+  parity/      # identity resolution, diff, scoring, plan generation, update alerts
   store/       # SQLite schema + migrations, blob store
   local/       # this machine: default folders, scan + save, app-data paths (shared by CLI and app)
   sync/        # live sync core: rig key, link codes, E2E encryption for the relay (no network)
