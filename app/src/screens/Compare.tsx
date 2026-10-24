@@ -239,17 +239,7 @@ function Diff({
         <p className="text-xs text-ok">At parity with the Golden Rig.</p>
       )}
 
-      {c.templates.some((t) => t.missing.length > 0) && (
-        <div className="rounded-md bg-warn/10 px-3 py-2 text-xs">
-          <span className="font-medium text-warn">Templates not ready: </span>
-          <span className="text-dim">
-            {c.templates
-              .filter((t) => t.missing.length > 0)
-              .map((t) => `${t.name} needs ${t.missing.length} plug-in${t.missing.length === 1 ? "" : "s"}`)
-              .join(" · ")}
-          </span>
-        </div>
-      )}
+      <TemplatesNotice comparison={c} />
 
       <div className="flex flex-wrap items-center gap-1 border-b border-line pb-2">
         {STATE_ORDER.filter((s) => counts.get(s)).map((s) => (
@@ -338,6 +328,104 @@ function Diff({
       </div>
     </div>
   );
+}
+
+/** One plug-in that templates on this machine use but it doesn't have. */
+interface NeededPlugin {
+  id: string;
+  name: string;
+  vendor: string;
+  /** Template paths, e.g. `FXChains/Bus Glue.RfxChain`. */
+  templates: string[];
+}
+
+/** Templates that would open with empty plug-in slots: one line, expandable to the plug-ins. */
+function TemplatesNotice({ comparison: c }: { comparison: MachineComparison["comparison"] }) {
+  const [open, setOpen] = useState(false);
+  const [notReady, plugins] = useMemo(() => {
+    const notReady = c.templates.filter((t) => t.missing.length > 0);
+    const rows = new Map(c.rows.map((r) => [r.product_id, r]));
+    const byId = new Map<string, NeededPlugin>();
+    for (const t of notReady) {
+      for (const id of t.missing) {
+        let p = byId.get(id);
+        if (!p) {
+          const row = rows.get(id);
+          p = row ? { id, name: row.name, vendor: row.vendor, templates: [] } : { id, ...nameFromId(id), templates: [] };
+          byId.set(id, p);
+        }
+        p.templates.push(t.name);
+      }
+    }
+    const plugins = [...byId.values()].sort(
+      (a, b) => b.templates.length - a.templates.length || a.name.localeCompare(b.name),
+    );
+    return [notReady, plugins] as const;
+  }, [c]);
+  if (!notReady.length) return null;
+
+  const t = notReady.length;
+  const p = plugins.length;
+  return (
+    <div className="text-xs">
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="-mx-2 flex h-7 w-[calc(100%+1rem)] items-center gap-2.5 rounded-[5px] px-2 text-left hover:bg-sel/50"
+      >
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">
+          {t} Reaper template{t === 1 ? "" : "s"} use{t === 1 ? "s" : ""}{" "}
+          {p === 1 ? "a plug-in" : `${p} plug-ins`} this machine doesn't have
+        </span>
+        <span className="shrink-0 text-dim">{open ? "Hide" : "Show"}</span>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          aria-hidden="true"
+          className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
+        >
+          <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </button>
+      {open && (
+        <div className="mt-1 rounded-md border border-line bg-panel px-3 py-2">
+          <p className="pb-1.5 text-dim">
+            These FX chains, track and project templates would open in Reaper with empty plug-in slots. Only plug-ins
+            that are also in the Golden Rig count toward the score.
+          </p>
+          <ul className="flex flex-col">
+            {plugins.map((n) => (
+              <li key={n.id} className="flex items-baseline gap-2 py-0.5" title={n.templates.join("\n")}>
+                <span className="shrink-0">
+                  {n.name}
+                  {n.vendor && <span className="ml-1.5 text-dim">{n.vendor}</span>}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-right text-[11px] text-dim">
+                  {n.templates.length === 1 ? templateLabel(n.templates[0]) : `${n.templates.length} templates`}
+                  {n.templates.length > 1 && ` · ${n.templates.map(templateLabel).join(", ")}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** `FXChains/Vocals/Bus Glue.RfxChain` -> `Bus Glue`. */
+function templateLabel(path: string): string {
+  const file = path.split("/").pop() ?? path;
+  return file.replace(/\.(rfxchain|rtracktemplate|rpp)$/i, "");
+}
+
+/** A readable name for a product ID (`acme-audio/acme-verb`) the comparison has no row for. */
+function nameFromId(id: string): { name: string; vendor: string } {
+  const words = (s: string) => s.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const [vendor, name] = id.includes("/") ? id.split("/", 2) : ["unknown", id];
+  return { name: words(name), vendor: vendor === "unknown" ? "" : words(vendor) };
 }
 
 function versionPair(r: ComparisonRow): string {
