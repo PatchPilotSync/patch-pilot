@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### Improved
+
+- Easier to get from the tray to the full window: a labelled Expand button, clickable rows, and double-click anywhere in the popover. On Windows, double-click the tray icon.
+
 ## 0.1.0 - 2026-10-23
 
 ### New

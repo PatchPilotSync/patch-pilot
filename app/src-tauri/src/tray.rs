@@ -1,6 +1,6 @@
 //! Tray / menu bar icon and its popover (decision #35). Left click toggles a
 //! small borderless window next to the icon; it hides again when it loses
-//! focus. Closing the main window hides it, so Patch Pilot keeps living in the
+//! focus. Double-clicking the icon (Windows) opens the main window. Closing the main window hides it, so Patch Pilot keeps living in the
 //! tray until the user picks Quit from the icon's menu.
 
 use std::sync::Mutex;
@@ -43,16 +43,19 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             "quit" => app.exit(0),
             _ => {}
         })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 rect,
                 ..
-            } = event
-            {
-                toggle_popover(tray.app_handle(), rect);
-            }
+            } => toggle_popover(tray.app_handle(), rect),
+            // Windows only; macOS menu bar items don't report double-clicks.
+            TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+            } => show_main(tray.app_handle()),
+            _ => {}
         })
         .build(app)?;
 
@@ -157,7 +160,7 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// The popover's Expand and Up To Speed buttons. `machine` opens Compare on
+/// The popover's Expand and Up To Speed buttons, row clicks and double-clicks. `machine` opens Compare on
 /// that machine; `plan` goes straight to its Up To Speed checklist.
 #[tauri::command]
 pub fn open_main_window(app: AppHandle, machine: Option<String>, plan: bool) {
