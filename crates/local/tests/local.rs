@@ -36,6 +36,10 @@ fn scan_save_and_summarize_a_fixture_tree() {
             .unwrap(),
         ],
         reaper_dir: Some(fixtures("parity/reaper/REAPER")),
+        ableton: Some(patchpilot_local::AbletonDirs {
+            user_library: Some(fixtures("parity/ableton/User Library")),
+            prefs: Some(fixtures("parity/ableton/prefs-mac/Live 12.1.5")),
+        }),
         ..ScanOptions::standard("0123456789abcdef".into(), "Test Rig".into())
     };
     let mut stages = Vec::new();
@@ -46,6 +50,10 @@ fn scan_save_and_summarize_a_fixture_tree() {
     );
     assert!(scan.plugins() >= 2, "{:?}", scan.manifest.items);
     assert!(scan.templates >= 1);
+    assert_eq!(scan.ableton, 8);
+    let roots = &scan.manifest.machine.path_map.roots;
+    assert!(roots.contains_key(patchpilot_parity::ableton::ABLETON_USER_LIBRARY));
+    assert!(roots.contains_key(patchpilot_parity::ableton::ABLETON_PREFS));
 
     let inv = patchpilot_parity::inventory(&scan.manifest);
     assert_eq!(inv.plugins, scan.plugins());

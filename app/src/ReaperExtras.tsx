@@ -3,7 +3,7 @@ import { fixReaperFolders, reaperExtras, restoreReapack, type ReaperExtras as Ex
 import { Badge, Button } from "./ui";
 
 /**
- * Reaper extras (decision #43): the Golden Rig's ReaPack repositories and
+ * Reaper extras (decision #45): the Golden Rig's ReaPack repositories and
  * packages, and Reaper's folder settings pointed at this machine's folders.
  * Each is one click; Reaper must be closed, and every change is a restore
  * point that History can undo. Loads its own data, like Bring over.
