@@ -681,6 +681,8 @@ dependencies = [
  "patchpilot-scanner",
  "patchpilot-store",
  "patchpilot-sync",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

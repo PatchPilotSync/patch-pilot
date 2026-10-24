@@ -4,6 +4,7 @@
 mod background;
 mod compare;
 mod rig;
+mod setup;
 mod sync;
 mod tray;
 
@@ -67,6 +68,13 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            setup::setup_view,
+            setup::setup_start,
+            setup::setup_tick,
+            setup::setup_finish,
+            setup::setup_close,
+            setup::setup_report_text,
+            setup::setup_save_report,
             sync::sync_status,
             sync::link_start,
             sync::link_join,
