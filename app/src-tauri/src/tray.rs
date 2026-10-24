@@ -29,8 +29,11 @@ const ICON: &[u8] = include_bytes!("../icons/tray-white@2x.png");
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Patch Pilot", true, None::<&str>)?;
+    // Temporary, for testing onboarding: shows the welcome screen and tour again
+    // without touching any saved data. Remove before a public launch.
+    let replay = MenuItem::with_id(app, "replay", "Replay First Run", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Patch Pilot", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &replay, &quit])?;
 
     TrayIconBuilder::with_id("patchpilot")
         .icon(Image::from_bytes(ICON)?)
@@ -40,6 +43,10 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
+            "replay" => {
+                show_main(app);
+                let _ = app.emit_to(MAIN, "replay-first-run", ());
+            }
             "quit" => app.exit(0),
             _ => {}
         })

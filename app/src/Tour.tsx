@@ -17,6 +17,15 @@ export function tourPending(): boolean {
   }
 }
 
+/** Forget that the tutorial was seen, so it shows as on a first launch. */
+export function resetTour() {
+  try {
+    localStorage.removeItem(SEEN_KEY);
+  } catch {
+    // Nothing stored, nothing to reset.
+  }
+}
+
 function markSeen() {
   try {
     localStorage.setItem(SEEN_KEY, "seen");
