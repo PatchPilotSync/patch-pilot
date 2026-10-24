@@ -47,6 +47,7 @@ crates/
   parity/      # identity resolution, diff, scoring, plan generation
   store/       # SQLite schema + migrations, blob store
   local/       # this machine: default folders, scan + save, app-data paths (shared by CLI and app)
+  sync/        # live sync core: rig key, link codes, E2E encryption for the relay (no network)
 app/           # Tauri app: React UI in src/, Rust shell in src-tauri/ (own Cargo workspace)
 docs/
 ```
