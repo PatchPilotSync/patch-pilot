@@ -1,5 +1,13 @@
-import { useMemo, useState } from "react";
-import { FORMAT_LABEL, type Overview, type PluginFormat, type ProductRow } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import {
+  FORMAT_LABEL,
+  sourceLabel,
+  updates,
+  type Overview,
+  type PluginFormat,
+  type ProductRow,
+  type UpdateAlert,
+} from "../api";
 import { Badge, Button, inputClass, Pill, timeAgo } from "../ui";
 
 type Grouping = "vendor" | "format";
@@ -16,6 +24,15 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
   const { machine, inventory: inv, golden } = overview;
   const [grouping, setGrouping] = useState<Grouping>("vendor");
   const [query, setQuery] = useState("");
+  const [alerts, setAlerts] = useState<UpdateAlert[]>([]);
+
+  // Reloads with the overview, which refreshes after scans, syncs and catalog updates.
+  useEffect(() => {
+    updates()
+      .then((u) => setAlerts(u.alerts))
+      .catch(() => setAlerts([]));
+  }, [overview]);
+  const alertById = useMemo(() => new Map(alerts.map((a) => [a.id, a])), [alerts]);
 
   const groups = useMemo(() => {
     if (!inv) return [];
@@ -78,6 +95,8 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
         </details>
       )}
 
+      {alerts.length > 0 && <Updates alerts={alerts} />}
+
       <div className="px-4 pt-3">
         <h2 className="text-sm font-semibold">
           Plug-ins installed on this machine{" "}
@@ -124,7 +143,12 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
           </h3>
           <ul>
             {g.rows.map(({ vendor, p }) => (
-              <ProductLine key={`${g.title}/${p.id}`} p={p} vendor={grouping === "format" ? vendor : null} />
+              <ProductLine
+                key={`${g.title}/${p.id}`}
+                p={p}
+                vendor={grouping === "format" ? vendor : null}
+                update={alertById.get(p.id)}
+              />
             ))}
           </ul>
         </section>
@@ -147,7 +171,34 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden }: Props)
   );
 }
 
-function ProductLine({ p, vendor }: { p: ProductRow; vendor: string | null }) {
+function Updates({ alerts }: { alerts: UpdateAlert[] }) {
+  return (
+    <details className="border-b border-line px-4 py-2 text-xs">
+      <summary className="cursor-pointer">
+        <span className="font-medium text-accent-text">
+          {alerts.length} plug-in update{alerts.length === 1 ? "" : "s"} available
+        </span>
+        <span className="text-dim"> · a newer version is on another machine, the Golden Rig or the catalog</span>
+      </summary>
+      <ul className="mt-1.5">
+        {alerts.map((a) => (
+          <li key={a.id} className="flex h-7 items-center gap-3">
+            <span className="min-w-0 flex-1 truncate">
+              {a.name}
+              {a.vendor && <span className="ml-2 text-dim">{a.vendor}</span>}
+            </span>
+            <span className="font-mono text-[11px] text-dim">
+              {a.installed} → <span className="text-fg">{a.latest}</span>
+            </span>
+            <span className="w-36 truncate text-right text-[11px] text-dim">{sourceLabel(a.source)}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function ProductLine({ p, vendor, update }: { p: ProductRow; vendor: string | null; update?: UpdateAlert }) {
   return (
     <li className="flex h-7 items-center gap-3 px-4 hover:bg-sel/60">
       <span className="min-w-0 flex-1 truncate">
@@ -157,6 +208,11 @@ function ProductLine({ p, vendor }: { p: ProductRow; vendor: string | null }) {
       {p.confidence === "low" && (
         <span title="Identified from the file name only">
           <Badge tone="amber">name only</Badge>
+        </span>
+      )}
+      {update && (
+        <span title={`${update.latest} ${sourceLabel(update.source)}`}>
+          <Badge>update</Badge>
         </span>
       )}
       <span className="text-xs text-dim">{p.formats.map((f: PluginFormat) => FORMAT_LABEL[f]).join(" · ")}</span>

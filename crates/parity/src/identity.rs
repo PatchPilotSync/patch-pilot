@@ -5,6 +5,12 @@
 //! `Info.plist`), the ID is `unknown/<name>`. [`align_products`] renames those
 //! to the one known `<vendor>/<name>` with the same name across both
 //! manifests, if there is exactly one.
+//!
+//! First, both manifests go through the plug-in catalog
+//! ([`patchpilot_catalog::Catalog::canonicalize`]), which knows vendors'
+//! other names and products' other spellings. Scans are canonicalized when
+//! they are taken; doing it again here covers scans and Golden versions saved
+//! by older builds or against an older catalog.
 
 use std::collections::BTreeMap;
 
@@ -12,9 +18,12 @@ use patchpilot_core::{Manifest, ProductId};
 
 const UNKNOWN: &str = "unknown/";
 
-/// Align `unknown/<name>` product IDs in both manifests. Returns how many
-/// distinct IDs were renamed.
+/// Canonicalize both manifests through the catalog, then align
+/// `unknown/<name>` product IDs between them. Returns how many distinct IDs
+/// were renamed.
 pub fn align_products(a: &mut Manifest, b: &mut Manifest) -> usize {
+    let catalog = patchpilot_catalog::current();
+    let canonical = catalog.canonicalize(a) + catalog.canonicalize(b);
     // name slug -> known IDs with that name
     let mut known: BTreeMap<String, Vec<ProductId>> = BTreeMap::new();
     for p in a.products.iter().chain(&b.products) {
@@ -52,7 +61,7 @@ pub fn align_products(a: &mut Manifest, b: &mut Manifest) -> usize {
     for m in [a, b] {
         rename(m, &renames);
     }
-    renames.len()
+    canonical + renames.len()
 }
 
 fn rename(m: &mut Manifest, renames: &BTreeMap<ProductId, ProductId>) {

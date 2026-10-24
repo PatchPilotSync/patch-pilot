@@ -2,6 +2,7 @@
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
 mod background;
+mod catalog;
 mod compare;
 mod rig;
 mod sync;
@@ -48,6 +49,7 @@ pub fn run() {
         .setup(|app| {
             let app = app.handle();
             sync::setup(app);
+            catalog::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -67,6 +69,7 @@ pub fn run() {
             compare::compare_machine,
             compare::plan_machine,
             compare::import_bundle,
+            catalog::updates,
             sync::sync_status,
             sync::link_start,
             sync::link_join,

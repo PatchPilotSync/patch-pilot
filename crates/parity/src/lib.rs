@@ -11,6 +11,7 @@ mod inventory;
 mod plan;
 mod readiness;
 mod score;
+mod updates;
 mod version;
 
 pub use comparison::{Comparison, ComparisonRow, ItemSide, compare};
@@ -21,4 +22,5 @@ pub use inventory::{AppRow, FormatCount, Inventory, ProductRow, VendorGroup, inv
 pub use plan::{Phase, Plan, Step, up_to_speed};
 pub use readiness::{TemplateReadiness, required_products, template_readiness};
 pub use score::{ParityScore, Reason, ScoreWeights, apply_profile, score_machine};
+pub use updates::{Elsewhere, UpdateAlert, UpdateSource, update_alerts};
 pub use version::{Version, VersionOrder, compare_versions};
