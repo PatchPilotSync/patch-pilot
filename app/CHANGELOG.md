@@ -10,6 +10,10 @@ becomes its release notes, which the app shows when it offers that update
 
 - A short tour on first launch explains the Golden Rig, comparisons and the parity score, Up To Speed and snapshots. Skip it any time, and reopen it from "How it works".
 
+### Improved
+
+- Clearer wording throughout: the main screen now says it lists the plug-ins installed on this machine, and each screen says in a line what it shows. Patch Pilot only reads metadata and never changes anything.
+
 ## 0.1.0 - 2026-10-23
 
 ### New
