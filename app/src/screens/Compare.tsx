@@ -126,14 +126,21 @@ export interface Focus {
 interface Props {
   view: MachinesView;
   focus: Focus | null;
+  /** The machine the user picked. Kept by App so scans, syncs and tab switches don't lose it. */
+  chosen: string | null;
+  onChoose: (id: string) => void;
   onError: (e: string) => void;
 }
 
-export function Compare({ view, focus, onError }: Props) {
-  const [selected, setSelected] = useState<string | null>(focus?.id ?? view.machines[0]?.id ?? null);
+export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
+  // A refresh can briefly list fewer machines (a sync landing); fall back for
+  // the moment but keep the choice, so it comes back when the machine does.
+  const selected = view.machines.some((m) => m.id === chosen) ? chosen : (view.machines[0]?.id ?? null);
   const [data, setData] = useState<MachineComparison | null>(null);
   const [plan, setPlan] = useState(false);
-  const [row, setRow] = useState<ComparisonRow | null>(null);
+  const [rowId, setRowId] = useState<string | null>(null);
+  const row = data?.comparison.rows.find((r) => r.product_id === rowId) ?? null;
+  const setRow = (r: ComparisonRow | null) => setRowId(r?.product_id ?? null);
   const [wantPlan, setWantPlan] = useState(focus?.plan ?? false);
   const [busy, setBusy] = useState(false);
 
@@ -154,9 +161,7 @@ export function Compare({ view, focus, onError }: Props) {
   };
 
   useEffect(() => {
-    if (!focus) return;
-    setSelected(focus.id);
-    setWantPlan(focus.plan);
+    if (focus) setWantPlan(focus.plan);
   }, [focus]);
 
   useEffect(() => {
@@ -166,17 +171,13 @@ export function Compare({ view, focus, onError }: Props) {
   }, [wantPlan, data, selected]);
 
   useEffect(() => {
-    if (!view.machines.some((m) => m.id === selected)) setSelected(view.machines[0]?.id ?? null);
-  }, [view, selected]);
-
-  useEffect(() => {
     setData(null);
     setPlan(false);
+    setRowId(null);
   }, [selected]);
 
-  // A rescan reloads `view`; an open checklist stays open and ticks itself off.
+  // A rescan or sync reloads `view`; the open row, checklist and folders stay as they are.
   useEffect(() => {
-    setRow(null);
     if (!selected || view.golden_version === null) return;
     compareMachine(selected).then(setData, (e) => onError(String(e)));
   }, [selected, view, onError]);
@@ -187,7 +188,7 @@ export function Compare({ view, focus, onError }: Props) {
         <div className="px-4 pb-1.5 pt-3 text-[11px] text-dim">Machines</div>
         <ul className="flex flex-1 flex-col gap-0.5 overflow-auto px-2">
           {view.machines.map((m) => (
-            <MachineItem key={m.id} m={m} active={m.id === selected} onClick={() => setSelected(m.id)} />
+            <MachineItem key={m.id} m={m} active={m.id === selected} onClick={() => onChoose(m.id)} />
           ))}
         </ul>
         {view.machines.length < 2 && (
