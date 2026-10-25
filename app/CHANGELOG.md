@@ -8,7 +8,8 @@ becomes its release notes, which the app shows when it offers that update
 
 ### Changed
 
-- On the machine the Golden Rig was made from, things added or found since read "New since v1" instead of "Not in Golden", and one button, "Update Golden Rig", makes the next version from that machine's latest scan.
+- The Golden Rig is now called the Primary Rig, everywhere in the app. Nothing about how it works has changed, and machines on older versions still sync with it.
+- On the machine the Primary Rig was made from, things added or found since read "New since v1" instead of "Not in Primary", and one button, "Update Primary Rig", makes the next version from that machine's latest scan.
 - Preset folder rows (Arturia presets, Kilohearts presets, ...) now show where the folder is and how big it is, and say what Patch Pilot does with it.
 - "no profile" on Compare now reads "whole rig".
 

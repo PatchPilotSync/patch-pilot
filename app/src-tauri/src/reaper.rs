@@ -12,9 +12,9 @@ use tauri::{AppHandle, State};
 
 use crate::rig::{Scanning, db_path, err, open, rescan_quietly};
 
-/// What this machine needs to match the Golden Rig's ReaPack and folder
-/// settings. `None` when there is no Golden Rig or no scan of this machine,
-/// or this machine is the one Golden was made from.
+/// What this machine needs to match the Primary Rig's ReaPack and folder
+/// settings. `None` when there is no Primary Rig or no scan of this machine,
+/// or this machine is the one the Primary Rig was made from.
 #[tauri::command]
 pub async fn reaper_extras() -> Result<Option<ReaperExtras>, String> {
     let db = db_path()?;
@@ -25,7 +25,7 @@ pub async fn reaper_extras() -> Result<Option<ReaperExtras>, String> {
     load(&store)
 }
 
-/// Add Golden's missing ReaPack repositories and packages.
+/// Add Primary Rig's missing ReaPack repositories and packages.
 #[tauri::command]
 pub async fn restore_reapack(
     app: AppHandle,

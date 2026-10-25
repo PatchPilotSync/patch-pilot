@@ -1,8 +1,8 @@
-Manifest diff fixtures (#15): a Windows Golden rig and a macOS laptop.
+Manifest diff fixtures (#15): a Windows Primary Rig rig and a macOS laptop.
 Products are keyed by simple made-up IDs (`acme-verb`) because identity
 resolution is not under test here.
 
-| Product | Golden (Windows) | Laptop (macOS) | Expected on laptop |
+| Product | Primary Rig (Windows) | Laptop (macOS) | Expected on laptop |
 |---|---|---|---|
 | Acme Verb | VST3 2.1.0 + AAX 2.1 | VST3 2.1.0 + AU | `Incomplete` (no AAX) |
 | Acme Comp | VST3 3.0.1 | VST3 3.0 | `Outdated` |
@@ -14,5 +14,5 @@ resolution is not under test here.
 | Acme Tuner | — | AU 1.0.0 | `Extra` |
 | Mystery Synth | — | no `product_id` | unresolved |
 
-Diffing the other way (laptop as Golden, PC as machine) makes Acme Tuner
+Diffing the other way (laptop as Primary Rig, PC as machine) makes Acme Tuner
 `NotApplicable`: AU doesn't exist on Windows.

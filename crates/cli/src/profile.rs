@@ -53,7 +53,7 @@ pub fn run(db: Option<PathBuf>, cmd: ProfileCommand) -> Result<(), String> {
                 .map_err(err)?;
             match profile {
                 Some(p) => println!("{} now uses profile {p}", m.name),
-                None => println!("{} now uses the whole Golden Rig", m.name),
+                None => println!("{} now uses the whole Primary Rig", m.name),
             }
         }
         ProfileCommand::Import { file } => {
@@ -72,7 +72,7 @@ pub fn run(db: Option<PathBuf>, cmd: ProfileCommand) -> Result<(), String> {
 pub fn describe(p: &TargetProfile) -> String {
     let mut out = format!("{} ({})\n", p.name, p.id);
     if p.rules.is_empty() {
-        out.push_str("  everything in the Golden Rig\n");
+        out.push_str("  everything in the Primary Rig\n");
     }
     for (i, r) in p.rules.iter().enumerate() {
         let action = match r.action {

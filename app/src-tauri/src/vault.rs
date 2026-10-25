@@ -349,7 +349,7 @@ fn view() -> Result<VaultView, String> {
     Ok(out)
 }
 
-/// Every installable product Patch Pilot knows: Golden's and every machine's.
+/// Every installable product Patch Pilot knows: Primary Rig's and every machine's.
 fn products() -> Result<Vec<Product>, String> {
     let Some(store) = existing_store()? else {
         return Ok(Vec::new());

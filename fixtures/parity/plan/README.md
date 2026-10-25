@@ -1,8 +1,8 @@
-Up To Speed plan fixtures (#39). A Windows Golden studio and a new Windows
+Up To Speed plan fixtures (#39). A Windows Primary Rig studio and a new Windows
 laptop that has PACE License Support, Waves Central, an old Kontakt 7, the
 VST3 of Acme Verb (no AAX) and Pro-Q 3.
 
-| Golden has | Laptop | Expected step |
+| Primary Rig has | Laptop | Expected step |
 |---|---|---|
 | iLok License Manager | missing | Foundation: install (first) |
 | Native Access | missing | Foundation: install, after iLok |

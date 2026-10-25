@@ -101,11 +101,11 @@ export interface MachineCard {
   os: Os;
   scanned_at: number;
   is_this_machine: boolean;
-  /** The latest Golden Rig version was made from this machine. */
+  /** The latest Primary Rig version was made from this machine. */
   golden_source: boolean;
   profile: { id: string; name: string } | null;
   score: number | null;
-  /** Products here the Golden Rig lacks or has older (not ignored). */
+  /** Products here the Primary Rig lacks or has older (not ignored). */
   suggestions: number;
 }
 
@@ -163,7 +163,7 @@ export interface MachineComparison {
   machine: MachineCard;
   golden_version: number;
   comparison: Comparison;
-  /** Product IDs of rows that could go into the Golden Rig, not ignored. */
+  /** Product IDs of rows that could go into the Primary Rig, not ignored. */
   suggested: string[];
 }
 
@@ -187,10 +187,10 @@ export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machi
 export const planProgress = (id: string) => invoke<SetupProgress>("plan_progress", { id });
 export const planTick = (id: string, key: string, done: boolean) =>
   invoke<SetupProgress>("plan_tick", { id, key, done });
-/** "Propose to Golden": a new Golden version taking these products from the machine. Returns the version. */
+/** "Propose to Primary Rig": a new Primary Rig version taking these products from the machine. Returns the version. */
 export const addToGolden = (machine: string, products: string[]) =>
   invoke<number>("add_to_golden", { machine, products });
-/** The machine's whole latest scan becomes the next Golden Rig version. */
+/** The machine's whole latest scan becomes the next Primary Rig version. */
 export const updateGoldenFrom = (machine: string) => invoke<number>("update_golden_from", { machine });
 /** Stop suggesting this version of the product, on every linked machine. */
 export const ignoreSuggestions = (items: { product: string; version: string | null }[]) =>
@@ -240,22 +240,22 @@ export const STATE_LABEL: Record<ParityState, string> = {
   outdated: "Outdated",
   modified: "Modified",
   version_unknown: "Version unclear",
-  newer_than_golden: "Newer than Golden",
-  extra: "Not in Golden",
+  newer_than_golden: "Newer than Primary",
+  extra: "Not in Primary",
   not_applicable: "Not for this OS",
   in_parity: "In parity",
 };
 
 export const STATE_HINT: Record<ParityState, string> = {
-  missing: "In the Golden Rig but not on this machine.",
-  incomplete: "Installed, but some formats the Golden Rig has are missing.",
-  outdated: "Older than the Golden Rig's version.",
-  modified: "Same version, but the file's content differs from Golden.",
+  missing: "In the Primary Rig but not on this machine.",
+  incomplete: "Installed, but some formats the Primary Rig has are missing.",
+  outdated: "Older than the Primary Rig's version.",
+  modified: "Same version, but the file's content differs from the Primary Rig.",
   version_unknown: "The versions differ in a way we can't order.",
-  newer_than_golden: "Newer than the Golden Rig. Consider updating Golden.",
-  extra: "On this machine but not in the Golden Rig. Doesn't affect the score.",
-  not_applicable: "Golden's formats of this product don't exist on this OS.",
-  in_parity: "Matches the Golden Rig.",
+  newer_than_golden: "Newer than the Primary Rig. Consider updating the Primary Rig.",
+  extra: "On this machine but not in the Primary Rig. Doesn't affect the score.",
+  not_applicable: "The Primary Rig's formats of this product don't exist on this OS.",
+  in_parity: "Matches the Primary Rig.",
 };
 
 export const PHASE_LABEL: Record<Phase, string> = {
@@ -287,7 +287,7 @@ export const onLinkFinished = (f: (r: { ok: boolean; error: string | null }) => 
   listen<{ ok: boolean; error: string | null }>("link-finished", (e) => f(e.payload));
 
 // Update alerts (decision #47): a newer version on another machine, in the
-// Golden Rig, or in the plug-in catalog.
+// Primary Rig, or in the plug-in catalog.
 export type UpdateSource =
   | { kind: "machine"; name: string }
   | { kind: "golden"; version: number }
@@ -316,7 +316,7 @@ export function sourceLabel(s: UpdateSource): string {
     case "machine":
       return `on ${s.name}`;
     case "golden":
-      return `in Golden Rig v${s.version}`;
+      return `in Primary Rig v${s.version}`;
     case "catalog":
       return s.released ? `released ${s.released}` : "latest release";
   }

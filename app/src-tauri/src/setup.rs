@@ -18,7 +18,7 @@ use crate::rig::{db_path, err, open};
 #[derive(Debug, Serialize)]
 pub struct SetupView {
     /// Suggest a guided setup: this machine has a scan, isn't where the
-    /// Golden Rig came from, isn't at parity and has no setup running.
+    /// Primary Rig came from, isn't at parity and has no setup running.
     pub offer: bool,
     /// Target profiles to choose from when starting.
     pub profiles: Vec<ProfileRef>,
@@ -43,8 +43,8 @@ pub async fn setup_view() -> Result<SetupView, String> {
     view(&store, &dir, this.as_deref())
 }
 
-/// Start setting up this machine against the latest Golden Rig, through
-/// `profile_id` (None for the whole Golden Rig).
+/// Start setting up this machine against the latest Primary Rig, through
+/// `profile_id` (None for the whole Primary Rig).
 #[tauri::command]
 pub async fn setup_start(profile_id: Option<String>) -> Result<SetupView, String> {
     let (mut store, dir, this) = context()?;
@@ -83,7 +83,7 @@ pub async fn setup_finish() -> Result<SetupView, String> {
     view(&store, &dir, this.as_deref())
 }
 
-/// Close the setup screen. Scans, profiles and the Golden Rig stay as they are.
+/// Close the setup screen. Scans, profiles and the Primary Rig stay as they are.
 #[tauri::command]
 pub async fn setup_close() -> Result<SetupView, String> {
     let (store, dir, this) = context()?;
@@ -136,7 +136,7 @@ pub(crate) fn start(
     let golden = store
         .golden(None)
         .map_err(err)?
-        .ok_or("no Golden Rig yet")?;
+        .ok_or("no Primary Rig yet")?;
     let baseline = store
         .snapshots(this)
         .map_err(err)?
@@ -211,7 +211,7 @@ fn active(store: &Store, dir: &std::path::Path, this: &str) -> Result<Option<Act
     let golden = store
         .golden(Some(state.golden_version))
         .map_err(err)?
-        .ok_or_else(|| format!("Golden Rig v{} is gone", state.golden_version))?;
+        .ok_or_else(|| format!("Primary Rig v{} is gone", state.golden_version))?;
     let baseline = store
         .snapshot_manifest(state.baseline_snapshot)
         .map_err(err)?;
@@ -298,7 +298,7 @@ mod tests {
         patchpilot_local::save_scan(&mut store, &laptop).unwrap();
         let lap = laptop.machine.id.as_str();
 
-        // The Golden machine itself isn't offered a setup; the laptop is.
+        // The Primary Rig machine itself isn't offered a setup; the laptop is.
         assert!(!view(&store, &dir, Some(&studio.machine.id)).unwrap().offer);
         let v = view(&store, &dir, Some(lap)).unwrap();
         assert!(v.offer && v.active.is_none());

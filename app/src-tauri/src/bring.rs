@@ -1,4 +1,4 @@
-//! Bring over (decision #45): the Golden Rig's templates, scripts and themes
+//! Bring over (decision #45): the Primary Rig's templates, scripts and themes
 //! that this machine lacks, fetched from the relay and written as a restore
 //! point History can undo.
 //! What to bring and how it's written live in `patchpilot_local::bring`.
@@ -29,11 +29,11 @@ pub struct BringResult {
     /// Replaced files, saved first: History can undo the bring-over.
     pub backed_up: usize,
     /// Paths no linked machine has uploaded yet (open Patch Pilot on the
-    /// Golden machine), or too large to travel.
+    /// Primary Rig machine), or too large to travel.
     pub unavailable: Vec<String>,
 }
 
-/// What this machine could bring over from the Golden Rig.
+/// What this machine could bring over from the Primary Rig.
 #[tauri::command]
 pub async fn files_to_bring() -> Result<BringView, String> {
     let linked = load_rig()?.is_some();
@@ -100,7 +100,7 @@ pub async fn bring_files(
             _ => files,
         };
         let label = format!(
-            "Brought over {} {app_name} file{} from the Golden Rig",
+            "Brought over {} {app_name} file{} from the Primary Rig",
             files.len(),
             if files.len() == 1 { "" } else { "s" }
         );

@@ -30,7 +30,7 @@ The full alpha-tester instructions are in docs/cli.md. CI runs `cargo fmt --chec
 
 ## Decisions waiting on you
 
-Rows **#14-#21** in `docs/decisions.md` are **Proposed**: the LLC question, workspace/CI conventions, manifest format, diff states, profile rules and score weights, SQLite layout, name-based identity, and the CLAP approach. Most were made by Claude while building M1-2 so work could continue. Read them and accept or supersede each one; issue #30 tracks this. Everything else (React for the UI, Tauri + Rust + SQLite, manifests not software, Golden Profile, target profiles) is Accepted.
+Rows **#14-#21** in `docs/decisions.md` are **Proposed**: the LLC question, workspace/CI conventions, manifest format, diff states, profile rules and score weights, SQLite layout, name-based identity, and the CLAP approach. Most were made by Claude while building M1-2 so work could continue. Read them and accept or supersede each one; issue #30 tracks this. Everything else (React for the UI, Tauri + Rust + SQLite, manifests not software, Primary Rig, target profiles) is Accepted.
 
 ## Loose ends from M1-2
 
@@ -40,12 +40,12 @@ Rows **#14-#21** in `docs/decisions.md` are **Proposed**: the LLC question, work
 - **The store isn't wired up.** Scans only go to JSON files. Issue #34.
 - **Closed alpha** (30 Reaper users sending scans) hasn't started. The CLI is ready for it.
 
-## Next milestone: M3-4: Golden Profile and comparison
+## Next milestone: M3-4: Primary Rig and comparison
 
 GitHub milestone #2, issues **#30-#42**. Suggested order (later ones depend on earlier ones):
 
 1. Founder items: #30 decisions, #31 MSRV, #32 CLAP cache (needs a real file)
-2. Core plumbing: #34 save scans to the store → #35 Golden Profile → #36 stored target profiles
+2. Core plumbing: #34 save scans to the store → #35 Primary Rig → #36 stored target profiles
 3. Parity: #37 template readiness, #39 Up To Speed plan, #38 file-based manifest exchange
 4. App: #33 Tauri + React scaffold → #40 first scan screen → #41 comparison view
 5. #42 performance benchmark, any time

@@ -3,7 +3,7 @@
 //! and how it merges lives in `patchpilot_local::sync` and `patchpilot_sync`.
 //!
 //! Idle cost: one hibernating WebSocket and a ping every 50 s. Uploads happen
-//! after a changed scan (`rig::RIG_CHANGED`), on start, and after making Golden.
+//! after a changed scan (`rig::RIG_CHANGED`), on start, and after making Primary Rig.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -51,7 +51,7 @@ pub fn setup(app: &AppHandle) {
     start(app, &state);
 }
 
-/// Upload this machine's object soon (after a scan or a Golden change).
+/// Upload this machine's object soon (after a scan or a Primary Rig change).
 pub fn nudge(app: &AppHandle) {
     app.state::<SyncState>().nudge.notify_one();
 }

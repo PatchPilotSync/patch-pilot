@@ -1,4 +1,4 @@
-//! `patchpilot export` / `import`: move scans, the Golden Rig and profiles
+//! `patchpilot export` / `import`: move scans, the Primary Rig and profiles
 //! between machines in one file, without a cloud (#38).
 
 use std::path::{Path, PathBuf};
@@ -67,7 +67,7 @@ pub fn export(
     std::fs::write(out, bundle.to_json_pretty() + "\n")
         .map_err(|e| format!("{}: {e}", out.display()))?;
     println!(
-        "Wrote {} ({} machine(s), {} Golden version(s), {} profile(s))",
+        "Wrote {} ({} machine(s), {} Primary Rig version(s), {} profile(s))",
         out.display(),
         bundle.machines.len(),
         bundle.golden.len(),
@@ -108,14 +108,14 @@ fn render(bundle: &Bundle, r: &ImportReport) -> String {
     }
     match &r.golden {
         GoldenImport::NotInBundle => {}
-        GoldenImport::UpToDate => out.push_str("  Golden Rig: already up to date\n"),
+        GoldenImport::UpToDate => out.push_str("  Primary Rig: already up to date\n"),
         GoldenImport::Imported(v) => {
             let versions: Vec<_> = v.iter().map(|n| format!("v{n}")).collect();
-            out.push_str(&format!("  Golden Rig: added {}\n", versions.join(", ")));
+            out.push_str(&format!("  Primary Rig: added {}\n", versions.join(", ")));
         }
         GoldenImport::Diverged => out.push_str(
-            "  Golden Rig: both machines changed it, nothing imported. \
-             Pick one with `golden promote` or `golden propose`\n",
+            "  Primary Rig: both machines changed it, nothing imported. \
+             Pick one with `primary promote` or `primary propose`\n",
         ),
     }
     if !r.profiles_added.is_empty() {

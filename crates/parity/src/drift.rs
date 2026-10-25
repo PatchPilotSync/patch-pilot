@@ -1,9 +1,9 @@
-//! Drift alerts and suggestions for the Golden Rig (M9, strategy points 3 and 7).
+//! Drift alerts and suggestions for the Primary Rig (M9, strategy points 3 and 7).
 //!
-//! A **gap** is something the Golden Rig has that a machine lacks or has an
+//! A **gap** is something the Primary Rig has that a machine lacks or has an
 //! older version of. A **suggestion** is the other way round: a product the
-//! machine has that Golden lacks, or has an older version of, which the user
-//! may want to add to Golden ("propose to Golden").
+//! machine has that Primary Rig lacks, or has an older version of, which the user
+//! may want to add to Primary Rig ("propose to Primary Rig").
 //!
 //! [`alerts`] compares what each machine looks like now with what the user
 //! was last told about ([`Seen`]) and returns only what is new, so an alert
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::reapack::is_reapack;
 use crate::{Comparison, ComparisonRow, ParityState};
 
-/// Rows of `c` that could go into the Golden Rig: products Golden doesn't
+/// Rows of `c` that could go into the Primary Rig: products Primary Rig doesn't
 /// have, or has an older version of. Folders and configs are left out (a
 /// sample library or a settings file isn't something to add from one
 /// machine), except ReaPack repositories, which its packages need.
@@ -41,7 +41,7 @@ fn row_suggestion_key(r: &ComparisonRow) -> String {
     suggestion_key(&r.product_id.0, r.machine_version.as_deref())
 }
 
-/// Rows of `c` where the machine falls short of Golden.
+/// Rows of `c` where the machine falls short of Primary Rig.
 pub fn gaps(c: &Comparison) -> impl Iterator<Item = &ComparisonRow> {
     c.rows.iter().filter(|r| {
         matches!(
@@ -51,7 +51,7 @@ pub fn gaps(c: &Comparison) -> impl Iterator<Item = &ComparisonRow> {
     })
 }
 
-/// A gap is new when the product is short of a Golden version it wasn't short
+/// A gap is new when the product is short of a Primary Rig version it wasn't short
 /// of before, or when it's now missing outright; installing an older version
 /// of a missing plug-in isn't news.
 fn gap_keys(r: &ComparisonRow) -> Vec<String> {
@@ -138,7 +138,7 @@ struct SeenMachine {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Alert {
-    /// A machine fell further from the Golden Rig.
+    /// A machine fell further from the Primary Rig.
     Drift {
         machine_id: String,
         machine: String,
@@ -146,7 +146,7 @@ pub enum Alert {
         /// New gaps, as sentences.
         items: Vec<String>,
     },
-    /// This machine has something new the Golden Rig doesn't.
+    /// This machine has something new the Primary Rig doesn't.
     Suggest {
         machine_id: String,
         machine: String,
@@ -157,7 +157,7 @@ pub enum Alert {
 impl Alert {
     pub fn title(&self) -> String {
         match self {
-            Self::Drift { machine, .. } => format!("{machine} drifted from the Golden Rig"),
+            Self::Drift { machine, .. } => format!("{machine} drifted from the Primary Rig"),
             Self::Suggest {
                 machine, products, ..
             } => match products.as_slice() {
@@ -183,7 +183,7 @@ impl Alert {
                 } else {
                     String::new()
                 };
-                format!("{list}{what} in the Golden Rig yet. Open Compare to add or ignore.")
+                format!("{list}{what} in the Primary Rig yet. Open Compare to add or ignore.")
             }
         }
     }
@@ -347,7 +347,7 @@ mod tests {
         };
         assert_eq!(items, &["Acme Verb is missing"]);
         assert!(*score < 100);
-        assert_eq!(a[0].title(), "Travel Laptop drifted from the Golden Rig");
+        assert_eq!(a[0].title(), "Travel Laptop drifted from the Primary Rig");
         assert!(a[0].body().starts_with("Acme Verb is missing. Parity "));
 
         // Same gap again: not repeated.
@@ -369,7 +369,7 @@ mod tests {
         let (a, next) = alerts(&seen, &[observe(&after, true, &none)]);
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].title(), "New on Studio PC: Acme Delay");
-        assert!(a[0].body().starts_with("It isn't in the Golden Rig yet"));
+        assert!(a[0].body().starts_with("It isn't in the Primary Rig yet"));
         let (a, _) = alerts(&next, &[observe(&after, true, &none)]);
         assert!(a.is_empty());
 

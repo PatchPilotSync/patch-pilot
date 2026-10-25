@@ -83,15 +83,15 @@ export function Setup({ onRescan, onError, onChange }: Props) {
 }
 
 function Start({ view, onStart }: { view: SetupView; onStart: (profile: string | null) => void }) {
-  // Studio clone has no rules, so it stands for "everything on the Golden Rig".
+  // Studio clone has no rules, so it stands for "everything on the Primary Rig".
   const [profile, setProfile] = useState<string | null>(
     view.profile_id ?? view.profiles.find((p) => p.id === "studio-clone")?.id ?? null,
   );
   const choices: { id: string | null; name: string }[] = view.profiles.length
     ? view.profiles
-    : [{ id: null, name: "Whole Golden Rig" }];
+    : [{ id: null, name: "Whole Primary Rig" }];
   const hint: Record<string, string> = {
-    "studio-clone": "Everything on the Golden Rig.",
+    "studio-clone": "Everything on the Primary Rig.",
     travel: "Leaves out AAX and anything over 20 GB.",
   };
   return (
@@ -99,7 +99,7 @@ function Start({ view, onStart }: { view: SetupView; onStart: (profile: string |
       <div>
         <h1 className="text-base font-semibold">Set up this machine</h1>
         <p className="mt-1 text-xs leading-relaxed text-dim">
-          Patch Pilot lists what this machine needs from your Golden Rig, in the order to do it: licences and
+          Patch Pilot lists what this machine needs from your Primary Rig, in the order to do it: licences and
           vendor apps first, then plug-ins, then your DAW files. It never installs or copies plug-ins for you. As
           you install things, it ticks them off after each rescan, and you get a report at the end.
         </p>
@@ -177,7 +177,7 @@ function Progress({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">Setting up {a.machine}</h1>
           <p className="truncate text-xs text-dim">
-            {p.done} of {p.total} steps · score was {p.score_before} · {a.profile ?? "Whole Golden Rig"} · Golden Rig
+            {p.done} of {p.total} steps · score was {p.score_before} · {a.profile ?? "Whole Primary Rig"} · Primary Rig
             v{a.golden_version} · started {timeAgo(a.started_at)}
           </p>
         </div>
@@ -478,7 +478,7 @@ export function SetupOffer({ onOpen }: { onOpen: () => void }) {
   return (
     <div className="flex shrink-0 items-center gap-3 border-b border-line bg-accent/10 px-4 py-1.5 text-xs">
       <span className="flex-1">
-        New machine? Patch Pilot can walk you through setting it up to match your Golden Rig.
+        New machine? Patch Pilot can walk you through setting it up to match your Primary Rig.
       </span>
       <Button onClick={onOpen}>Set up this machine</Button>
     </div>

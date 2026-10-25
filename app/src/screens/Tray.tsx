@@ -74,7 +74,7 @@ export function Tray() {
     WORK.indexOf(r.state as (typeof WORK)[number]) * 10 + KIND_ORDER.indexOf(r.kind);
   todo.sort((a, b) => rank(a) - rank(b));
   const behind = target && todo.length > 0 ? target.machine : null;
-  // "Propose to Golden": this machine first, then whoever has the most.
+  // "Propose to Primary Rig": this machine first, then whoever has the most.
   const suggesting =
     view?.machines
       .filter((m) => m.suggestions > 0)
@@ -105,10 +105,10 @@ export function Tray() {
         {error && <p className="text-xs text-bad">{error}</p>}
 
         {overview && !machine && <Hint text="Scan this machine to get started." />}
-        {machine && view?.golden_version === null && <Hint text="Make a Golden Rig to compare your machines." />}
+        {machine && view?.golden_version === null && <Hint text="Make a Primary Rig to compare your machines." />}
 
         {view && view.golden_version !== null && (
-          <h2 className="px-1 text-[11px] text-dim">Parity with Golden Rig v{view.golden_version}</h2>
+          <h2 className="px-1 text-[11px] text-dim">Parity with Primary Rig v{view.golden_version}</h2>
         )}
         {view && view.golden_version !== null && (
           <ul className="flex flex-col gap-0.5">
@@ -131,8 +131,8 @@ export function Tray() {
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">
               {suggesting.golden_source
-                ? `${suggesting.suggestions} new on ${suggesting.is_this_machine ? "this machine" : suggesting.name} since Golden Rig v${view?.golden_version}`
-                : `${suggesting.suggestions === 1 ? "1 suggestion" : `${suggesting.suggestions} suggestions`} for the Golden Rig${suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}`}
+                ? `${suggesting.suggestions} new on ${suggesting.is_this_machine ? "this machine" : suggesting.name} since Primary Rig v${view?.golden_version}`
+                : `${suggesting.suggestions === 1 ? "1 suggestion" : `${suggesting.suggestions} suggestions`} for the Primary Rig${suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}`}
             </span>
             <span className="text-dim" aria-hidden="true">
               ›
@@ -143,7 +143,7 @@ export function Tray() {
         {target && (
           <section className="rounded-md border border-line bg-canvas py-1">
             {todo.length === 0 ? (
-              <p className="px-3 py-1.5 text-xs text-ok">{target.machine.name} is at parity with the Golden Rig.</p>
+              <p className="px-3 py-1.5 text-xs text-ok">{target.machine.name} is at parity with the Primary Rig.</p>
             ) : (
               <>
                 <h2 className="px-3 pb-0.5 pt-1 text-[11px] text-dim">{target.machine.name} needs</h2>
@@ -202,7 +202,7 @@ export function Tray() {
   );
 }
 
-/** The machine furthest from Golden; the Golden machine itself only if it's the only one. */
+/** The machine furthest from the Primary Rig; the Primary machine itself only if it's the only one. */
 function pickTarget(view: MachinesView): MachineCard | null {
   const scored = [...view.machines].sort((a, b) => (a.score ?? 101) - (b.score ?? 101));
   return scored[0] ?? null;

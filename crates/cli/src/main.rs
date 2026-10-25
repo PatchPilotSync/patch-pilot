@@ -68,8 +68,8 @@ struct ScanArgs {
 /// What to compare: two manifest files, or a saved machine from the database.
 #[derive(clap::Args)]
 struct CompareArgs {
-    /// Golden manifest JSON.
-    #[arg(requires = "machine_file")]
+    /// Primary Rig manifest JSON.
+    #[arg(requires = "machine_file", value_name = "PRIMARY")]
     golden: Option<PathBuf>,
     /// Machine manifest JSON.
     #[arg(id = "machine_file", value_name = "MACHINE")]
@@ -89,9 +89,9 @@ enum Command {
     /// Scan this machine's plug-ins and vendor apps into a manifest file
     /// and/or a snapshot in the local database.
     Scan(ScanArgs),
-    /// Compare a machine against the Golden Rig.
+    /// Compare a machine against the Primary Rig.
     ///
-    /// With no files: a machine's latest saved scan against the latest Golden
+    /// With no files: a machine's latest saved scan against the latest Primary Rig
     /// version, using the machine's stored target profile.
     Diff {
         #[command(flatten)]
@@ -100,7 +100,7 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
-    /// Plan the steps that bring a machine up to speed with the Golden Rig.
+    /// Plan the steps that bring a machine up to speed with the Primary Rig.
     ///
     /// A read-only checklist: nothing is installed or copied. Takes the same
     /// inputs as `diff`.
@@ -119,12 +119,13 @@ enum Command {
         #[command(subcommand)]
         command: profile::ProfileCommand,
     },
-    /// Create, version and update the Golden Rig.
+    /// Create, version and update the Primary Rig.
+    #[command(name = "primary", alias = "golden")]
     Golden {
         #[command(subcommand)]
         command: golden::GoldenCommand,
     },
-    /// Write saved scans, every Golden version and your profiles to one file
+    /// Write saved scans, every Primary Rig version and your profiles to one file
     /// for another machine's `patchpilot import`.
     ///
     /// Defaults to this machine's latest scan. Your username is removed from
@@ -147,8 +148,8 @@ enum Command {
     },
     /// Add what an `export` file holds to this machine's database.
     ///
-    /// Never overwrites: scans become new snapshots, Golden versions are added
-    /// only if this machine's Golden Rig is behind, and your own profiles win.
+    /// Never overwrites: scans become new snapshots, Primary Rig versions are added
+    /// only if this machine's Primary Rig is behind, and your own profiles win.
     Import { file: PathBuf },
 }
 
@@ -358,7 +359,7 @@ fn load_comparison(
             let golden = store
                 .golden(None)
                 .map_err(|e| e.to_string())?
-                .ok_or("no Golden Rig yet; run `patchpilot golden init`")?;
+                .ok_or("no Primary Rig yet; run `patchpilot primary init`")?;
             let scan = store
                 .latest_manifest(&machine.id)
                 .map_err(|e| e.to_string())?

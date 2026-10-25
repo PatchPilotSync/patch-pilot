@@ -71,7 +71,7 @@ fn sorted_most_urgent_first() {
 
 #[test]
 fn au_only_product_is_not_applicable_on_windows() {
-    // Reverse direction: the Mac is Golden, the PC is measured.
+    // Reverse direction: the Mac is Primary Rig, the PC is measured.
     let diff = diff_manifests(&load("laptop-mac.json"), &load("golden-studio-win.json"));
     let tuner = diff
         .products

@@ -4,7 +4,7 @@ Read this first, every session. Two founders work on this repo with separate Cla
 
 ## What this is
 
-Patch Pilot is a desktop workstation **parity** tool for audio professionals (Windows + macOS). It keeps every machine in a creator's workflow production-ready by comparing each machine against a **Golden Profile** and guiding the user back to parity.
+Patch Pilot is a desktop workstation **parity** tool for audio professionals (Windows + macOS). It keeps every machine in a creator's workflow production-ready by comparing each machine against a **Primary Rig** and guiding the user back to parity.
 
 It is **not** a plug-in manager, backup tool, cloud drive or license manager.
 
@@ -12,8 +12,8 @@ Full product thinking: `docs/strategy.md`. Decisions (authoritative): `docs/deci
 
 ## Core concepts (use these names in code and UI)
 
-- **Golden Profile** — versioned manifest of the ideal rig. Not tied to one machine. The UI may call it "Golden Rig".
-- **Target profile** — Golden Profile plus per-machine exclusion rules (e.g. Travel = no AAX, no libraries over 20 GB).
+- **Primary Rig** — versioned manifest of the ideal rig. Not tied to one machine. Formerly "Golden Rig"/"Golden Profile" (decision #60): code identifiers, DB values and synced keys still say `golden`; every user-facing word says "Primary Rig" (or "Primary" where space is tight).
+- **Target profile** — Primary Rig plus per-machine exclusion rules (e.g. Travel = no AAX, no libraries over 20 GB).
 - **Manifest** — what a machine has: plug-ins, DAW assets, vendor apps, folders. Metadata, not files.
 - **Snapshot** — immutable, hashed manifest plus references to blobs of user-owned files.
 - **Parity score** — a machine measured against its **target profile**, always shown with reasons.

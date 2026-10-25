@@ -1,10 +1,10 @@
-//! Bring over (decision #45): copy the Golden Rig's user-owned files, such as
+//! Bring over (decision #45): copy the Primary Rig's user-owned files, such as
 //! Reaper templates, FX chains, scripts and themes, onto this machine. Never plug-ins (CLAUDE.md
 //! rule 2), never silently: the user picks the files, anything replaced is
 //! backed up to app-data first, and each file is staged and renamed into place.
 //!
 //! No network here: the app fetches each file's bytes from the relay, sealed
-//! under the rig key and checked against the hash Golden recorded.
+//! under the rig key and checked against the hash Primary Rig recorded.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -117,7 +117,7 @@ fn classify(path: &PortablePath) -> Option<(&'static SharedRoot, &str, &'static 
     Some((shared, rel, (shared.kind)(rel)?))
 }
 
-/// One file Golden has that this machine lacks or has a different copy of.
+/// One file Primary Rig has that this machine lacks or has a different copy of.
 /// Mirrored in `app/src/api.ts`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FileToBring {
@@ -175,7 +175,7 @@ pub fn shared_files(machine: &Manifest) -> Vec<SharedFile> {
         .collect()
 }
 
-/// What Golden (narrowed by this machine's profile) has that `machine` lacks
+/// What Primary Rig (narrowed by this machine's profile) has that `machine` lacks
 /// or holds a different copy of, sorted by app, then path. `machine` is
 /// `None` before this machine's first scan.
 pub fn files_to_bring(
@@ -186,7 +186,7 @@ pub fn files_to_bring(
     let target = apply_profile(golden, profile);
     let os = machine.map(|m| m.machine.os);
     // Paths compare case-insensitively (NTFS and APFS both are). When both
-    // Golden slots have a file, prefer this OS's.
+    // Primary Rig slots have a file, prefer this OS's.
     let key = |root: &str, rel: &str| (root.to_owned(), rel.to_ascii_lowercase());
     let mut wanted: BTreeMap<(String, String), (Os, &Item)> = BTreeMap::new();
     for item in &target.items {
@@ -267,8 +267,8 @@ pub struct WriteReport {
     pub restore_point: Option<i64>,
 }
 
-/// A file from the Golden Rig made right for this machine before it is
-/// written: script paths in Reaper's key map that point into Golden's
+/// A file from the Primary Rig made right for this machine before it is
+/// written: script paths in Reaper's key map that point into Primary Rig's
 /// resource folder are moved to this machine's (`dir`). Anything else is
 /// returned as it came.
 pub fn adapt_for_here(
@@ -446,7 +446,7 @@ mod tests {
             ]
         );
         assert_eq!(list[1].hash, hash("vocal"));
-        // Nothing to bring onto the machine Golden came from.
+        // Nothing to bring onto the machine Primary Rig came from.
         assert!(files_to_bring(&golden, &TargetProfile::default(), Some(&golden)).is_empty());
         // Before a first scan: everything.
         assert_eq!(

@@ -65,7 +65,7 @@ Well-known roots are defined by the scanner (#5); user roots such as
 `bundle_version` 1): `machines` (each a manifest plus optional `profile_id`),
 `golden` (versions oldest first, each with `version`, `created_at`, optional
 `source_machine_id` and `note`, and a manifest) and `profiles` (user target
-profiles), plus optional `ignored` (Golden suggestions the user ignored:
+profiles), plus optional `ignored` (Primary Rig suggestions the user ignored:
 `product_id`, optional `version`, `ignored_at`; added in M9 without a bump,
 older builds ignore it). The bundle version bumps by the same rules as the manifest's, and
 a reader refuses a newer bundle or any newer manifest inside it. See decision #28.

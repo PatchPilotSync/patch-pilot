@@ -37,19 +37,19 @@ on macOS; `--db` or `PATCHPILOT_DB` picks another file). A rescan with no
 changes doesn't add a snapshot. The database keeps real paths because it never
 leaves the machine.
 
-Make a saved scan your Golden Rig, then evolve it in versions:
+Make a saved scan your Primary Rig, then evolve it in versions:
 
 ```sh
-patchpilot golden init                         # this machine's latest saved scan becomes v1
-patchpilot golden propose --from <machine-id> --product "Pro-Q 3"   # take products from another machine
-patchpilot golden promote --machine <machine-id>                    # replace Golden with a machine's scan
-patchpilot golden history
-patchpilot golden show --out golden.json       # then: patchpilot diff golden.json laptop.json
+patchpilot primary init                         # this machine's latest saved scan becomes v1
+patchpilot primary propose --from <machine-id> --product "Pro-Q 3"   # take products from another machine
+patchpilot primary promote --machine <machine-id>                    # replace Primary Rig with a machine's scan
+patchpilot primary history
+patchpilot primary show --out golden.json       # then: patchpilot diff primary.json laptop.json
 ```
 
-Every change is a new version; old versions stay readable (`golden show --version 1`).
+Every change is a new version; old versions stay readable (`primary show --version 1`).
 
-Compare a machine against your Golden rig:
+Compare a machine against your Primary Rig rig:
 
 ```sh
 patchpilot diff studio.json laptop.json
@@ -72,7 +72,7 @@ built in: `studio-clone` (everything) and `travel` (no AAX, nothing over 20 GB).
 patchpilot profile list
 patchpilot profile import my-laptop.json          # your own rules; built-ins can't be replaced
 patchpilot profile set "Travel MacBook" travel    # machine ID or name; `none` clears it
-patchpilot diff --machine "Travel MacBook"        # latest saved scan vs latest Golden, with its profile
+patchpilot diff --machine "Travel MacBook"        # latest saved scan vs latest Primary Rig, with its profile
 patchpilot diff                                   # same, for this machine
 ```
 
@@ -90,19 +90,19 @@ It lists licensing tools and vendor apps first, then "Open Native Access and
 install these 2", then manual installs and DAW files to copy. It never installs
 or copies anything itself, and it never suggests copying plug-ins between machines.
 
-Move scans, the Golden Rig and your profiles to another machine with one file
+Move scans, the Primary Rig and your profiles to another machine with one file
 (USB stick, shared folder, email to yourself):
 
 ```sh
-patchpilot export --out rig-bundle.json                 # this machine's latest scan + Golden + profiles
+patchpilot export --out rig-bundle.json                 # this machine's latest scan + Primary Rig + profiles
 patchpilot export --out rig-bundle.json --all-machines  # every machine in the database
 patchpilot import rig-bundle.json                       # on the other machine
 ```
 
 Import never overwrites anything. Scans are added as new snapshots, your own
-profiles win over ones with the same ID, and Golden versions are added only if
-this machine's Golden Rig is behind; if both machines changed it, nothing is
-imported and you pick with `golden promote` or `golden propose`. The bundle has
+profiles win over ones with the same ID, and Primary Rig versions are added only if
+this machine's Primary Rig is behind; if both machines changed it, nothing is
+imported and you pick with `primary promote` or `primary propose`. The bundle has
 no plug-ins or files, only what `scan` reads, and usernames are removed unless
 `--keep-paths`.
 

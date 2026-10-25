@@ -1,4 +1,4 @@
-//! One machine against the Golden Rig (#41): score, reasons, per-product rows
+//! One machine against the Primary Rig (#41): score, reasons, per-product rows
 //! with both sides' items, and template readiness, for the comparison view.
 
 use patchpilot_core::{Confidence, ItemKind, Manifest, Os, PluginFormat, ProductId, TargetProfile};
@@ -38,7 +38,7 @@ pub struct ComparisonRow {
     pub confidence: Confidence,
     /// A template on either side uses it, so it weighs more in the score.
     pub needed_by_templates: bool,
-    /// The target's items for this product (Golden after the profile).
+    /// The target's items for this product (Primary Rig after the profile).
     pub golden_items: Vec<ItemSide>,
     pub machine_items: Vec<ItemSide>,
 }

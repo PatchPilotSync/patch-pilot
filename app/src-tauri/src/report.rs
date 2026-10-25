@@ -96,7 +96,7 @@ mod tests {
 
         store.save_golden(&m, Some(&id), None, 5).unwrap();
         let r = build(&store, &id, &opts).unwrap();
-        assert!(r.markdown.contains("100% in parity with Golden Rig v1"));
+        assert!(r.markdown.contains("100% in parity with Primary Rig v1"));
         assert!(build(&store, "someone-else", &opts).is_err());
     }
 

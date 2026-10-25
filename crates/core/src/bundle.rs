@@ -7,7 +7,7 @@ use crate::{Manifest, ManifestError, TargetProfile};
 pub const BUNDLE_VERSION: u32 = 1;
 
 /// A file that moves manifests between machines without a cloud (#38):
-/// machines' latest scans, Golden Profile versions and target profiles.
+/// machines' latest scans, Primary Rig versions and target profiles.
 ///
 /// Metadata only, like a manifest: no plug-ins, installers or user files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -27,7 +27,7 @@ pub struct Bundle {
     /// User target profiles (built-in presets are not exported).
     #[serde(default)]
     pub profiles: Vec<TargetProfile>,
-    /// Suggestions for the Golden Rig the user chose not to add, so every
+    /// Suggestions for the Primary Rig the user chose not to add, so every
     /// linked machine stops offering them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ignored: Vec<IgnoredSuggestion>,
@@ -54,7 +54,7 @@ pub struct BundleGolden {
     pub manifest: Manifest,
 }
 
-/// A product version the user doesn't want in the Golden Rig ("Ignore" on a
+/// A product version the user doesn't want in the Primary Rig ("Ignore" on a
 /// suggestion). A newer version is suggested again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct IgnoredSuggestion {

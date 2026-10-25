@@ -16,7 +16,7 @@ pub struct SetupState {
     pub started_at: i64,
     /// The machine's snapshot when setup started; the plan is made from it.
     pub baseline_snapshot: i64,
-    /// The Golden Rig version setup compares against for its whole run.
+    /// The Primary Rig version setup compares against for its whole run.
     pub golden_version: u32,
     /// Step keys the user ticked (`check:...`) or marked done (`step:<n>`).
     #[serde(default)]
@@ -48,7 +48,7 @@ pub fn save_setup(app_dir: &Path, state: &SetupState) -> Result<(), String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Close the setup. Scans and the Golden Rig are untouched.
+/// Close the setup. Scans and the Primary Rig are untouched.
 pub fn clear_setup(app_dir: &Path) -> Result<(), String> {
     let path = setup_path(app_dir);
     match std::fs::remove_file(&path) {

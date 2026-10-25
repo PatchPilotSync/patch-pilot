@@ -24,7 +24,7 @@ pub struct UpToSpeedState {
 pub struct PlanStart {
     /// The machine's snapshot the checklist was made from.
     pub snapshot: i64,
-    /// The Golden Rig version and target profile it was made against; a
+    /// The Primary Rig version and target profile it was made against; a
     /// change to either starts a fresh checklist.
     pub golden_version: u32,
     #[serde(default)]
