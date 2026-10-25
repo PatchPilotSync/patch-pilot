@@ -136,6 +136,7 @@ export function Folder({
   open,
   onToggle,
   className = "px-4",
+  indent,
   children,
 }: {
   title: ReactNode;
@@ -145,6 +146,8 @@ export function Folder({
   onToggle: () => void;
   /** Horizontal padding of the header, to line up with the rows. */
   className?: string;
+  /** Left padding in pixels, for nested folders (overrides the className's). */
+  indent?: number;
   children: ReactNode;
 }) {
   return (
@@ -153,6 +156,7 @@ export function Folder({
         onClick={onToggle}
         aria-expanded={open}
         className={`flex h-7 w-full items-center gap-1.5 text-left hover:bg-sel/60 ${className}`}
+        style={indent === undefined ? undefined : { paddingLeft: indent }}
       >
         <svg
           width="10"
@@ -194,4 +198,84 @@ export function FolderControls({
       </Button>
     </div>
   );
+}
+
+/** One folder of a path tree: subfolders first, then the items directly inside. */
+export interface TreeNode<T> {
+  name: string;
+  /** The folder's path from the tree's root, for remembering it open. */
+  id: string;
+  dirs: TreeNode<T>[];
+  items: T[];
+  count: number;
+}
+
+/**
+ * Items nested by their folder path (`dirsOf` gives the folder names, outermost
+ * first), A to Z. A folder holding only one subfolder merges with it
+ * ("ReaTeam Scripts / Items Editing") so deep paths don't cost a click each.
+ */
+export function buildTree<T>(items: T[], dirsOf: (item: T) => string[], id = ""): TreeNode<T> {
+  const root: TreeNode<T> = { name: "", id, dirs: [], items: [], count: 0 };
+  for (const item of items) {
+    let node = root;
+    node.count++;
+    for (const dir of dirsOf(item)) {
+      let next = node.dirs.find((d) => d.name === dir);
+      if (!next) node.dirs.push((next = { name: dir, id: `${node.id}/${dir}`, dirs: [], items: [], count: 0 }));
+      next.count++;
+      node = next;
+    }
+    node.items.push(item);
+  }
+  const tidy = (n: TreeNode<T>): TreeNode<T> => {
+    let dirs = n.dirs.map(tidy);
+    dirs = dirs.map((d) =>
+      d.items.length === 0 && d.dirs.length === 1 ? { ...d.dirs[0], name: `${d.name} / ${d.dirs[0].name}` } : d,
+    );
+    dirs.sort((a, b) => a.name.localeCompare(b.name));
+    return { ...n, dirs };
+  };
+  return tidy(root);
+}
+
+/** A path tree as nested folders, each level indented `step` pixels more. */
+export function FolderTree<T>({
+  node,
+  folders,
+  indent,
+  step = 14,
+  renderItems,
+}: {
+  node: TreeNode<T>;
+  folders: ReturnType<typeof useFolders>;
+  /** Left padding of this level's folder headers, in pixels. */
+  indent: number;
+  step?: number;
+  /** The items directly in a folder, given the left padding for their rows. */
+  renderItems: (items: T[], indent: number) => ReactNode;
+}) {
+  return (
+    <>
+      {node.dirs.map((d) => (
+        <Folder
+          key={d.id}
+          title={d.name}
+          count={d.count}
+          className="rounded-[5px] pr-2"
+          indent={indent}
+          open={folders.isOpen(d.id)}
+          onToggle={() => folders.toggle(d.id)}
+        >
+          <FolderTree node={d} folders={folders} indent={indent + step} step={step} renderItems={renderItems} />
+        </Folder>
+      ))}
+      {node.items.length > 0 && renderItems(node.items, indent + 16)}
+    </>
+  );
+}
+
+/** Dropbox, Google Drive and OneDrive name the copies they make when two machines change one file like this. */
+export function isConflictCopy(path: string): boolean {
+  return /conflicted copy|conflict copy|\(conflict\)|-conflict-/i.test(path);
 }

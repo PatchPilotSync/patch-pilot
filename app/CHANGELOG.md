@@ -6,6 +6,10 @@ becomes its release notes, which the app shows when it offers that update
 
 ## Unreleased
 
+### Improved
+
+- Reaper files in Compare and Bring over fold by folder: Scripts, Themes, FX chains, templates and configuration each get a folder, and so does every subfolder inside them (ReaTeam Scripts, Items Editing...). Copies a sync app like Dropbox made of a file ("conflicted copy") are marked, and Bring over leaves them unticked.
+
 ### Changed
 
 - On the machine the Golden Rig was made from, things added or found since read "New since v1" instead of "Not in Golden", and one button, "Update Golden Rig", makes the next version from that machine's latest scan.
