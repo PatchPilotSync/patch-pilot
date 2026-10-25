@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { Button } from "./ui";
 
 // Self-update (decision #32). Checks at launch and again when the window is
 // shown or focused, at most once an hour. No timer, so the app stays idle
-// in the tray. Nothing downloads or installs until the user clicks.
+// in the tray. "Check for Updates…" in the tray menu checks right away and
+// says so either way. Nothing downloads or installs until the user clicks.
 
 /** The app stays running from login, so launch alone is too rare a check. */
 const RECHECK_MS = 60 * 60 * 1000;
@@ -16,6 +18,9 @@ const JUST_INSTALLED = "patchpilot.just-installed";
 
 type State =
   | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "current"; version: string }
+  | { kind: "check-failed"; error: string }
   | { kind: "available"; update: Update; open: boolean }
   | { kind: "installing"; update: Update; done: number; total: number | null }
   | { kind: "failed"; update: Update; error: string }
@@ -42,6 +47,20 @@ export function UpdateBar() {
         console.warn("update check failed", e);
       }
     }
+    // Asked for from the tray menu: always check, and answer even when
+    // there's nothing new.
+    async function checkAsked() {
+      lastCheck = Date.now();
+      setState((s) => (s.kind === "installing" ? s : { kind: "checking" }));
+      try {
+        const update = await check();
+        if (cancelled) return;
+        if (update) setState({ kind: "available", update, open: false });
+        else setState({ kind: "current", version: await getVersion() });
+      } catch (e) {
+        if (!cancelled) setState({ kind: "check-failed", error: String(e) });
+      }
+    }
     function onShown() {
       if (document.visibilityState === "visible" && Date.now() - lastCheck > RECHECK_MS) checkNow();
     }
@@ -51,10 +70,12 @@ export function UpdateBar() {
       if (installed) setState({ kind: "installed", ...installed });
       else checkNow();
     })();
+    const unlistenAsked = listen("check-for-updates", checkAsked);
     window.addEventListener("focus", onShown);
     document.addEventListener("visibilitychange", onShown);
     return () => {
       cancelled = true;
+      unlistenAsked.then((f) => f());
       window.removeEventListener("focus", onShown);
       document.removeEventListener("visibilitychange", onShown);
     };
@@ -80,6 +101,29 @@ export function UpdateBar() {
   }
 
   if (state.kind === "idle") return null;
+
+  if (state.kind === "checking" || state.kind === "current" || state.kind === "check-failed") {
+    return (
+      <Bar>
+        <div className="flex items-center gap-3">
+          <span className={state.kind === "check-failed" ? "flex-1 text-bad" : "flex-1"}>
+            {state.kind === "checking" && "Checking for updates…"}
+            {state.kind === "current" && (
+              <>
+                You're up to date with <strong>Patch Pilot {state.version}</strong>.
+              </>
+            )}
+            {state.kind === "check-failed" && `Couldn't check for updates: ${state.error}`}
+          </span>
+          {state.kind !== "checking" && (
+            <Button variant="quiet" onClick={() => setState({ kind: "idle" })}>
+              Dismiss
+            </Button>
+          )}
+        </div>
+      </Bar>
+    );
+  }
 
   if (state.kind === "installed") {
     return (

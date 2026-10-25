@@ -36,6 +36,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     // Temporary, for testing onboarding: shows the welcome screen and tour again
     // without touching any saved data. Remove before a public launch.
     let replay = MenuItem::with_id(app, "replay", "Replay First Run", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", "Check for Updates…", true, None::<&str>)?;
     // Shows the real state, so a change made in Task Manager or macOS Login
     // Items is reflected; refreshed whenever it's clicked.
     let at_login = CheckMenuItem::with_id(
@@ -56,7 +57,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Patch Pilot", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &replay, &at_login, &alerts, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &updates, &replay, &at_login, &alerts, &quit])?;
 
     TrayIconBuilder::with_id(ID)
         .icon(Image::from_bytes(ICON)?)
@@ -69,6 +70,11 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             "replay" => {
                 show_main(app);
                 let _ = app.emit_to(MAIN, "replay-first-run", ());
+            }
+            // The main window's update bar does the check and shows the answer.
+            "updates" => {
+                show_main(app);
+                let _ = app.emit_to(MAIN, "check-for-updates", ());
             }
             "login" => {
                 // The menu has already flipped the tick; make the OS match it.

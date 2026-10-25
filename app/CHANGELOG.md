@@ -6,6 +6,10 @@ becomes its release notes, which the app shows when it offers that update
 
 ## Unreleased
 
+### New
+
+- "Check for Updates…" in the menu bar or tray icon's menu checks right away and tells you if you're up to date.
+
 ### Improved
 
 - Get Up To Speed crosses steps off by itself. Install something on the list and, a few seconds after the installer finishes, its step is ticked and marked "Installed" instead of disappearing. Steps that are partly done tick off each plug-in as it arrives, and "Mark done" covers anything Patch Pilot can't see. Installing a vendor app or iLok now triggers a rescan too, not just plug-ins.
