@@ -12,6 +12,7 @@ becomes its release notes, which the app shows when it offers that update
 
 ### Improved
 
+- Long lists fold into folders. Plug-ins on This machine sit in one folder per vendor (or format), with a count and how many have updates; click to open, or Expand all. Typing in the filter opens the folders that match. Compare, Get Up To Speed, Bring over, Reaper setup, the Installer Vault, History and the Rig Report fold the same way, and Patch Pilot remembers which folders you left open.
 - Get Up To Speed crosses steps off by itself. Install something on the list and, a few seconds after the installer finishes, its step is ticked and marked "Installed" instead of disappearing. Steps that are partly done tick off each plug-in as it arrives, and "Mark done" covers anything Patch Pilot can't see. Installing a vendor app or iLok now triggers a rescan too, not just plug-ins.
 - "Scanned" times now show when Patch Pilot last checked the machine, even when nothing had changed.
 

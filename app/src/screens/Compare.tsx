@@ -26,7 +26,7 @@ import {
 import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
 import { StepList, type Actions } from "./Setup";
-import { Badge, Button, Folder, inputClass, Pill, ScoreBar, scoreColor, timeAgo, useFolders } from "../ui";
+import { Badge, Button, Folder, FolderControls, inputClass, Pill, ScoreBar, scoreColor, timeAgo, useFolders } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
   "missing",
@@ -52,6 +52,68 @@ const STATE_DOT: Record<ParityState, string> = {
   not_applicable: "bg-dim",
   in_parity: "bg-ok",
 };
+
+/** States whose folder starts open in the diff: the ones that need work. */
+const OPEN_STATES: ParityState[] = ["missing", "incomplete", "outdated", "modified", "version_unknown"];
+
+/** Rows in a state folder above this many are split into vendor folders. */
+const FLAT_MAX = 30;
+
+/**
+ * A long state group split into one folder per vendor, with ReaPack packages
+ * (thousands, sometimes) in one folder of their own. Null when a flat list reads fine.
+ */
+function subGroups(rows: ComparisonRow[]): [string, ComparisonRow[]][] | null {
+  const reapack = rows.filter((r) => isReapack(r.product_id));
+  if (rows.length <= FLAT_MAX && reapack.length <= 1) return null;
+  const groups = byVendor(rows.filter((r) => !isReapack(r.product_id)));
+  if (reapack.length) groups.push(["ReaPack", reapack]);
+  return groups.length > 1 || reapack.length > 1 ? groups : null;
+}
+
+/** Rows in one folder per vendor, A to Z. */
+function byVendor(rows: ComparisonRow[]): [string, ComparisonRow[]][] {
+  const by = new Map<string, ComparisonRow[]>();
+  for (const r of rows) {
+    const k = r.vendor || "Unknown vendor";
+    by.set(k, [...(by.get(k) ?? []), r]);
+  }
+  return [...by.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+function DiffRow({
+  r,
+  selected,
+  onSelect,
+  showVendor,
+}: {
+  r: ComparisonRow;
+  selected: ComparisonRow | null;
+  onSelect: (r: ComparisonRow) => void;
+  showVendor: boolean;
+}) {
+  return (
+    <li>
+      <button
+        onClick={() => onSelect(r)}
+        className={`flex h-7 w-full items-center gap-2.5 rounded-[5px] px-2 text-left ${
+          selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
+        }`}
+      >
+        <span className="min-w-0 flex-1 truncate">
+          {r.name}
+          {showVendor && r.vendor && <span className="ml-2 text-xs text-dim">{r.vendor}</span>}
+        </span>
+        {r.needed_by_templates && <Badge tone="amber">template</Badge>}
+        {r.confidence === "low" && <Badge tone="amber">name only</Badge>}
+        {r.missing_formats.map((f) => (
+          <Badge key={f}>no {FORMAT_LABEL[f]}</Badge>
+        ))}
+        <span className="w-28 shrink-0 text-right font-mono text-[11px] text-dim">{versionPair(r)}</span>
+      </button>
+    </li>
+  );
+}
 
 /** A request, from the tray popover, to show one machine (and maybe its plan). */
 export interface Focus {
@@ -217,7 +279,8 @@ function Diff({
   const [vendor, setVendor] = useState("");
   const [format, setFormat] = useState<PluginFormat | "">("");
   const [showParity, setShowParity] = useState(false);
-  const [openReapack, setOpenReapack] = useState<Set<ParityState>>(new Set());
+  // Problems start open; the rest (In parity, Not in Golden, ...) start folded.
+  const folders = useFolders("compare", (id) => !id.includes("/") && OPEN_STATES.includes(id as ParityState));
 
   const counts = useMemo(() => {
     const n = new Map<ParityState, number>();
@@ -237,6 +300,8 @@ function Diff({
       (!vendor || r.vendor === vendor) &&
       (!format || [...r.golden_items, ...r.machine_items].some((i) => i.format === format)),
   );
+  const shownStates = STATE_ORDER.filter((s) => rows.some((r) => r.state === s));
+  const filtered = states.size > 0 || vendor !== "" || format !== "";
   const toggle = (s: ParityState) =>
     setStates((prev) => {
       const next = new Set(prev);
@@ -328,65 +393,53 @@ function Diff({
         </select>
       </div>
 
-      <div className="-mx-2 flex flex-col gap-2">
-        {STATE_ORDER.map((s) => {
+      <div className="-mx-2 flex flex-col">
+        <FolderControls ids={shownStates.map((st) => st as string)} folders={folders} className="px-2" />
+        {shownStates.map((s) => {
           const all = rows.filter((r) => r.state === s);
-          if (!all.length) return null;
-          // Thousands of ReaPack scripts fold into one row until opened.
-          const reapack = all.filter((r) => isReapack(r.product_id));
-          const group = reapack.length > 1 && !openReapack.has(s) ? all.filter((r) => !isReapack(r.product_id)) : all;
+          const subs = subGroups(all);
           return (
-            <div key={s}>
-              <h3 className="px-2 pb-0.5 text-[11px] text-dim">
-                {STATE_LABEL[s]} <span className="tabular-nums opacity-70">{all.length}</span>
-              </h3>
-              <ul>
-                {reapack.length > 1 && (
-                  <li>
-                    <button
-                      onClick={() =>
-                        setOpenReapack((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(s)) next.delete(s);
-                          else next.add(s);
-                          return next;
-                        })
-                      }
-                      aria-expanded={openReapack.has(s)}
-                      className="flex h-7 w-full items-center gap-2.5 rounded-[5px] px-2 text-left hover:bg-sel/50"
+            <Folder
+              key={s}
+              title={
+                <span className="flex items-center gap-2">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[s]}`} aria-hidden="true" />
+                  {STATE_LABEL[s]}
+                </span>
+              }
+              count={all.length}
+              className="rounded-[5px] px-2"
+              open={filtered || folders.isOpen(s)}
+              onToggle={() => folders.toggle(s)}
+            >
+              {subs ? (
+                subs.map(([name, rs]) => {
+                  const id = `${s}/${name}`;
+                  return (
+                    <Folder
+                      key={id}
+                      title={name}
+                      count={rs.length}
+                      className="rounded-[5px] pl-6 pr-2"
+                      open={folders.isOpen(id)}
+                      onToggle={() => folders.toggle(id)}
                     >
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[s]}`} aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {reapackLabel(reapack)}
-                        <span className="ml-2 text-xs text-dim">{openReapack.has(s) ? "Hide" : "Show each"}</span>
-                      </span>
-                    </button>
-                  </li>
-                )}
-                {group.map((r) => (
-                  <li key={r.product_id}>
-                    <button
-                      onClick={() => onSelect(r)}
-                      className={`flex h-7 w-full items-center gap-2.5 rounded-[5px] px-2 text-left ${
-                        selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
-                      }`}
-                    >
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[r.state]}`} aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {r.name}
-                        {r.vendor && <span className="ml-2 text-xs text-dim">{r.vendor}</span>}
-                      </span>
-                      {r.needed_by_templates && <Badge tone="amber">template</Badge>}
-                      {r.confidence === "low" && <Badge tone="amber">name only</Badge>}
-                      {r.missing_formats.map((f) => (
-                        <Badge key={f}>no {FORMAT_LABEL[f]}</Badge>
-                      ))}
-                      <span className="w-28 shrink-0 text-right font-mono text-[11px] text-dim">{versionPair(r)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+                      <ul className="pl-8">
+                        {rs.map((r) => (
+                          <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor={false} />
+                        ))}
+                      </ul>
+                    </Folder>
+                  );
+                })
+              ) : (
+                <ul className="pl-4">
+                  {all.map((r) => (
+                    <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor />
+                  ))}
+                </ul>
+              )}
+            </Folder>
           );
         })}
         {!rows.length && (states.size > 0 || vendor || format) && (
@@ -642,6 +695,7 @@ function SuggestionsNotice({
   suggest: SuggestActions;
 }) {
   const [open, setOpen] = useState(false);
+  const folders = useFolders("suggestions");
   const rows = data.comparison.rows.filter((r) => data.suggested.includes(r.product_id));
   if (!rows.length) return null;
   // ReaPack scripts come by the thousand: one row for all of them.
@@ -650,6 +704,31 @@ function SuggestionsNotice({
   const n = others.length + (reapack.length ? 1 : 0);
   const first = others[0]?.name ?? reapackLabel(reapack);
   const where = data.machine.is_this_machine ? "this machine" : data.machine.name;
+  const othersGroups = others.length > FLAT_MAX ? byVendor(others) : null;
+  const suggestionRow = (r: ComparisonRow) => (
+    <li
+      key={r.product_id}
+      className={`flex h-7 items-center gap-2 rounded-[5px] px-2 ${
+        selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
+      }`}
+    >
+      <button onClick={() => onSelect(r)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+        <span className="min-w-0 flex-1 truncate">
+          {r.name}
+          {r.vendor && <span className="ml-2 text-dim">{r.vendor}</span>}
+        </span>
+        <span className="shrink-0 font-mono text-[11px] text-dim">
+          {r.state === "extra" ? "not in Golden" : `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`}
+        </span>
+      </button>
+      <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore([r])} className="h-6 px-2">
+        Ignore
+      </Button>
+      <Button disabled={suggest.busy} onClick={() => suggest.add([r.product_id])} className="h-6 px-2.5">
+        Add
+      </Button>
+    </li>
+  );
   return (
     <div className="text-xs">
       <button
@@ -710,30 +789,23 @@ function SuggestionsNotice({
                 </Button>
               </li>
             )}
-            {others.map((r) => (
-              <li
-                key={r.product_id}
-                className={`flex h-7 items-center gap-2 rounded-[5px] px-2 ${
-                  selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
-                }`}
-              >
-                <button onClick={() => onSelect(r)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                  <span className="min-w-0 flex-1 truncate">
-                    {r.name}
-                    {r.vendor && <span className="ml-2 text-dim">{r.vendor}</span>}
-                  </span>
-                  <span className="shrink-0 font-mono text-[11px] text-dim">
-                    {r.state === "extra" ? "not in Golden" : `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`}
-                  </span>
-                </button>
-                <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore([r])} className="h-6 px-2">
-                  Ignore
-                </Button>
-                <Button disabled={suggest.busy} onClick={() => suggest.add([r.product_id])} className="h-6 px-2.5">
-                  Add
-                </Button>
-              </li>
-            ))}
+            {(othersGroups ?? [["", others] as const]).map(([vendor, rs]) =>
+              othersGroups ? (
+                <li key={vendor}>
+                  <Folder
+                    title={vendor}
+                    count={rs.length}
+                    className="rounded-[5px] px-2"
+                    open={folders.isOpen(vendor)}
+                    onToggle={() => folders.toggle(vendor)}
+                  >
+                    <ul className="pl-4">{rs.map(suggestionRow)}</ul>
+                  </Folder>
+                </li>
+              ) : (
+                rs.map(suggestionRow)
+              ),
+            )}
           </ul>
         </div>
       )}
