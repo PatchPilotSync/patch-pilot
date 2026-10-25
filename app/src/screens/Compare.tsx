@@ -136,7 +136,9 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   // A refresh can briefly list fewer machines (a sync landing); fall back for
   // the moment but keep the choice, so it comes back when the machine does.
   const selected = view.machines.some((m) => m.id === chosen) ? chosen : (view.machines[0]?.id ?? null);
-  const [data, setData] = useState<MachineComparison | null>(null);
+  const [loaded, setData] = useState<MachineComparison | null>(null);
+  // Never show one machine's comparison under another machine's name.
+  const data = loaded?.machine.id === selected ? loaded : null;
   const [plan, setPlan] = useState(false);
   const [rowId, setRowId] = useState<string | null>(null);
   const row = data?.comparison.rows.find((r) => r.product_id === rowId) ?? null;
@@ -177,9 +179,18 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   }, [selected]);
 
   // A rescan or sync reloads `view`; the open row, checklist and folders stay as they are.
+  // Comparing a big rig takes a while, so an older request (another machine, or
+  // before a refresh) can finish last; only the latest one may land.
   useEffect(() => {
     if (!selected || view.golden_version === null) return;
-    compareMachine(selected).then(setData, (e) => onError(String(e)));
+    let current = true;
+    compareMachine(selected).then(
+      (d) => current && setData(d),
+      (e) => current && onError(String(e)),
+    );
+    return () => {
+      current = false;
+    };
   }, [selected, view, onError]);
 
   return (
@@ -909,7 +920,14 @@ function PlanView({
   const [apps, setApps] = useState<VendorApp[]>([]);
   const [installers, setInstallers] = useState<Map<string, VaultMatch>>(new Map());
   useEffect(() => {
-    planProgress(id).then(setProgress, (e) => onError(String(e)));
+    let current = true;
+    planProgress(id).then(
+      (p) => current && setProgress(p),
+      (e) => current && onError(String(e)),
+    );
+    return () => {
+      current = false;
+    };
   }, [id, refresh, onError]);
   const wanted = progress?.steps.flatMap((s) => s.open_products).join("\n") ?? "";
   useEffect(() => {
