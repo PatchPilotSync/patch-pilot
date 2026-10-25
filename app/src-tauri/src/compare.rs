@@ -30,6 +30,8 @@ pub struct MachineCard {
     pub os: Os,
     pub scanned_at: i64,
     pub is_this_machine: bool,
+    /// True when the latest Golden version was made from this machine.
+    pub golden_source: bool,
     pub profile: Option<ProfileRef>,
     /// None until there is a Golden Rig.
     pub score: Option<u8>,
@@ -235,6 +237,16 @@ pub async fn add_to_golden(
     Ok(v.version)
 }
 
+/// "Update Golden Rig from this machine": `machine`'s whole latest scan
+/// becomes the next Golden version.
+#[tauri::command]
+pub async fn update_golden_from(app: AppHandle, machine: String) -> Result<u32, String> {
+    let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    let v = patchpilot_local::golden::update_from(&mut store, &machine, patchpilot_local::now())?;
+    changed_here(&app, &store);
+    Ok(v.version)
+}
+
 /// One suggestion to ignore: a product and the machine's version of it.
 #[derive(Debug, serde::Deserialize)]
 pub struct IgnoreItem {
@@ -284,6 +296,9 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
         machines.push(MachineCard {
             scanned_at: scanned_at(store, &info.id)?,
             is_this_machine: Some(info.id.as_str()) == this,
+            golden_source: golden
+                .as_ref()
+                .is_some_and(|g| g.info.source_machine_id.as_deref() == Some(info.id.as_str())),
             profile: profile.map(|p| ProfileRef {
                 id: p.id,
                 name: p.name,
@@ -325,6 +340,7 @@ pub(crate) fn comparison(
         machine: MachineCard {
             scanned_at: scanned_at(store, id)?,
             is_this_machine: Some(id) == this,
+            golden_source: golden.info.source_machine_id.as_deref() == Some(id),
             profile: profile.map(|p| ProfileRef {
                 id: p.id,
                 name: p.name,

@@ -44,6 +44,24 @@ pub fn add_to_golden(
         .map_err(err)
 }
 
+/// "Update Golden Rig from this machine": the whole of `machine_id`'s latest
+/// scan becomes the next Golden version. For the machine the Golden Rig was
+/// made from, whose later scans otherwise read as "not in Golden".
+pub fn update_from(
+    store: &mut Store,
+    machine_id: &str,
+    now: i64,
+) -> Result<GoldenVersionInfo, String> {
+    let scan = store
+        .latest_manifest(machine_id)
+        .map_err(err)?
+        .ok_or("no saved scan of that machine")?;
+    let note = format!("Updated from {}", scan.machine.name);
+    store
+        .save_golden(&scan, Some(machine_id), Some(&note), now)
+        .map_err(err)
+}
+
 /// [`suggestion_key`]s the user ignored, on this or any linked machine.
 pub fn ignored_keys(store: &Store) -> Result<BTreeSet<String>, String> {
     Ok(store
@@ -248,6 +266,38 @@ mod tests {
         set_alerts_enabled(app, true).unwrap();
         assert!(check_alerts(&store, app, this).unwrap().is_empty());
         assert!(!app.join("alerts-seen.json.tmp").exists());
+    }
+
+    #[test]
+    fn updating_from_the_studio_takes_its_whole_latest_scan() {
+        let (mut store, studio) = studio_store();
+        let mut later = studio.clone();
+        let mut item = later.items[0].clone();
+        item.product_id = Some(ProductId("acme-delay".into()));
+        later.items.push(item);
+        let mut p = later.products[0].clone();
+        p.canonical_id = ProductId("acme-delay".into());
+        p.name = "Acme Delay".into();
+        later.products.push(p);
+        crate::save_scan(&mut store, &later).unwrap();
+
+        let v = update_from(&mut store, &studio.machine.id, 2).unwrap();
+        assert_eq!(v.version, 2);
+        assert_eq!(v.note.as_deref(), Some("Updated from Studio PC"));
+        let g = store.golden(None).unwrap().unwrap();
+        assert_eq!(
+            g.info.source_machine_id.as_deref(),
+            Some(studio.machine.id.as_str())
+        );
+        assert!(
+            compare(&g.manifest, &Default::default(), &later)
+                .rows
+                .iter()
+                .all(|r| r.state != patchpilot_parity::ParityState::Extra)
+        );
+        // Nothing new since: says so instead of making an empty version.
+        let e = update_from(&mut store, &studio.machine.id, 3).unwrap_err();
+        assert!(e.contains("already matches v2"), "{e}");
     }
 
     #[test]

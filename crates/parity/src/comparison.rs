@@ -48,6 +48,10 @@ pub struct ItemSide {
     pub format: Option<PluginFormat>,
     pub platform: Os,
     pub version: Option<String>,
+    /// Bytes, where the scan measured it (preset folders).
+    pub size: Option<u64>,
+    /// Where it lives, for a preset folder, e.g. `Documents\Kilohearts`.
+    pub location: Option<String>,
 }
 
 /// Compare `machine` with `golden` through `profile`. Aligns `unknown/`
@@ -81,6 +85,8 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
                         format: i.format,
                         platform: i.platform,
                         version: i.version.clone(),
+                        size: i.size.filter(|_| crate::presets::is_preset_item(i)),
+                        location: product.and_then(|p| crate::presets::location(p, i.platform)),
                     })
                     .collect()
             };
