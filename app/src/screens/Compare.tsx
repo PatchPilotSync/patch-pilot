@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   addToGolden,
+  updateGoldenFrom,
   compareMachine,
   ignoreSuggestions,
   isReapack,
@@ -26,6 +27,7 @@ import {
 import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
 import { StepList, type Actions } from "./Setup";
+import { formatSize } from "./VaultTriage";
 import { Badge, Button, Folder, FolderControls, inputClass, Pill, ScoreBar, scoreColor, timeAgo, useFolders } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
@@ -152,6 +154,11 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
       setBusy(true);
       addToGolden(data.machine.id, ids).catch((e) => onError(String(e))).finally(() => setBusy(false));
     },
+    update: () => {
+      if (!data) return;
+      setBusy(true);
+      updateGoldenFrom(data.machine.id).catch((e) => onError(String(e))).finally(() => setBusy(false));
+    },
     ignore: (rs) => {
       setBusy(true);
       ignoreSuggestions(rs.map((r) => ({ product: r.product_id, version: r.machine_version })))
@@ -225,7 +232,13 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
 
       <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel">
         {row && data ? (
-          <Detail row={row} machine={data.machine} suggested={data.suggested.includes(row.product_id)} suggest={suggest} />
+          <Detail
+            row={row}
+            machine={data.machine}
+            version={data.golden_version}
+            suggested={data.suggested.includes(row.product_id)}
+            suggest={suggest}
+          />
         ) : (
           <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Golden Rig.</p>
         )}
@@ -251,6 +264,7 @@ function MachineItem({ m, active, onClick }: { m: MachineCard; active: boolean; 
         <span className="block w-full truncate text-[11px] text-dim">
           {m.os === "macos" ? "macOS" : "Windows"}
           {m.is_this_machine ? " · this machine" : ""}
+          {m.golden_source ? " · Golden source" : ""}
           {m.profile ? ` · ${m.profile.name}` : ""}
         </span>
       </button>
@@ -321,8 +335,9 @@ function Diff({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{machine.name}</h1>
           <p className="truncate text-xs text-dim">
-            compared with Golden Rig v{data.golden_version} · {machine.profile ? `${machine.profile.name} profile` : "no profile"} ·
-            scanned {timeAgo(machine.scanned_at)}
+            compared with Golden Rig v{data.golden_version}
+            {machine.golden_source ? ", a saved copy of this machine" : ""} ·{" "}
+            {machine.profile ? `${machine.profile.name} profile` : "whole rig"} · scanned {timeAgo(machine.scanned_at)}
           </p>
         </div>
         {hasWork && <Button onClick={onPlan}>Get Up To Speed</Button>}
@@ -358,7 +373,7 @@ function Diff({
       <div className="flex flex-wrap items-center gap-1 border-b border-line pb-2">
         {STATE_ORDER.filter((s) => counts.get(s)).map((s) => (
           <Pill key={s} active={states.has(s)} onClick={() => toggle(s)}>
-            {STATE_LABEL[s]} <span className="tabular-nums opacity-70">{counts.get(s)}</span>
+            {stateLabel(s, machine, data.golden_version)} <span className="tabular-nums opacity-70">{counts.get(s)}</span>
           </Pill>
         ))}
         <span className="flex-1" />
@@ -405,7 +420,7 @@ function Diff({
               title={
                 <span className="flex items-center gap-2">
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[s]}`} aria-hidden="true" />
-                  {STATE_LABEL[s]}
+                  {stateLabel(s, machine, data.golden_version)}
                 </span>
               }
               count={all.length}
@@ -667,10 +682,28 @@ function versionPair(r: ComparisonRow): string {
   return `${m || "?"} → ${g || "?"}`;
 }
 
+/**
+ * The Golden Rig is a saved copy of the machine it was made from, so on that
+ * machine "Not in Golden" reads as missing from itself: say "new since" instead.
+ */
+function stateLabel(s: ParityState, m: MachineCard, version: number): string {
+  if (m.golden_source && s === "extra") return `New since v${version}`;
+  return STATE_LABEL[s];
+}
+
+function stateHint(s: ParityState, m: MachineCard, version: number): string {
+  if (m.golden_source && s === "extra")
+    return `Added or found here after Golden Rig v${version} was saved. Doesn't affect the score.`;
+  if (m.golden_source && s === "newer_than_golden") return `Updated here after Golden Rig v${version} was saved.`;
+  return STATE_HINT[s];
+}
+
 /** "Propose to Golden" (M9): add or ignore what a machine has that the Golden Rig doesn't. */
 interface SuggestActions {
   busy: boolean;
   add: (productIds: string[]) => void;
+  /** The machine's whole latest scan becomes the next Golden version. */
+  update: () => void;
   ignore: (rows: ComparisonRow[]) => void;
 }
 
@@ -705,6 +738,8 @@ function SuggestionsNotice({
   const n = others.length + (reapack.length ? 1 : 0);
   const first = others[0]?.name ?? reapackLabel(reapack);
   const where = data.machine.is_this_machine ? "this machine" : data.machine.name;
+  const source = data.machine.golden_source;
+  const v = data.golden_version;
   const othersGroups = others.length > FLAT_MAX ? byVendor(others) : null;
   const suggestionRow = (r: ComparisonRow) => (
     <li
@@ -719,7 +754,11 @@ function SuggestionsNotice({
           {r.vendor && <span className="ml-2 text-dim">{r.vendor}</span>}
         </span>
         <span className="shrink-0 font-mono text-[11px] text-dim">
-          {r.state === "extra" ? "not in Golden" : `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`}
+          {r.state !== "extra"
+            ? `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`
+            : source
+              ? `new since v${v}`
+              : "not in Golden"}
         </span>
       </button>
       <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore([r])} className="h-6 px-2">
@@ -739,7 +778,9 @@ function SuggestionsNotice({
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">
-          {n === 1 ? `${first} on ${where} could` : `${n} things on ${where} could`} go into the Golden Rig
+          {source
+            ? `${n === 1 ? `${first} is` : `${n} things are`} new on ${where} since Golden Rig v${v}`
+            : `${n === 1 ? `${first} on ${where} could` : `${n} things on ${where} could`} go into the Golden Rig`}
         </span>
         <span className="shrink-0 text-dim">{open ? "Hide" : "Review"}</span>
         <svg
@@ -754,11 +795,23 @@ function SuggestionsNotice({
       </button>
       {open && (
         <div className="mt-1 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5">
+          {source && (
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-dim">
+                Golden Rig v{v} is a saved copy of {data.machine.name} from when it was made, and these were added or
+                found here since. Updating makes v{v + 1} from {data.machine.name}'s latest scan so they match again
+                (anything removed here leaves the Golden Rig too), and other machines are then asked to catch up.
+              </p>
+              <Button disabled={suggest.busy} onClick={suggest.update} className="shrink-0">
+                Update Golden Rig
+              </Button>
+            </div>
+          )}
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-dim">
-              On {data.machine.name} but not in the Golden Rig, or newer there. Adding one makes a new Golden version
-              with {data.machine.name}'s copy, and other machines are then asked to install it. Ignore stops suggesting
-              that version.
+              {source
+                ? "Or one at a time: Add puts just that one in a new Golden version, Ignore stops suggesting that version."
+                : `On ${data.machine.name} but not in the Golden Rig, or newer there. Adding one makes a new Golden version with ${data.machine.name}'s copy, and other machines are then asked to install it. Ignore stops suggesting that version.`}
             </p>
             {n > 1 && (
               <Button
@@ -817,11 +870,13 @@ function SuggestionsNotice({
 function Detail({
   row,
   machine,
+  version,
   suggested,
   suggest,
 }: {
   row: ComparisonRow;
   machine: MachineCard;
+  version: number;
   suggested: boolean;
   suggest: SuggestActions;
 }) {
@@ -834,12 +889,18 @@ function Detail({
       <p className="text-xs leading-relaxed">
         <span className="mr-1.5 inline-flex items-center gap-1.5 font-medium">
           <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[row.state]}`} aria-hidden="true" />
-          {STATE_LABEL[row.state]}.
+          {stateLabel(row.state, machine, version)}.
         </span>
-        <span className="text-dim">{STATE_HINT[row.state]}</span>
+        <span className="text-dim">{stateHint(row.state, machine, version)}</span>
       </p>
       <Side title="Golden Rig" items={row.golden_items} />
       <Side title={machine.name} items={row.machine_items} />
+      {row.product_id.startsWith("presets/") && (
+        <p className="text-xs leading-relaxed text-dim">
+          A preset folder with files in it (empty ones are skipped). Patch Pilot compares a fingerprint of its files to
+          spot changes; it never copies or changes them.
+        </p>
+      )}
       {row.needed_by_templates && (
         <p className="text-xs text-dim">A template uses this plug-in, so it counts three times in the score.</p>
       )}
@@ -873,15 +934,27 @@ function Side({ title, items }: { title: string; items: ComparisonRow["golden_it
         <p className="text-xs text-bad">Not installed</p>
       ) : (
         <ul className="flex flex-col gap-1">
-          {items.map((i, n) => (
-            <li key={n} className="flex items-center justify-between text-xs">
-              <span>
-                {i.format ? FORMAT_LABEL[i.format] : "—"}{" "}
-                <span className="text-dim">{i.platform === "macos" ? "macOS" : "Windows"}</span>
-              </span>
-              <span className="font-mono text-[11px] text-dim">{i.version ?? "?"}</span>
-            </li>
-          ))}
+          {items.map((i, n) =>
+            i.location ? (
+              <li key={n} className="flex flex-col text-xs">
+                <span className="flex items-center justify-between">
+                  <span>
+                    Preset folder <span className="text-dim">{i.platform === "macos" ? "macOS" : "Windows"}</span>
+                  </span>
+                  {i.size !== null && <span className="text-[11px] text-dim">{formatSize(i.size)}</span>}
+                </span>
+                <span className="break-all font-mono text-[11px] text-dim">{i.location}</span>
+              </li>
+            ) : (
+              <li key={n} className="flex items-center justify-between text-xs">
+                <span>
+                  {i.format ? FORMAT_LABEL[i.format] : "—"}{" "}
+                  <span className="text-dim">{i.platform === "macos" ? "macOS" : "Windows"}</span>
+                </span>
+                <span className="font-mono text-[11px] text-dim">{i.version ?? "?"}</span>
+              </li>
+            ),
+          )}
         </ul>
       )}
     </div>

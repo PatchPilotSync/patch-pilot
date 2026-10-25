@@ -324,6 +324,47 @@ pub fn preset_items(folders: &[PresetFolder], os: Os) -> (Vec<Product>, Vec<Item
     (products, items)
 }
 
+/// Where a preset folder lives on `os`, for people: `Documents\Kilohearts`,
+/// `/Library/Arturia/Presets`. `None` for anything that isn't one.
+pub fn location(product: &Product, os: Os) -> Option<String> {
+    let id = product.canonical_id.0.strip_prefix(PRODUCT_PREFIX)?;
+    if let Some(loc) = LOCATIONS.iter().find(|l| l.id == id) {
+        let at = match os {
+            Os::Macos => loc.macos,
+            Os::Windows => loc.windows,
+        }?;
+        return Some(show(at, os));
+    }
+    id.starts_with("standard-").then(|| {
+        format!(
+            "{}{}{}",
+            show(standard_folder(os), os),
+            separator(os),
+            product.vendor
+        )
+    })
+}
+
+fn show((base, rel): (Base, &str), os: Os) -> String {
+    let base = match base {
+        Base::Documents if os == Os::Macos => "~/Documents",
+        Base::Documents => "Documents",
+        Base::AppData => "%APPDATA%",
+        Base::ProgramData => "C:\\ProgramData",
+        Base::UserLibrary => "~/Library",
+        Base::Library => "/Library",
+    };
+    let sep = separator(os);
+    format!("{base}{sep}{}", rel.replace('/', sep))
+}
+
+fn separator(os: Os) -> &'static str {
+    match os {
+        Os::Macos => "/",
+        Os::Windows => "\\",
+    }
+}
+
 pub fn is_preset_item(item: &Item) -> bool {
     item.product_id
         .as_ref()
@@ -512,5 +553,36 @@ mod tests {
         assert_eq!(ha, summarize(b.path()).unwrap().hash);
         write(&b.path().join("Two.fxp"), "TWO");
         assert_ne!(ha, summarize(b.path()).unwrap().hash);
+    }
+
+    #[test]
+    fn locations_read_like_the_os() {
+        let product = |id: &str, vendor: &str| Product {
+            canonical_id: ProductId(format!("{PRODUCT_PREFIX}{id}")),
+            vendor: vendor.into(),
+            name: String::new(),
+        };
+        let arturia = product("arturia", "Arturia");
+        assert_eq!(
+            location(&arturia, Os::Windows).as_deref(),
+            Some("C:\\ProgramData\\Arturia\\Presets")
+        );
+        assert_eq!(
+            location(&arturia, Os::Macos).as_deref(),
+            Some("/Library/Arturia/Presets")
+        );
+        assert_eq!(
+            location(&product("standard-valhalla", "Valhalla"), Os::Windows).as_deref(),
+            Some("Documents\\VST3 Presets\\Valhalla")
+        );
+        assert_eq!(
+            location(&product("standard-valhalla", "Valhalla"), Os::Macos).as_deref(),
+            Some("~/Library/Audio/Presets/Valhalla")
+        );
+        let plugin = Product {
+            canonical_id: ProductId("acme-verb".into()),
+            ..arturia
+        };
+        assert_eq!(location(&plugin, Os::Macos), None);
     }
 }

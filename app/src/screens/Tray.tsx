@@ -130,8 +130,9 @@ export function Tray() {
           >
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">
-              {suggesting.suggestions === 1 ? "1 suggestion" : `${suggesting.suggestions} suggestions`} for the Golden
-              Rig{suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}
+              {suggesting.golden_source
+                ? `${suggesting.suggestions} new on ${suggesting.is_this_machine ? "this machine" : suggesting.name} since Golden Rig v${view?.golden_version}`
+                : `${suggesting.suggestions === 1 ? "1 suggestion" : `${suggesting.suggestions} suggestions`} for the Golden Rig${suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}`}
             </span>
             <span className="text-dim" aria-hidden="true">
               ›

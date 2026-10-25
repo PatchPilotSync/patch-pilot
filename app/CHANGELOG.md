@@ -4,6 +4,14 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### Changed
+
+- On the machine the Golden Rig was made from, things added or found since read "New since v1" instead of "Not in Golden", and one button, "Update Golden Rig", makes the next version from that machine's latest scan.
+- Preset folder rows (Arturia presets, Kilohearts presets, ...) now show where the folder is and how big it is, and say what Patch Pilot does with it.
+- "no profile" on Compare now reads "whole rig".
+
 ## 0.3.1 - 2026-10-25
 
 ### New
