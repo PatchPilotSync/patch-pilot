@@ -14,18 +14,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use patchpilot_core::ItemKind;
 use serde::{Deserialize, Serialize};
 
+use crate::reapack::is_reapack;
 use crate::{Comparison, ComparisonRow, ParityState};
 
 /// Rows of `c` that could go into the Golden Rig: products Golden doesn't
 /// have, or has an older version of. Folders and configs are left out (a
 /// sample library or a settings file isn't something to add from one
-/// machine).
+/// machine), except ReaPack repositories, which its packages need.
 pub fn suggestions(c: &Comparison) -> impl Iterator<Item = &ComparisonRow> {
     c.rows.iter().filter(|r| {
         matches!(r.state, ParityState::Extra | ParityState::NewerThanGolden)
-            && !matches!(r.kind, ItemKind::Folder | ItemKind::Config)
+            && (!matches!(r.kind, ItemKind::Folder | ItemKind::Config) || is_reapack(&r.product_id))
     })
 }
+
+/// ReaPack can bring thousands of scripts; alerts name them as one thing.
+const REAPACK_GROUP: &str = "ReaPack packages";
 
 /// Identifies a suggestion across scans and machines: the product and the
 /// machine's version, so ignoring Serum 2.0 still suggests Serum 2.1 later.
@@ -92,7 +96,14 @@ impl Observed {
             score: c.score,
             gaps: gaps(c).map(|r| (gap_keys(r), gap_sentence(r))).collect(),
             suggestions: suggestions(c)
-                .map(|r| (row_suggestion_key(r), r.name.clone()))
+                .map(|r| {
+                    let name = if is_reapack(&r.product_id) {
+                        REAPACK_GROUP.to_owned()
+                    } else {
+                        r.name.clone()
+                    };
+                    (row_suggestion_key(r), name)
+                })
                 .filter(|(k, _)| !ignored.contains(k))
                 .collect(),
         }
@@ -100,6 +111,9 @@ impl Observed {
 }
 
 fn gap_sentence(r: &ComparisonRow) -> String {
+    if is_reapack(&r.product_id) {
+        return format!("{REAPACK_GROUP} are missing or out of date");
+    }
     match r.state {
         ParityState::Missing => format!("{} is missing", r.name),
         ParityState::Outdated => format!("{} is out of date", r.name),
@@ -212,6 +226,7 @@ pub fn alerts(seen: &Seen, now: &[Observed]) -> (Vec<Alert>, Seen) {
                 .filter(|(k, _)| k.iter().any(|k| !before.gaps.contains(k)))
                 .map(|(_, s)| s.clone())
                 .collect();
+            let items = dedup(items);
             if !items.is_empty() {
                 out.push(Alert::Drift {
                     machine_id: m.machine_id.clone(),
@@ -226,6 +241,7 @@ pub fn alerts(seen: &Seen, now: &[Observed]) -> (Vec<Alert>, Seen) {
                 .filter(|(k, _)| !before.suggestions.contains(k))
                 .map(|(_, n)| n.clone())
                 .collect();
+            let products = dedup(products);
             if m.is_this_machine && !products.is_empty() {
                 out.push(Alert::Suggest {
                     machine_id: m.machine_id.clone(),
@@ -237,6 +253,12 @@ pub fn alerts(seen: &Seen, now: &[Observed]) -> (Vec<Alert>, Seen) {
         next.machines.insert(m.machine_id.clone(), entry);
     }
     (out, next)
+}
+
+/// Drop repeats, keeping the first of each.
+fn dedup(v: Vec<String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    v.into_iter().filter(|s| seen.insert(s.clone())).collect()
 }
 
 #[cfg(test)]
@@ -356,6 +378,29 @@ mod tests {
         assert!(o.suggestions.is_empty());
         let (a, _) = alerts(&seen, &[o]);
         assert!(a.is_empty());
+    }
+
+    #[test]
+    fn reapack_scripts_alert_as_one_thing() {
+        let none = BTreeSet::new();
+        let before = studio(|_| {});
+        let after = studio(|m| {
+            for n in 0..50 {
+                add_product(
+                    m,
+                    &format!("reapack/reateam/various/s{n}"),
+                    &format!("Script {n}"),
+                    "1.0",
+                );
+            }
+            add_product(m, "acme-delay", "Acme Delay", "1.0.0");
+        });
+        let (_, seen) = alerts(&Seen::default(), &[observe(&before, true, &none)]);
+        let (a, _) = alerts(&seen, &[observe(&after, true, &none)]);
+        let [Alert::Suggest { products, .. }] = a.as_slice() else {
+            panic!("{a:?}")
+        };
+        assert_eq!(products, &["Acme Delay", "ReaPack packages"]);
     }
 
     #[test]

@@ -462,6 +462,9 @@ async fn check(res: reqwest::Response) -> Result<reqwest::Response, String> {
         return Ok(res);
     }
     let status = res.status();
+    if status == reqwest::StatusCode::PAYLOAD_TOO_LARGE {
+        return Err("this machine's list is too big for the sync service".to_owned());
+    }
     let body = res.text().await.unwrap_or_default();
     Err(format!("sync service: {status} {}", body.trim()))
 }

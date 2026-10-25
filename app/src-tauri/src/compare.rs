@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use patchpilot_core::{Bundle, Os};
+use patchpilot_core::{Bundle, Os, ProductId};
 use patchpilot_local::up_to_speed::{PlanStart, load_up_to_speed, save_up_to_speed};
 use patchpilot_parity::{
     Comparison, Plan, SetupProgress, compare, plan_still_covers, suggestion_key, up_to_speed,
@@ -235,18 +235,25 @@ pub async fn add_to_golden(
     Ok(v.version)
 }
 
-/// "Ignore" on a suggestion: stop offering this version of the product, on
-/// every linked machine.
+/// One suggestion to ignore: a product and the machine's version of it.
+#[derive(Debug, serde::Deserialize)]
+pub struct IgnoreItem {
+    pub product: String,
+    pub version: Option<String>,
+}
+
+/// "Ignore" on suggestions: stop offering these versions of the products, on
+/// every linked machine. Takes a list so ReaPack's thousands of scripts are
+/// one call.
 #[tauri::command]
-pub async fn ignore_suggestion(
-    app: AppHandle,
-    product: String,
-    version: Option<String>,
-) -> Result<(), String> {
+pub async fn ignore_suggestions(app: AppHandle, items: Vec<IgnoreItem>) -> Result<(), String> {
     let mut store = existing_store()?.ok_or("no saved scans yet")?;
-    store
-        .ignore_suggestion(&product, version.as_deref(), patchpilot_local::now())
-        .map_err(err)?;
+    let now = patchpilot_local::now();
+    for i in &items {
+        store
+            .ignore_suggestion(&i.product, i.version.as_deref(), now)
+            .map_err(err)?;
+    }
     changed_here(&app, &store);
     Ok(())
 }
@@ -270,7 +277,7 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
         let (score, suggestions) = match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
             (Some(g), Some(scan)) => {
                 let c = compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan);
-                (Some(c.score), suggested(&c, &ignored).len())
+                (Some(c.score), suggestion_count(&suggested(&c, &ignored)))
             }
             _ => (None, 0),
         };
@@ -323,7 +330,7 @@ pub(crate) fn comparison(
                 name: p.name,
             }),
             score: Some(comparison.score),
-            suggestions: suggested.len(),
+            suggestions: suggestion_count(&suggested),
             id: info.id,
             name: info.name,
             os: info.os,
@@ -332,6 +339,12 @@ pub(crate) fn comparison(
         comparison,
         suggested,
     })
+}
+
+/// How many suggestions to show: ReaPack's packages count as one.
+fn suggestion_count(ids: &[String]) -> usize {
+    let reapack = |id: &String| patchpilot_parity::reapack::is_reapack(&ProductId(id.clone()));
+    ids.iter().filter(|id| !reapack(id)).count() + usize::from(ids.iter().any(reapack))
 }
 
 fn suggested(c: &Comparison, ignored: &BTreeSet<String>) -> Vec<String> {
