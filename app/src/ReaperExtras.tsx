@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fixReaperFolders, reaperExtras, restoreReapack, type ReaperExtras as Extras } from "./api";
-import { Badge, Button } from "./ui";
+import { Badge, Button, Folder, useFolders } from "./ui";
 
 /**
  * Reaper extras (decision #52): the Golden Rig's ReaPack repositories and
@@ -13,6 +13,7 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"reapack" | "folders" | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const folders = useFolders("reaper-extras");
 
   const load = useCallback(() => {
     reaperExtras().then(setExtras, (e) => onError(String(e)));
@@ -77,25 +78,47 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
           {!extras.reapack_installed && (
             <p className="text-[11px] text-warn">Install ReaPack in Reaper first (reapack.com), then rescan.</p>
           )}
-          <ul className="mt-1 flex flex-col text-xs">
-            {remotes.map((r) => (
-              <li key={r.url} className="flex items-center gap-2 py-0.5">
-                <span className="min-w-0 flex-1 truncate" title={r.url}>
-                  {r.name}
-                </span>
-                <Badge>Repository</Badge>
-              </li>
+          <div className="-mx-1 mt-1 text-xs">
+            {remotes.length > 0 && (
+              <Folder
+                title="Repositories"
+                count={remotes.length}
+                className="px-1"
+                open={folders.isOpen("remotes")}
+                onToggle={() => folders.toggle("remotes")}
+              >
+                <ul className="flex flex-col pl-5 pr-1">
+                  {remotes.map((r) => (
+                    <li key={r.url} className="truncate py-0.5" title={r.url}>
+                      {r.name}
+                    </li>
+                  ))}
+                </ul>
+              </Folder>
+            )}
+            {byRemote(packages).map(([remote, ps]) => (
+              <Folder
+                key={remote}
+                title={remote}
+                count={ps.length}
+                className="px-1"
+                open={folders.isOpen(`packages/${remote}`)}
+                onToggle={() => folders.toggle(`packages/${remote}`)}
+              >
+                <ul className="flex flex-col pl-5 pr-1">
+                  {ps.map((p) => (
+                    <li key={`${p.remote}/${p.category}/${p.package}`} className="flex items-center gap-2 py-0.5">
+                      <span className="min-w-0 flex-1 truncate" title={`${p.remote} · ${p.category}`}>
+                        {p.desc || p.package}
+                        <span className="ml-1.5 text-[11px] text-dim">{p.category}</span>
+                      </span>
+                      <span className="text-[11px] tabular-nums text-dim">{p.version}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Folder>
             ))}
-            {packages.map((p) => (
-              <li key={`${p.remote}/${p.category}/${p.package}`} className="flex items-center gap-2 py-0.5">
-                <span className="min-w-0 flex-1 truncate" title={`${p.remote} · ${p.category}`}>
-                  {p.desc || p.package}
-                  <span className="ml-1.5 text-[11px] text-dim">{p.remote}</span>
-                </span>
-                <span className="text-[11px] tabular-nums text-dim">{p.version}</span>
-              </li>
-            ))}
-          </ul>
+          </div>
           <p className="mt-1 text-[11px] text-dim">
             Patch Pilot adds the repositories and marks the packages for ReaPack, which downloads them when you choose
             Synchronize packages. Reaper must be closed.
@@ -135,6 +158,13 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
       )}
     </section>
   );
+}
+
+/** Packages grouped by the repository they come from, in first-seen order. */
+function byRemote<P extends { remote: string }>(packages: P[]): [string, P[]][] {
+  const m = new Map<string, P[]>();
+  for (const p of packages) m.set(p.remote, [...(m.get(p.remote) ?? []), p]);
+  return [...m.entries()];
 }
 
 function count(n: number, one: string, many = `${one}s`): string {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { bringFiles, fileKey, filesToBring, type BringResult, type BringView, type FileToBring } from "./api";
-import { Badge, Button } from "./ui";
+import { Badge, Button, Folder, useFolders } from "./ui";
 
 /**
  * Bring over (decision #45): the Golden Rig's templates, scripts and themes
@@ -23,6 +23,8 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   const files = useMemo(() => view?.files.filter((f) => !f.too_large) ?? [], [view]);
   const chosen = files.filter((f) => !skipped.has(fileKey(f)));
   const groups = useMemo(() => groupByApp(view?.files ?? []), [view]);
+  // One app opens by default; its kinds (Scripts, FX chains, ...) stay folded.
+  const folders = useFolders("bring-over", (id) => !id.includes("/") && groups.length === 1);
 
   if (!view || (view.files.length === 0 && !result)) return null;
 
@@ -94,39 +96,46 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
 
       {open && (
         <div className="mt-2 flex flex-col gap-2">
-          {groups.map(([app, fs]) => (
-            <div key={app}>
-              <h3 className="pb-0.5 text-[11px] font-medium text-dim">{app}</h3>
-              <ul className="-mx-1 flex flex-col">
-                {fs.map((f) => {
-                  const k = fileKey(f);
+          <div className="-mx-1">
+            {groups.map(([app, fs]) => (
+              <Folder
+                key={app}
+                title={app}
+                count={fs.length}
+                className="px-1 text-xs"
+                open={folders.isOpen(app)}
+                onToggle={() => folders.toggle(app)}
+              >
+                {groupByKind(fs).map(([kind, ks]) => {
+                  const id = `${app}/${kind}`;
+                  const ticked = ks.filter((f) => !f.too_large && !skipped.has(fileKey(f))).length;
                   return (
-                    <li key={k}>
-                      <label className="flex items-center gap-2 rounded-[5px] px-1 py-1 hover:bg-sel/50">
-                        <input
-                          type="checkbox"
-                          className="accent-accent"
-                          disabled={f.too_large || !view.linked}
-                          checked={!f.too_large && !skipped.has(k)}
-                          onChange={() => toggle(k)}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-xs" title={f.rel}>
-                          {fileName(f.rel)}
-                          <span className="ml-1.5 text-[11px] text-dim">{folder(f.rel)}</span>
-                        </span>
-                        {f.too_large ? (
-                          <Badge>Too large to send</Badge>
-                        ) : (
-                          f.replaces && <Badge tone="amber">Updates this machine's copy</Badge>
-                        )}
-                        <Badge>{f.kind}</Badge>
-                      </label>
-                    </li>
+                    <Folder
+                      key={id}
+                      title={plural(kind)}
+                      count={ks.length}
+                      className="pl-5 pr-1 text-xs"
+                      open={folders.isOpen(id)}
+                      onToggle={() => folders.toggle(id)}
+                      badges={view.linked && ticked < ks.length && <Badge>{ticked} ticked</Badge>}
+                    >
+                      <ul className="flex flex-col pl-4">
+                        {ks.map((f) => (
+                          <FileLine
+                            key={fileKey(f)}
+                            f={f}
+                            linked={view.linked}
+                            checked={!skipped.has(fileKey(f))}
+                            onToggle={() => toggle(fileKey(f))}
+                          />
+                        ))}
+                      </ul>
+                    </Folder>
                   );
                 })}
-              </ul>
-            </div>
-          ))}
+              </Folder>
+            ))}
+          </div>
           <p className="text-[11px] text-dim">
             Plug-ins aren't copied: they need their installers and licences. Anything replaced is backed up in Patch
             Pilot's app folder first.
@@ -135,6 +144,47 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
       )}
     </section>
   );
+}
+
+function FileLine({
+  f,
+  linked,
+  checked,
+  onToggle,
+}: {
+  f: FileToBring;
+  linked: boolean;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li>
+      <label className="flex items-center gap-2 rounded-[5px] px-1 py-1 hover:bg-sel/50">
+        <input
+          type="checkbox"
+          className="accent-accent"
+          disabled={f.too_large || !linked}
+          checked={!f.too_large && checked}
+          onChange={onToggle}
+        />
+        <span className="min-w-0 flex-1 truncate text-xs" title={f.rel}>
+          {fileName(f.rel)}
+          <span className="ml-1.5 text-[11px] text-dim">{folder(f.rel)}</span>
+        </span>
+        {f.too_large ? (
+          <Badge>Too large to send</Badge>
+        ) : (
+          f.replaces && <Badge tone="amber">Updates this machine's copy</Badge>
+        )}
+      </label>
+    </li>
+  );
+}
+
+function groupByKind(files: FileToBring[]): [string, FileToBring[]][] {
+  const m = new Map<string, FileToBring[]>();
+  for (const f of files) m.set(f.kind, [...(m.get(f.kind) ?? []), f]);
+  return [...m.entries()];
 }
 
 function groupByApp(files: FileToBring[]): [string, FileToBring[]][] {

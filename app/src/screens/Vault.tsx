@@ -16,7 +16,7 @@ import {
   type VaultEntry,
   type VaultView,
 } from "../api";
-import { Badge, Button, inputClass, timeAgo } from "../ui";
+import { Badge, Button, Folder, FolderControls, inputClass, timeAgo, useFolders } from "../ui";
 
 const OS_LABEL: Record<Os, string> = { windows: "Windows", macos: "macOS" };
 
@@ -309,6 +309,7 @@ function Entries({ entries, onError }: { entries: VaultEntry[]; onError: (e: str
     return [...by.entries()];
   }, [entries]);
   const [running, setRunning] = useState<string | null>(null);
+  const folders = useFolders("vault");
 
   async function run(e: VaultEntry) {
     setRunning(e.id);
@@ -323,12 +324,21 @@ function Entries({ entries, onError }: { entries: VaultEntry[]; onError: (e: str
 
   return (
     <>
-      {groups.map(([vendor, rows]) => (
-        <section key={vendor}>
-          <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">{vendor}</h3>
-          <ul>
+      <FolderControls ids={groups.map(([v]) => v)} folders={folders} className="px-3 pt-2" />
+      {groups.map(([vendor, rows]) => {
+        const missing = rows.filter((e) => e.missing).length;
+        return (
+        <Folder
+          key={vendor}
+          title={vendor}
+          count={rows.length}
+          open={folders.isOpen(vendor)}
+          onToggle={() => folders.toggle(vendor)}
+          badges={missing > 0 && <Badge tone="amber">{missing} file{missing === 1 ? "" : "s"} missing</Badge>}
+        >
+          <ul className="pb-1">
             {rows.map((e) => (
-              <li key={e.id} className="group flex h-7 items-center gap-2 px-4 hover:bg-sel/60">
+              <li key={e.id} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
                 <span className="min-w-0 flex-1 truncate" title={e.file}>
                   {e.product}
                   {e.version && <span className="ml-2 font-mono text-[11px] text-dim">{e.version}</span>}
@@ -355,8 +365,9 @@ function Entries({ entries, onError }: { entries: VaultEntry[]; onError: (e: str
               </li>
             ))}
           </ul>
-        </section>
-      ))}
+        </Folder>
+        );
+      })}
     </>
   );
 }
