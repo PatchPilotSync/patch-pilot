@@ -45,6 +45,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string[] | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
+  const [compareId, setCompareId] = useState<string | null>(null);
   const [tour, setTour] = useState(tourPending);
   // "Replay First Run" in the tray menu (temporary, for testing onboarding):
   // the welcome screen and tour as a new user sees them. Saved data is untouched;
@@ -97,6 +98,7 @@ export default function App() {
     // The tray popover's Expand / Get Up To Speed buttons land here.
     const unlistenShow = listen<{ id: string; plan: boolean }>("show-machine", (e) => {
       setFocus({ ...e.payload, at: Date.now() });
+      setCompareId(e.payload.id);
       setTab("compare");
     });
     // A rescan from the tray popover.
@@ -235,7 +237,7 @@ export default function App() {
         ) : tab === "history" ? (
           <History refreshKey={dataVersion} onError={onError} />
         ) : tab === "compare" && view && canCompare ? (
-          <Compare view={view} focus={focus} onError={onError} />
+          <Compare view={view} focus={focus} chosen={compareId} onChoose={setCompareId} onError={onError} />
         ) : (
           <>
             {setup?.offer && <SetupOffer onOpen={() => setTab("setup")} />}
