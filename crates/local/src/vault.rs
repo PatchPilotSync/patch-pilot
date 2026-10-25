@@ -109,6 +109,16 @@ pub fn inbox(
         .collect()
 }
 
+/// Installers in `downloads` the user skipped, newest first, so a skip can
+/// be undone.
+pub fn skipped(downloads: &Path, dismissed: &[String], products: &[Product]) -> Vec<InboxItem> {
+    installers_in(downloads)
+        .into_iter()
+        .filter_map(|path| inspect(&path, products))
+        .filter(|item| dismissed.contains(&dismiss_key(&item.file_name, item.size)))
+        .collect()
+}
+
 /// What Patch Pilot makes of one installer file; `None` if it isn't a
 /// readable installer file.
 pub fn inspect(path: &Path, products: &[Product]) -> Option<InboxItem> {
@@ -211,5 +221,8 @@ mod tests {
         assert_eq!(items[0].file_name, "FabFilter Pro-Q 3 v3.21 Installer.exe");
         assert_eq!(items[0].guess.version.as_deref(), Some("3.21"));
         assert_eq!(items[0].product.as_ref().unwrap().name, "Pro-Q 3");
+        let skipped = skipped(&downloads, &[dismiss_key("Junk Setup.exe", 1)], &products);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].file_name, "Junk Setup.exe");
     }
 }

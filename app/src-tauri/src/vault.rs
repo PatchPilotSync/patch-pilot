@@ -38,6 +38,8 @@ pub struct VaultView {
     pub downloads: Option<String>,
     pub entries: Vec<EntryView>,
     pub inbox: Vec<InboxItem>,
+    /// Downloads the user skipped, so a skip can be undone.
+    pub skipped: Vec<InboxItem>,
     /// Products an installer can be filed under.
     pub products: Vec<Product>,
     /// Set when the vault folder can't be read (e.g. a NAS that's offline).
@@ -148,21 +150,43 @@ pub async fn vault_inspect(paths: Vec<PathBuf>) -> Result<Vec<InboxItem>, String
     .map_err(|e| e.to_string())?
 }
 
-/// "Not for the vault": hide this download from the inbox.
+/// "Not for the vault" (`skip`), or undo that: hide these downloads from
+/// the new-installer list, or bring them back.
 #[tauri::command]
-pub async fn vault_dismiss(path: PathBuf) -> Result<(), String> {
-    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+pub async fn vault_skip(paths: Vec<PathBuf>, skip: bool) -> Result<(), String> {
+    // One change to the settings file at a time, so quick skips don't
+    // overwrite each other.
+    static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
+    let _turn = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = settings_dir()?;
     let mut settings = VaultSettings::load(&dir);
-    let key = dismiss_key(&name, meta.len());
-    if !settings.dismissed.contains(&key) {
-        settings.dismissed.push(key);
+    for path in &paths {
+        let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let key = dismiss_key(&name, meta.len());
+        settings.dismissed.retain(|k| *k != key);
+        if skip {
+            settings.dismissed.push(key);
+        }
     }
     settings.save(&dir).map_err(|e| e.to_string())
+}
+
+/// Take an installer back out of the vault (undo an add). Only Patch
+/// Pilot's copy is deleted; the original download stays.
+#[tauri::command]
+pub async fn vault_remove(entry_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        vault()?
+            .remove(&entry_id)
+            .map(drop)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Installers in the vault for `products`, for this machine's OS.
@@ -287,6 +311,7 @@ fn view() -> Result<VaultView, String> {
         downloads: downloads.as_ref().map(|d| d.display().to_string()),
         entries: Vec::new(),
         inbox: Vec::new(),
+        skipped: Vec::new(),
         products: products()?,
         problem: None,
     };
@@ -319,6 +344,7 @@ fn view() -> Result<VaultView, String> {
         .collect();
     if let Some(d) = &downloads {
         out.inbox = patchpilot_local::vault::inbox(d, &index, &settings.dismissed, &out.products);
+        out.skipped = patchpilot_local::vault::skipped(d, &settings.dismissed, &out.products);
     }
     Ok(out)
 }

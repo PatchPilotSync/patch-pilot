@@ -161,6 +161,15 @@ fn version_string(words: &[&str]) -> String {
     if first.contains('.') {
         return first.to_owned();
     }
+    // u-he and others write 1.4.5 as "145": a lone bare three-digit number
+    // is read digit by digit.
+    if !words[0].starts_with(['v', 'V'])
+        && first.len() == 3
+        && words.get(1).is_none_or(|w| w.len() >= 4)
+    {
+        let d: Vec<String> = first.chars().map(String::from).collect();
+        return d.join(".");
+    }
     let mut nums = vec![first];
     for w in &words[1..] {
         if w.len() >= 4 {
@@ -223,7 +232,7 @@ mod tests {
         );
         assert_eq!(
             g("Diva_145_12345_Mac.zip"),
-            ("Diva".into(), Some("145".into()), Some(Os::Macos), None)
+            ("Diva".into(), Some("1.4.5".into()), Some(Os::Macos), None)
         );
         assert_eq!(
             g("ValhallaRoom_2_0_5_Win.zip"),
