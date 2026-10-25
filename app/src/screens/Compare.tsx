@@ -26,7 +26,7 @@ import {
 import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
 import { StepList, type Actions } from "./Setup";
-import { Badge, Button, Folder, FolderControls, inputClass, Pill, ScoreBar, scoreColor, timeAgo, useFolders } from "../ui";
+import { Badge, Button, buildTree, Folder, FolderControls, FolderTree, inputClass, isConflictCopy, Pill, ScoreBar, scoreColor, timeAgo, useFolders } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
   "missing",
@@ -65,10 +65,34 @@ const FLAT_MAX = 30;
  */
 function subGroups(rows: ComparisonRow[]): [string, ComparisonRow[]][] | null {
   const reapack = rows.filter((r) => isReapack(r.product_id));
-  if (rows.length <= FLAT_MAX && reapack.length <= 1) return null;
-  const groups = byVendor(rows.filter((r) => !isReapack(r.product_id)));
+  const files = rows.filter(isReaperFile);
+  if (rows.length <= FLAT_MAX && reapack.length <= 1 && files.length <= 1) return null;
+  const groups = byVendor(rows.filter((r) => !isReapack(r.product_id) && !isReaperFile(r)));
+  if (files.length) groups.push([REAPER_FILES, files]);
   if (reapack.length) groups.push(["ReaPack", reapack]);
-  return groups.length > 1 || reapack.length > 1 ? groups : null;
+  return groups.length > 1 || reapack.length > 1 || files.length > 1 ? groups : null;
+}
+
+/** The folder Reaper's own files (scripts, themes, templates, key maps) go in, nested by their paths. */
+const REAPER_FILES = "Reaper files";
+
+/** A file from Reaper's resource folder; its name is its path there, e.g. `ColorThemes/Default_7.0.ReaperThemeZip`. */
+const isReaperFile = (r: ComparisonRow) => /^reaper-(script|theme|config|template)\//.test(r.product_id);
+
+/** Reaper's resource folders under friendlier names. */
+const REAPER_FOLDER: Record<string, string> = {
+  Scripts: "Scripts",
+  ColorThemes: "Themes",
+  FXChains: "FX chains",
+  TrackTemplates: "Track templates",
+  ProjectTemplates: "Project templates",
+};
+
+/** `Scripts/ReaTeam Scripts/Items/x.lua` -> Scripts, ReaTeam Scripts, Items. Loose files (`reaper-kb.ini`) are configuration. */
+function reaperDirs(r: ComparisonRow): string[] {
+  const dirs = r.name.split("/").slice(0, -1);
+  if (dirs.length === 0) return ["Configuration"];
+  return [REAPER_FOLDER[dirs[0]] ?? dirs[0], ...dirs.slice(1)];
 }
 
 /** Rows in one folder per vendor, A to Z. */
@@ -83,11 +107,14 @@ function byVendor(rows: ComparisonRow[]): [string, ComparisonRow[]][] {
 
 function DiffRow({
   r,
+  label,
   selected,
   onSelect,
   showVendor,
 }: {
   r: ComparisonRow;
+  /** Shown instead of the name, e.g. just the file name inside a path folder. */
+  label?: string;
   selected: ComparisonRow | null;
   onSelect: (r: ComparisonRow) => void;
   showVendor: boolean;
@@ -100,16 +127,23 @@ function DiffRow({
           selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
         }`}
       >
-        <span className="min-w-0 flex-1 truncate">
-          {r.name}
+        <span className="min-w-0 flex-1 truncate" title={label ? r.name : undefined}>
+          {label ?? r.name}
           {showVendor && r.vendor && <span className="ml-2 text-xs text-dim">{r.vendor}</span>}
         </span>
+        {isConflictCopy(r.name) && (
+          <span title="A copy a sync app (Dropbox, OneDrive...) made when two machines changed this file at once. You can delete it.">
+            <Badge tone="amber">conflict copy</Badge>
+          </span>
+        )}
         {r.needed_by_templates && <Badge tone="amber">template</Badge>}
         {r.confidence === "low" && <Badge tone="amber">name only</Badge>}
         {r.missing_formats.map((f) => (
           <Badge key={f}>no {FORMAT_LABEL[f]}</Badge>
         ))}
-        <span className="w-28 shrink-0 text-right font-mono text-[11px] text-dim">{versionPair(r)}</span>
+        {(!label || versionPair(r)) && (
+          <span className="w-28 shrink-0 text-right font-mono text-[11px] text-dim">{versionPair(r)}</span>
+        )}
       </button>
     </li>
   );
@@ -436,11 +470,33 @@ function Diff({
                       open={folders.isOpen(id)}
                       onToggle={() => folders.toggle(id)}
                     >
-                      <ul className="pl-8">
-                        {rs.map((r) => (
-                          <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor={false} />
-                        ))}
-                      </ul>
+                      {name === REAPER_FILES ? (
+                        <FolderTree
+                          node={buildTree(rs, reaperDirs, id)}
+                          folders={folders}
+                          indent={40}
+                          renderItems={(items, indent) => (
+                            <ul style={{ paddingLeft: indent }}>
+                              {items.map((r) => (
+                                <DiffRow
+                                  key={r.product_id}
+                                  r={r}
+                                  label={r.name.split("/").pop()}
+                                  selected={selected}
+                                  onSelect={onSelect}
+                                  showVendor={false}
+                                />
+                              ))}
+                            </ul>
+                          )}
+                        />
+                      ) : (
+                        <ul className="pl-8">
+                          {rs.map((r) => (
+                            <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor={false} />
+                          ))}
+                        </ul>
+                      )}
                     </Folder>
                   );
                 })
@@ -716,8 +772,8 @@ function SuggestionsNotice({
   const n = others.length + (reapack.length ? 1 : 0);
   const first = others[0]?.name ?? reapackLabel(reapack);
   const where = data.machine.is_this_machine ? "this machine" : data.machine.name;
-  const othersGroups = others.length > FLAT_MAX ? byVendor(others) : null;
-  const suggestionRow = (r: ComparisonRow) => (
+  const othersGroups = others.length > FLAT_MAX ? subGroups(others) : null;
+  const suggestionRow = (r: ComparisonRow, label?: string) => (
     <li
       key={r.product_id}
       className={`flex h-7 items-center gap-2 rounded-[5px] px-2 ${
@@ -725,10 +781,11 @@ function SuggestionsNotice({
       }`}
     >
       <button onClick={() => onSelect(r)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <span className="min-w-0 flex-1 truncate">
-          {r.name}
-          {r.vendor && <span className="ml-2 text-dim">{r.vendor}</span>}
+        <span className="min-w-0 flex-1 truncate" title={label ? r.name : undefined}>
+          {label ?? r.name}
+          {!label && r.vendor && <span className="ml-2 text-dim">{r.vendor}</span>}
         </span>
+        {isConflictCopy(r.name) && <Badge tone="amber">conflict copy</Badge>}
         <span className="shrink-0 font-mono text-[11px] text-dim">
           {r.state === "extra" ? "not in Golden" : `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`}
         </span>
@@ -811,11 +868,24 @@ function SuggestionsNotice({
                     open={folders.isOpen(vendor)}
                     onToggle={() => folders.toggle(vendor)}
                   >
-                    <ul className="pl-4">{rs.map(suggestionRow)}</ul>
+                    {vendor === REAPER_FILES ? (
+                      <FolderTree
+                        node={buildTree(rs, reaperDirs, `files`)}
+                        folders={folders}
+                        indent={22}
+                        renderItems={(items, indent) => (
+                          <ul style={{ paddingLeft: indent - 8 }}>
+                            {items.map((r) => suggestionRow(r, r.name.split("/").pop()))}
+                          </ul>
+                        )}
+                      />
+                    ) : (
+                      <ul className="pl-4">{rs.map((r) => suggestionRow(r))}</ul>
+                    )}
                   </Folder>
                 </li>
               ) : (
-                rs.map(suggestionRow)
+                rs.map((r) => suggestionRow(r))
               ),
             )}
           </ul>

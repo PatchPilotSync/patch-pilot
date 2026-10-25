@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { bringFiles, fileKey, filesToBring, type BringResult, type BringView, type FileToBring } from "./api";
-import { Badge, Button, Folder, useFolders } from "./ui";
+import { Badge, Button, buildTree, Folder, FolderTree, isConflictCopy, useFolders } from "./ui";
 
 /**
  * Bring over (decision #45): the Golden Rig's templates, scripts and themes
@@ -21,7 +21,9 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   useEffect(load, [load]);
 
   const files = useMemo(() => view?.files.filter((f) => !f.too_large) ?? [], [view]);
-  const chosen = files.filter((f) => !skipped.has(fileKey(f)));
+  // Sync-app conflict copies start unticked; a tick flips a file from its default.
+  const isSkipped = (f: FileToBring) => skipped.has(fileKey(f)) !== isConflictCopy(f.rel);
+  const chosen = files.filter((f) => !isSkipped(f));
   const groups = useMemo(() => groupByApp(view?.files ?? []), [view]);
   // One app opens by default; its kinds (Scripts, FX chains, ...) stay folded.
   const folders = useFolders("bring-over", (id) => !id.includes("/") && groups.length === 1);
@@ -108,7 +110,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
               >
                 {groupByKind(fs).map(([kind, ks]) => {
                   const id = `${app}/${kind}`;
-                  const ticked = ks.filter((f) => !f.too_large && !skipped.has(fileKey(f))).length;
+                  const ticked = ks.filter((f) => !f.too_large && !isSkipped(f)).length;
                   return (
                     <Folder
                       key={id}
@@ -119,17 +121,24 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                       onToggle={() => folders.toggle(id)}
                       badges={view.linked && ticked < ks.length && <Badge>{ticked} ticked</Badge>}
                     >
-                      <ul className="flex flex-col pl-4">
-                        {ks.map((f) => (
-                          <FileLine
-                            key={fileKey(f)}
-                            f={f}
-                            linked={view.linked}
-                            checked={!skipped.has(fileKey(f))}
-                            onToggle={() => toggle(fileKey(f))}
-                          />
-                        ))}
-                      </ul>
+                      <FolderTree
+                        node={buildTree(ks, (f) => f.rel.split("/").slice(1, -1), id)}
+                        folders={folders}
+                        indent={36}
+                        renderItems={(items, indent) => (
+                          <ul className="flex flex-col" style={{ paddingLeft: indent }}>
+                            {items.map((f) => (
+                              <FileLine
+                                key={fileKey(f)}
+                                f={f}
+                                linked={view.linked}
+                                checked={!isSkipped(f)}
+                                onToggle={() => toggle(fileKey(f))}
+                              />
+                            ))}
+                          </ul>
+                        )}
+                      />
                     </Folder>
                   );
                 })}
@@ -169,8 +178,12 @@ function FileLine({
         />
         <span className="min-w-0 flex-1 truncate text-xs" title={f.rel}>
           {fileName(f.rel)}
-          <span className="ml-1.5 text-[11px] text-dim">{folder(f.rel)}</span>
         </span>
+        {isConflictCopy(f.rel) && (
+          <span title="A copy a sync app (Dropbox, OneDrive...) made when two machines changed this file at once. Not ticked, so it stays behind.">
+            <Badge tone="amber">conflict copy</Badge>
+          </span>
+        )}
         {f.too_large ? (
           <Badge>Too large to send</Badge>
         ) : (
@@ -211,8 +224,4 @@ function plural(s: string): string {
 
 function fileName(rel: string): string {
   return rel.slice(rel.lastIndexOf("/") + 1);
-}
-
-function folder(rel: string): string {
-  return rel.slice(0, Math.max(0, rel.lastIndexOf("/")));
 }

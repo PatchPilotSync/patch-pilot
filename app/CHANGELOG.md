@@ -6,6 +6,10 @@ becomes its release notes, which the app shows when it offers that update
 
 ## Unreleased
 
+### Improved
+
+- Reaper files in Compare and Bring over fold by folder: Scripts, Themes, FX chains, templates and configuration each get a folder, and so does every subfolder inside them (ReaTeam Scripts, Items Editing...). Copies a sync app like Dropbox made of a file ("conflicted copy") are marked, and Bring over leaves them unticked.
+
 ### Fixed
 
 - Compare really stays on the machine you click now. With a big rig, the slower comparison of this machine could finish after the one you picked and replace it on screen, while the sidebar still showed your pick.
