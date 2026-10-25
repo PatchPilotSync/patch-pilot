@@ -11,7 +11,7 @@ import {
   type UpdateAlert,
   type VendorApp,
 } from "../api";
-import { Badge, Button, inputClass, Pill, timeAgo } from "../ui";
+import { Badge, Button, Folder, FolderControls, inputClass, Pill, timeAgo, useFolders } from "../ui";
 
 type Grouping = "vendor" | "format";
 
@@ -66,6 +66,8 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
       }))
       .filter((g) => g.rows.length > 0);
   }, [inv, grouping, query]);
+  const folders = useFolders(`rig.${grouping}`);
+  const filtering = query.trim() !== "";
 
   if (!machine || !inv) return null;
 
@@ -108,15 +110,18 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
 
       {alerts.length > 0 && <Updates alerts={alerts} />}
 
-      <div className="px-4 pt-3">
-        <h2 className="text-sm font-semibold">
-          Plug-ins installed on this machine{" "}
-          <span className="font-normal tabular-nums text-dim">{inv.products.toLocaleString()}</span>
-        </h2>
-        <p className="text-xs text-dim">
-          {plural(vendorCount, "vendor")} · {plural(inv.plugins, "file")} in the standard plug-in folders. Read
-          only: nothing is loaded or changed.
-        </p>
+      <div className="flex items-end gap-3 pl-4 pr-3 pt-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold">
+            Plug-ins installed on this machine{" "}
+            <span className="font-normal tabular-nums text-dim">{inv.products.toLocaleString()}</span>
+          </h2>
+          <p className="text-xs text-dim">
+            {plural(vendorCount, "vendor")} · {plural(inv.plugins, "file")} in the standard plug-in folders. Read
+            only: nothing is loaded or changed.
+          </p>
+        </div>
+        {!filtering && <FolderControls ids={groups.map((g) => g.title)} folders={folders} className="" />}
       </div>
 
       <div className="flex flex-wrap items-center gap-1 px-3 pb-1 pt-2">
@@ -146,24 +151,36 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
           {inv.products === 0 ? "No plug-ins found in the standard folders." : "Nothing matches."}
         </p>
       )}
-      {groups.map((g) => (
-        <section key={g.title}>
-          <h3 className="flex items-baseline gap-1.5 px-4 pb-0.5 pt-2.5 text-[11px] text-dim">
-            {g.title}
-            <span className="tabular-nums opacity-70">{g.rows.length}</span>
-          </h3>
-          <ul>
-            {g.rows.map(({ vendor, p }) => (
-              <ProductLine
-                key={`${g.title}/${p.id}`}
-                p={p}
-                vendor={grouping === "format" ? vendor : null}
-                update={alertById.get(p.id)}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
+      {groups.map((g) => {
+        const updateCount = g.rows.filter(({ p }) => alertById.has(p.id)).length;
+        return (
+          <Folder
+            key={g.title}
+            title={g.title}
+            count={g.rows.length}
+            open={filtering || folders.isOpen(g.title)}
+            onToggle={() => folders.toggle(g.title)}
+            badges={
+              updateCount > 0 && (
+                <Badge>
+                  {updateCount} update{updateCount === 1 ? "" : "s"}
+                </Badge>
+              )
+            }
+          >
+            <ul className="pb-1">
+              {g.rows.map(({ vendor, p }) => (
+                <ProductLine
+                  key={`${g.title}/${p.id}`}
+                  p={p}
+                  vendor={grouping === "format" ? vendor : null}
+                  update={alertById.get(p.id)}
+                />
+              ))}
+            </ul>
+          </Folder>
+        );
+      })}
 
       {inv.presets.length > 0 && (
         <section>
@@ -243,7 +260,7 @@ function Updates({ alerts }: { alerts: UpdateAlert[] }) {
 
 function ProductLine({ p, vendor, update }: { p: ProductRow; vendor: string | null; update?: UpdateAlert }) {
   return (
-    <li className="flex h-7 items-center gap-3 px-4 hover:bg-sel/60">
+    <li className="flex h-7 items-center gap-3 pl-8 pr-4 hover:bg-sel/60">
       <span className="min-w-0 flex-1 truncate">
         {p.name}
         {vendor && <span className="ml-2 text-xs text-dim">{vendor}</span>}

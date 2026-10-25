@@ -25,8 +25,8 @@ import {
 } from "../api";
 import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
-import { StepRow, type Actions } from "./Setup";
-import { Badge, Button, inputClass, Pill, ScoreBar, scoreColor, timeAgo } from "../ui";
+import { StepList, type Actions } from "./Setup";
+import { Badge, Button, Folder, inputClass, Pill, ScoreBar, scoreColor, timeAgo, useFolders } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
   "missing",
@@ -444,6 +444,7 @@ function TemplatesNotice({
 }) {
   const c = data.comparison;
   const [open, setOpen] = useState(false);
+  const folders = useFolders("templates");
   const apps = useMemo(() => {
     const rows = new Map(c.rows.map((r) => [r.product_id, r]));
     const byApp = new Map<string, { templates: number; plugins: Map<string, NeededPlugin> }>();
@@ -517,9 +518,26 @@ function TemplatesNotice({
               </Button>
             )}
           </div>
-          {apps.map((a) => (
-            <AppGroup key={a.app} group={a} selected={selected} onSelect={onSelect} />
-          ))}
+          <div className="-mx-2">
+            {apps.map((a) => (
+              <Folder
+                key={a.app}
+                title={a.app}
+                count={a.plugins.length}
+                className="px-2"
+                // A lone app needs no extra click.
+                open={apps.length === 1 || folders.isOpen(a.app)}
+                onToggle={() => folders.toggle(a.app)}
+                badges={
+                  <span className="text-[11px] text-dim">
+                    {a.templates} template{a.templates === 1 ? "" : "s"}
+                  </span>
+                }
+              >
+                <AppGroup group={a} selected={selected} onSelect={onSelect} />
+              </Folder>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -537,14 +555,7 @@ function AppGroup({
 }) {
   return (
     <div>
-      <h3 className="pb-0.5 text-[11px]">
-        <span className="font-medium">{g.app}</span>{" "}
-        <span className="text-dim">
-          {g.templates} template{g.templates === 1 ? "" : "s"} · {g.plugins.length} plug-in
-          {g.plugins.length === 1 ? "" : "s"}
-        </span>
-      </h3>
-      <ul className="-mx-2 flex flex-col">
+      <ul className="flex flex-col pl-4">
         {g.plugins.map((n) => {
           const body = (
             <>
@@ -873,16 +884,7 @@ function PlanView({
       {progress?.complete && steps.length > 0 && (
         <p className="text-xs font-medium text-ok">Every step is done.</p>
       )}
-      <ol className="-mx-2 flex flex-col">
-        {steps.map((s, i) => (
-          <li key={s.key}>
-            {(i === 0 || steps[i - 1].group !== s.group) && (
-              <h3 className="px-2 pb-0.5 pt-3 text-[11px] text-dim">{s.group}</h3>
-            )}
-            <StepRow step={s} onTick={tick} actions={actions} />
-          </li>
-        ))}
-      </ol>
+      <StepList steps={steps} scope={`plan.${id}`} onTick={tick} actions={actions} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useCallback, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 export function Button({
   variant = "primary",
@@ -90,4 +90,108 @@ export function timeAgo(unixSeconds: number): string {
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   return new Date(unixSeconds * 1000).toLocaleDateString();
+}
+
+/**
+ * Open/closed state for a set of collapsible folders, remembered across launches.
+ * `scope` keeps lists apart (e.g. "rig.vendor"); null forgets on close, for short-lived
+ * lists. Folders not yet toggled use `fallback`.
+ */
+export function useFolders(scope: string | null, fallback: (id: string) => boolean = () => false) {
+  const key = scope && `pp.folders.${scope}`;
+  const [saved, setSaved] = useState<Record<string, boolean>>(() => {
+    if (!key) return {};
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  const save = useCallback(
+    (update: (prev: Record<string, boolean>) => Record<string, boolean>) =>
+      setSaved((prev) => {
+        const next = update(prev);
+        try {
+          if (key) localStorage.setItem(key, JSON.stringify(next));
+        } catch {
+          // Not remembered; still works for this session.
+        }
+        return next;
+      }),
+    [key],
+  );
+  return {
+    isOpen: (id: string) => saved[id] ?? fallback(id),
+    toggle: (id: string) => save((prev) => ({ ...prev, [id]: !(prev[id] ?? fallback(id)) })),
+    setAll: (ids: string[], open: boolean) =>
+      save((prev) => ({ ...prev, ...Object.fromEntries(ids.map((id) => [id, open])) })),
+  };
+}
+
+/** A collapsible group: a one-line header (chevron, title, count, badges) over its rows. */
+export function Folder({
+  title,
+  count,
+  badges,
+  open,
+  onToggle,
+  className = "px-4",
+  children,
+}: {
+  title: ReactNode;
+  count: number;
+  badges?: ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  /** Horizontal padding of the header, to line up with the rows. */
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`flex h-7 w-full items-center gap-1.5 text-left hover:bg-sel/60 ${className}`}
+      >
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          aria-hidden="true"
+          className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
+        >
+          <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="min-w-0 truncate font-medium">{title}</span>
+        <span className="tabular-nums text-xs text-dim">{count}</span>
+        <span className="flex-1" />
+        {badges}
+      </button>
+      {open && children}
+    </section>
+  );
+}
+
+/** "Expand all · Collapse all" for a list of folders. */
+export function FolderControls({
+  ids,
+  folders,
+  className = "px-3",
+}: {
+  ids: string[];
+  folders: ReturnType<typeof useFolders>;
+  className?: string;
+}) {
+  if (ids.length < 2) return null;
+  return (
+    <div className={`flex justify-end gap-1 ${className}`}>
+      <Button variant="quiet" className="h-6 px-2" onClick={() => folders.setAll(ids, true)}>
+        Expand all
+      </Button>
+      <Button variant="quiet" className="h-6 px-2" onClick={() => folders.setAll(ids, false)}>
+        Collapse all
+      </Button>
+    </div>
+  );
 }

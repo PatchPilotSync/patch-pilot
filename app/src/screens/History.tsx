@@ -11,7 +11,7 @@ import {
   type HistoryView,
   type ProductChange,
 } from "../api";
-import { Badge, Button } from "../ui";
+import { Badge, Button, Folder, useFolders } from "../ui";
 
 interface Props {
   /** Bumped when another window or a rescan changed the data. */
@@ -185,18 +185,7 @@ function ScanRow({
         }
       />
       {open?.kind === "details" && (
-        <ul className="px-4 pb-2 pl-8 text-xs">
-          {e.changes.map((c) => (
-            <li key={c.product_id} className="flex gap-2 py-0.5">
-              <span className="w-20 shrink-0 text-dim">{CHANGED[c.change]}</span>
-              <span className="min-w-0 flex-1 truncate">
-                {c.name}
-                {c.vendor && <span className="ml-2 text-dim">{c.vendor}</span>}
-              </span>
-              <span className="font-mono text-[11px] text-dim">{versions(c)}</span>
-            </li>
-          ))}
-        </ul>
+        <ChangeGroups changes={e.changes} />
       )}
       {open?.kind === "back" && <GoBackPanel plan={open.plan} busy={busy} onConfirm={onConfirm} onCancel={onCancel} />}
     </>
@@ -337,6 +326,40 @@ function FilesRow({
         </div>
       )}
     </>
+  );
+}
+
+/** A scan's changes, one folder per kind (Added, Updated, ...); short lists start open. */
+function ChangeGroups({ changes }: { changes: ProductChange[] }) {
+  const groups = (Object.keys(CHANGED) as ProductChange["change"][])
+    .map((kind) => [kind, changes.filter((c) => c.change === kind)] as const)
+    .filter(([, cs]) => cs.length > 0);
+  const folders = useFolders(null, () => changes.length <= 12);
+  return (
+    <div className="pb-2 pl-6 pr-4 text-xs">
+      {groups.map(([kind, cs]) => (
+        <Folder
+          key={kind}
+          title={CHANGED[kind]}
+          count={cs.length}
+          className="px-0"
+          open={folders.isOpen(kind)}
+          onToggle={() => folders.toggle(kind)}
+        >
+          <ul className="pl-4">
+            {cs.map((c) => (
+              <li key={c.product_id} className="flex gap-2 py-0.5">
+                <span className="min-w-0 flex-1 truncate">
+                  {c.name}
+                  {c.vendor && <span className="ml-2 text-dim">{c.vendor}</span>}
+                </span>
+                <span className="font-mono text-[11px] text-dim">{versions(c)}</span>
+              </li>
+            ))}
+          </ul>
+        </Folder>
+      ))}
+    </div>
   );
 }
 

@@ -269,7 +269,7 @@ impl<'a> Report<'a> {
             for v in &self.inv.vendors {
                 let _ = writeln!(
                     out,
-                    "<h3>{} <i>{}</i></h3>\n<ul class=\"rows\">",
+                    "<details>\n<summary>{} <i>{}</i></summary>\n<ul class=\"rows\">",
                     esc(vendor_label(&v.vendor)),
                     v.products.len()
                 );
@@ -282,7 +282,7 @@ impl<'a> Report<'a> {
                         self.html_version(&p.version)
                     );
                 }
-                out.push_str("</ul>\n");
+                out.push_str("</ul>\n</details>\n");
             }
         }
 
@@ -415,8 +415,13 @@ h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em;overflow-wrap:a
 .parity{display:flex;align-items:center;gap:8px;margin:12px 0 0;color:var(--dim)}
 .dot{width:6px;height:6px;border-radius:50%}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
 h2{margin:28px 0 4px;font-size:14px;font-weight:600}
-h3{margin:14px 0 2px;font-size:11px;font-weight:500;color:var(--dim)}
-h3 i{font-style:normal;opacity:.7;font-variant-numeric:tabular-nums}
+summary{display:flex;align-items:center;gap:6px;min-height:28px;border-bottom:1px solid var(--line);font-weight:500;cursor:pointer;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"";width:5px;height:5px;margin:0 3px 0 1px;border:solid var(--dim);border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);transition:transform .15s}
+details[open]>summary::before{transform:rotate(45deg)}
+summary:hover{background:var(--sel)}
+summary i{font-style:normal;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
+details .rows{border-top:0;padding-left:16px}
 .rows{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
 .rows li{display:flex;align-items:center;gap:12px;min-height:28px;padding:4px 0;border-bottom:1px solid var(--line)}
 .name{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -468,6 +473,8 @@ mod tests {
         assert!(r.html.contains("<h1>Home &lt;studio&gt;</h1>"));
         assert!(r.html.contains("24 October 2026"));
         assert!(r.html.contains("dot ok"));
+        // Each vendor is a folder that opens on click, without scripts.
+        assert!(r.html.contains("<details>\n<summary>"));
         for v in &inv.vendors {
             for p in &v.products {
                 assert!(r.html.contains(&esc(&p.name)), "{}", p.name);

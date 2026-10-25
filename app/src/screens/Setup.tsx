@@ -19,7 +19,7 @@ import {
 } from "../api";
 import { BringOver } from "../BringOver";
 import { AppButton } from "./Compare";
-import { Button, scoreColor, timeAgo } from "../ui";
+import { Button, Folder, scoreColor, timeAgo, useFolders } from "../ui";
 
 interface Props {
   onRescan: () => void;
@@ -167,6 +167,7 @@ function Progress({
     bringOver: true,
   };
   const notReady = p.templates.filter((t) => t.missing.length > 0);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
       <header className="flex items-center gap-4">
@@ -205,16 +206,7 @@ function Progress({
         </p>
       )}
 
-      <ol className="-mx-2 flex flex-col">
-        {p.steps.map((s, i) => (
-          <li key={s.key}>
-            {(i === 0 || p.steps[i - 1].group !== s.group) && (
-              <h3 className="px-2 pb-0.5 pt-3 text-[11px] text-dim">{s.group}</h3>
-            )}
-            <StepRow step={s} onTick={onTick} actions={actions} />
-          </li>
-        ))}
-      </ol>
+      <StepList steps={p.steps} scope="setup" onTick={onTick} actions={actions} />
 
       <div>
         <h3 className="pb-0.5 pt-1 text-[11px] text-dim">Templates</h3>
@@ -223,16 +215,28 @@ function Progress({
         ) : notReady.length === 0 ? (
           <p className="text-xs text-ok">All {p.templates.length} templates have every plug-in they use.</p>
         ) : (
-          <ul className="text-xs">
-            <li className="text-dim">
-              {p.templates_ready} of {p.templates.length} ready. Still missing plug-ins:
-            </li>
-            {notReady.map((t) => (
-              <li key={t.product_id} className="truncate">
-                {t.name} <span className="text-dim">needs {t.missing.length}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="-mx-2 text-xs">
+            <Folder
+              title={`${notReady.length} still missing plug-ins`}
+              count={p.templates.length}
+              className="px-2"
+              open={templatesOpen}
+              onToggle={() => setTemplatesOpen((o) => !o)}
+              badges={
+                <span className="text-[11px] text-dim">
+                  {p.templates_ready} of {p.templates.length} ready
+                </span>
+              }
+            >
+              <ul className="pl-6 pr-2">
+                {notReady.map((t) => (
+                  <li key={t.product_id} className="truncate py-0.5">
+                    {t.name} <span className="text-dim">needs {t.missing.length}</span>
+                  </li>
+                ))}
+              </ul>
+            </Folder>
+          </div>
         )}
       </div>
 
@@ -241,6 +245,63 @@ function Progress({
           Stop setup
         </Button>
       </div>
+    </div>
+  );
+}
+
+const isFinished = (s: SetupStep) => s.status === "done" || s.status === "skipped";
+
+/**
+ * Checklist steps in collapsible groups. A group with steps left starts open;
+ * a finished one folds away, unless the user has opened or closed it.
+ */
+export function StepList({
+  steps,
+  scope,
+  onTick,
+  actions,
+}: {
+  steps: SetupStep[];
+  /** Keeps remembered open/closed state apart per checklist. */
+  scope: string;
+  onTick: (key: string, done: boolean) => void;
+  actions: Actions;
+}) {
+  const groups: [string, SetupStep[]][] = [];
+  for (const s of steps) {
+    const last = groups[groups.length - 1];
+    if (last && last[0] === s.group) last[1].push(s);
+    else groups.push([s.group, [s]]);
+  }
+  const folders = useFolders(`steps.${scope}`, (g) => groups.find(([n]) => n === g)?.[1].some((s) => !isFinished(s)) ?? true);
+  return (
+    <div className="-mx-2 flex flex-col">
+      {groups.map(([group, ss]) => {
+        const done = ss.filter(isFinished).length;
+        return (
+          <Folder
+            key={group}
+            title={group}
+            count={ss.length}
+            className="px-2"
+            open={folders.isOpen(group)}
+            onToggle={() => folders.toggle(group)}
+            badges={
+              <span className={`text-[11px] tabular-nums ${done === ss.length ? "text-ok" : "text-dim"}`}>
+                {done === ss.length ? "Done" : `${done} of ${ss.length}`}
+              </span>
+            }
+          >
+            <ol className="flex flex-col pl-4">
+              {ss.map((s) => (
+                <li key={s.key}>
+                  <StepRow step={s} onTick={onTick} actions={actions} />
+                </li>
+              ))}
+            </ol>
+          </Folder>
+        );
+      })}
     </div>
   );
 }
@@ -262,6 +323,9 @@ export interface Actions {
   bringOver: boolean;
 }
 
+/** Items listed under a step before "Show all". */
+const SHOWN = 5;
+
 export function StepRow({
   step: s,
   onTick,
@@ -271,8 +335,9 @@ export function StepRow({
   onTick: (key: string, done: boolean) => void;
   actions: Actions;
 }) {
-  const finished = s.status === "done" || s.status === "skipped";
+  const finished = isFinished(s);
   const mark = MARK[s.status];
+  const [showAll, setShowAll] = useState(false);
   const box = (
     <span
       aria-hidden="true"
@@ -304,7 +369,7 @@ export function StepRow({
         )}
         {!finished && s.open.length > 0 && (
           <ul className="mt-0.5 text-xs text-dim">
-            {s.open.map((d, n) => {
+            {(showAll ? s.open : s.open.slice(0, SHOWN)).map((d, n) => {
               const installer = s.automatic ? actions.installer(s.open_products[n]) : undefined;
               return (
                 <li key={d} className="flex items-center gap-2">
@@ -321,13 +386,22 @@ export function StepRow({
                 </li>
               );
             })}
+            {s.open.length > SHOWN && (
+              <li>
+                <button className="text-accent-text hover:underline" onClick={() => setShowAll((v) => !v)}>
+                  {showAll ? "Show fewer" : `Show all ${s.open.length}`}
+                </button>
+              </li>
+            )}
           </ul>
         )}
         {s.automatic && s.finished.length > 0 && s.status === "partly" && (
           <ul className="mt-0.5 text-xs text-ok">
-            {s.finished.map((d) => (
-              <li key={d}>✓ {d}</li>
-            ))}
+            {s.finished.length > SHOWN ? (
+              <li title={s.finished.join("\n")}>✓ {s.finished.length} already done</li>
+            ) : (
+              s.finished.map((d) => <li key={d}>✓ {d}</li>)
+            )}
           </ul>
         )}
         {!finished && actions.bringOver && s.automatic && s.title.startsWith("Bring over") && (
