@@ -101,6 +101,8 @@ export interface MachineCard {
   os: Os;
   scanned_at: number;
   is_this_machine: boolean;
+  /** The latest Golden Rig version was made from this machine. */
+  golden_source: boolean;
   profile: { id: string; name: string } | null;
   score: number | null;
   /** Products here the Golden Rig lacks or has older (not ignored). */
@@ -116,6 +118,10 @@ export interface ItemSide {
   format: PluginFormat | null;
   platform: Os;
   version: string | null;
+  /** Bytes, for preset folders. */
+  size: number | null;
+  /** Where a preset folder lives, e.g. "Documents\\Kilohearts". */
+  location: string | null;
 }
 
 export interface ComparisonRow {
@@ -184,6 +190,8 @@ export const planTick = (id: string, key: string, done: boolean) =>
 /** "Propose to Golden": a new Golden version taking these products from the machine. Returns the version. */
 export const addToGolden = (machine: string, products: string[]) =>
   invoke<number>("add_to_golden", { machine, products });
+/** The machine's whole latest scan becomes the next Golden Rig version. */
+export const updateGoldenFrom = (machine: string) => invoke<number>("update_golden_from", { machine });
 /** Stop suggesting this version of the product, on every linked machine. */
 export const ignoreSuggestions = (items: { product: string; version: string | null }[]) =>
   invoke<void>("ignore_suggestions", { items });

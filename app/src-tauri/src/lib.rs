@@ -90,6 +90,7 @@ pub fn run() {
             setup::setup_report_text,
             setup::setup_save_report,
             compare::add_to_golden,
+            compare::update_golden_from,
             compare::ignore_suggestions,
             history::history,
             history::undo_preview,
