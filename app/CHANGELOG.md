@@ -19,6 +19,9 @@ becomes its release notes, which the app shows when it offers that update
 
 - Patch Pilot now notices new versions while it keeps running in the menu bar or tray: it checks again when you open its window, at most once an hour.
 - Arturia Audio Units show their real version (1.1.5) instead of a long number (65797).
+- Live sync works again on machines with thousands of ReaPack scripts. Their list was too big for the sync service, so the machine showed "Sync offline". Uploads are now compressed. Update every linked machine: older versions can't read the compressed lists.
+- ReaPack scripts show as one "ReaPack: 8,071 packages" row in Compare and its suggestions instead of thousands of rows, and alerts mention them once.
+- The button for adding something to the Golden Rig names the machine it comes from, e.g. "Add Windows PC's copy to Golden Rig". The "your other machines show up here" note in Compare is gone once a machine is linked.
 
 ## 0.3.0 - 2026-10-24
 

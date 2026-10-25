@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addToGolden,
   compareMachine,
-  ignoreSuggestion,
+  ignoreSuggestions,
+  isReapack,
   FORMAT_LABEL,
   openVendorApp,
   planProgress,
@@ -82,9 +83,11 @@ export function Compare({ view, focus, onError }: Props) {
       setBusy(true);
       addToGolden(data.machine.id, ids).catch((e) => onError(String(e))).finally(() => setBusy(false));
     },
-    ignore: (r) => {
+    ignore: (rs) => {
       setBusy(true);
-      ignoreSuggestion(r.product_id, r.machine_version).catch((e) => onError(String(e))).finally(() => setBusy(false));
+      ignoreSuggestions(rs.map((r) => ({ product: r.product_id, version: r.machine_version })))
+        .catch((e) => onError(String(e)))
+        .finally(() => setBusy(false));
     },
   };
 
@@ -125,9 +128,11 @@ export function Compare({ view, focus, onError }: Props) {
             <MachineItem key={m.id} m={m} active={m.id === selected} onClick={() => setSelected(m.id)} />
           ))}
         </ul>
-        <p className="p-4 text-[11px] leading-relaxed text-dim">
-          Your other machines show up here once they're linked. Use Link a machine in the top bar.
-        </p>
+        {view.machines.length < 2 && (
+          <p className="p-4 text-[11px] leading-relaxed text-dim">
+            Your other machines show up here once they're linked. Use Link a machine in the top bar.
+          </p>
+        )}
       </aside>
 
       <section className="min-w-0 flex-1 overflow-auto">
@@ -212,6 +217,7 @@ function Diff({
   const [vendor, setVendor] = useState("");
   const [format, setFormat] = useState<PluginFormat | "">("");
   const [showParity, setShowParity] = useState(false);
+  const [openReapack, setOpenReapack] = useState<Set<ParityState>>(new Set());
 
   const counts = useMemo(() => {
     const n = new Map<ParityState, number>();
@@ -324,14 +330,39 @@ function Diff({
 
       <div className="-mx-2 flex flex-col gap-2">
         {STATE_ORDER.map((s) => {
-          const group = rows.filter((r) => r.state === s);
-          if (!group.length) return null;
+          const all = rows.filter((r) => r.state === s);
+          if (!all.length) return null;
+          // Thousands of ReaPack scripts fold into one row until opened.
+          const reapack = all.filter((r) => isReapack(r.product_id));
+          const group = reapack.length > 1 && !openReapack.has(s) ? all.filter((r) => !isReapack(r.product_id)) : all;
           return (
             <div key={s}>
               <h3 className="px-2 pb-0.5 text-[11px] text-dim">
-                {STATE_LABEL[s]} <span className="tabular-nums opacity-70">{group.length}</span>
+                {STATE_LABEL[s]} <span className="tabular-nums opacity-70">{all.length}</span>
               </h3>
               <ul>
+                {reapack.length > 1 && (
+                  <li>
+                    <button
+                      onClick={() =>
+                        setOpenReapack((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(s)) next.delete(s);
+                          else next.add(s);
+                          return next;
+                        })
+                      }
+                      aria-expanded={openReapack.has(s)}
+                      className="flex h-7 w-full items-center gap-2.5 rounded-[5px] px-2 text-left hover:bg-sel/50"
+                    >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[s]}`} aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {reapackLabel(reapack)}
+                        <span className="ml-2 text-xs text-dim">{openReapack.has(s) ? "Hide" : "Show each"}</span>
+                      </span>
+                    </button>
+                  </li>
+                )}
                 {group.map((r) => (
                   <li key={r.product_id}>
                     <button
@@ -575,7 +606,13 @@ function versionPair(r: ComparisonRow): string {
 interface SuggestActions {
   busy: boolean;
   add: (productIds: string[]) => void;
-  ignore: (r: ComparisonRow) => void;
+  ignore: (rows: ComparisonRow[]) => void;
+}
+
+/** "1 script" / "8,071 scripts and effects" for a group of ReaPack rows. */
+function reapackLabel(rows: ComparisonRow[]): string {
+  const n = rows.filter((r) => r.product_id.startsWith("reapack/")).length;
+  return `ReaPack: ${n.toLocaleString()} package${n === 1 ? "" : "s"}`;
 }
 
 /**
@@ -596,7 +633,11 @@ function SuggestionsNotice({
   const [open, setOpen] = useState(false);
   const rows = data.comparison.rows.filter((r) => data.suggested.includes(r.product_id));
   if (!rows.length) return null;
-  const n = rows.length;
+  // ReaPack scripts come by the thousand: one row for all of them.
+  const reapack = rows.filter((r) => isReapack(r.product_id));
+  const others = rows.filter((r) => !isReapack(r.product_id));
+  const n = others.length + (reapack.length ? 1 : 0);
+  const first = others[0]?.name ?? reapackLabel(reapack);
   const where = data.machine.is_this_machine ? "this machine" : data.machine.name;
   return (
     <div className="text-xs">
@@ -607,7 +648,7 @@ function SuggestionsNotice({
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">
-          {n === 1 ? `${rows[0].name} on ${where} could` : `${n} things on ${where} could`} go into the Golden Rig
+          {n === 1 ? `${first} on ${where} could` : `${n} things on ${where} could`} go into the Golden Rig
         </span>
         <span className="shrink-0 text-dim">{open ? "Hide" : "Review"}</span>
         <svg
@@ -624,8 +665,9 @@ function SuggestionsNotice({
         <div className="mt-1 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5">
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-dim">
-              New here, or newer than the Golden Rig. Adding one makes a new Golden version, and every linked machine
-              is then compared with it. Ignore stops suggesting that version.
+              On {data.machine.name} but not in the Golden Rig, or newer there. Adding one makes a new Golden version
+              with {data.machine.name}'s copy, and other machines are then asked to install it. Ignore stops suggesting
+              that version.
             </p>
             {n > 1 && (
               <Button
@@ -639,7 +681,25 @@ function SuggestionsNotice({
             )}
           </div>
           <ul className="-mx-2">
-            {rows.map((r) => (
+            {reapack.length > 0 && (
+              <li className="flex h-7 items-center gap-2 rounded-[5px] px-2 hover:bg-sel/50">
+                <span className="min-w-0 flex-1 truncate">
+                  {reapackLabel(reapack)}
+                  <span className="ml-2 text-dim">scripts, effects and themes; ReaPack installs them</span>
+                </span>
+                <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore(reapack)} className="h-6 px-2">
+                  Ignore
+                </Button>
+                <Button
+                  disabled={suggest.busy}
+                  onClick={() => suggest.add(reapack.map((r) => r.product_id))}
+                  className="h-6 px-2.5"
+                >
+                  Add
+                </Button>
+              </li>
+            )}
+            {others.map((r) => (
               <li
                 key={r.product_id}
                 className={`flex h-7 items-center gap-2 rounded-[5px] px-2 ${
@@ -655,7 +715,7 @@ function SuggestionsNotice({
                     {r.state === "extra" ? "not in Golden" : `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`}
                   </span>
                 </button>
-                <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore(r)} className="h-6 px-2">
+                <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore([r])} className="h-6 px-2">
                   Ignore
                 </Button>
                 <Button disabled={suggest.busy} onClick={() => suggest.add([r.product_id])} className="h-6 px-2.5">
@@ -703,13 +763,18 @@ function Detail({
         <p className="text-xs text-dim">Identified from the file name only, so the match may be wrong.</p>
       )}
       {suggested && (
-        <div className="flex gap-1.5">
-          <Button disabled={suggest.busy} onClick={() => suggest.add([row.product_id])}>
-            Add to Golden Rig
-          </Button>
-          <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore(row)}>
-            Ignore
-          </Button>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
+            <Button disabled={suggest.busy} onClick={() => suggest.add([row.product_id])}>
+              Add {machine.name}'s copy to Golden Rig
+            </Button>
+            <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore([row])}>
+              Ignore
+            </Button>
+          </div>
+          <p className="text-[11px] leading-relaxed text-dim">
+            Makes a new Golden Rig version with it. Machines without it are then asked to install it.
+          </p>
         </div>
       )}
     </div>

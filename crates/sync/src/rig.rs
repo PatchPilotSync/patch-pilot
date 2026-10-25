@@ -2,6 +2,11 @@
 //! else is derived from it with BLAKE3, each use under its own context.
 
 use std::fmt;
+use std::io::{Read, Write};
+
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 
 use patchpilot_core::{Bundle, ContentHash};
 use rand_core::{OsRng, RngCore};
@@ -13,6 +18,9 @@ const TOKEN_CONTEXT: &str = "Patch Pilot 2026-10-24 relay token v1";
 const ENCRYPT_CONTEXT: &str = "Patch Pilot 2026-10-24 rig encryption v1";
 const FILE_CONTEXT: &str = "Patch Pilot 2026-10-24 file name v1";
 const STORED_PREFIX: &str = "pprig1:";
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+/// Unpacked size cap, so a corrupt object can't fill memory.
+const MAX_BUNDLE_JSON: u64 = 256 * 1024 * 1024;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct RigKey([u8; 32]);
@@ -62,14 +70,19 @@ impl RigKey {
         Ok(Self(key))
     }
 
-    /// Encrypt a bundle for storing under `object` on the relay.
+    /// Encrypt a bundle for storing under `object` on the relay. The JSON is
+    /// gzipped first: a rig with thousands of ReaPack scripts is several MB of
+    /// JSON, over the relay's 2 MB object limit, and compresses about 10x.
     pub fn seal_bundle(&self, object: &str, bundle: &Bundle) -> Result<Vec<u8>> {
         check_object(object)?;
         let json = serde_json::to_vec(bundle).expect("bundle serializes");
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&json).expect("writing to memory cannot fail");
+        let packed = gz.finish().expect("writing to memory cannot fail");
         Ok(envelope::seal(
             &self.encryption_key(),
             &self.aad(object),
-            &json,
+            &packed,
         ))
     }
 
@@ -77,7 +90,18 @@ impl RigKey {
     /// from another rig, data moved from another name, and newer formats.
     pub fn open_bundle(&self, object: &str, sealed: &[u8]) -> Result<Bundle> {
         check_object(object)?;
-        let json = envelope::open(&self.encryption_key(), &self.aad(object), sealed)?;
+        let plain = envelope::open(&self.encryption_key(), &self.aad(object), sealed)?;
+        // Builds before 0.3.1 sealed plain JSON.
+        let json = if plain.starts_with(&GZIP_MAGIC) {
+            let mut json = Vec::new();
+            GzDecoder::new(&plain[..])
+                .take(MAX_BUNDLE_JSON)
+                .read_to_end(&mut json)
+                .map_err(|_| Error::Decrypt)?;
+            json
+        } else {
+            plain
+        };
         let json = std::str::from_utf8(&json).map_err(|_| Error::Decrypt)?;
         Ok(Bundle::from_json(json)?)
     }
@@ -187,6 +211,43 @@ mod tests {
         // Encrypted: no plug-in names in what the relay sees.
         let laptop = String::from_utf8_lossy(&sealed).into_owned();
         assert!(!laptop.contains("Laptop"));
+    }
+
+    #[test]
+    fn thousands_of_reapack_scripts_fit_the_relay_limit() {
+        let mut b = bundle();
+        let m = &mut b.machines[0].manifest;
+        let template = m.items[0].clone();
+        for n in 0..9000 {
+            let id = patchpilot_core::ProductId(format!(
+                "reapack/reateam-scripts/various/script-{n}-do-something-useful-lua"
+            ));
+            let mut item = template.clone();
+            item.product_id = Some(id.clone());
+            item.path = patchpilot_core::PortablePath::logical(
+                "REAPACK",
+                format!("ReaTeam Scripts/Various/Script {n}: do something useful.lua"),
+            );
+            m.items.push(item);
+            let mut p = m.products[0].clone();
+            p.canonical_id = id;
+            p.name = format!("Script {n}: do something useful");
+            m.products.push(p);
+        }
+        let json = serde_json::to_vec(&b).unwrap().len();
+        let rig = RigKey::generate();
+        let sealed = rig.seal_bundle("machine/a1", &b).unwrap();
+        assert!(json > 2_000_000, "{json}");
+        assert!(sealed.len() < 2_000_000 / 4, "{}", sealed.len());
+        assert_eq!(rig.open_bundle("machine/a1", &sealed).unwrap(), b);
+    }
+
+    #[test]
+    fn objects_from_older_builds_still_open() {
+        let rig = RigKey::generate();
+        let json = serde_json::to_vec(&bundle()).unwrap();
+        let old = envelope::seal(&rig.encryption_key(), &rig.aad("machine/a1"), &json);
+        assert_eq!(rig.open_bundle("machine/a1", &old).unwrap(), bundle());
     }
 
     #[test]

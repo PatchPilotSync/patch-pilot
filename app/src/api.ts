@@ -185,8 +185,12 @@ export const planTick = (id: string, key: string, done: boolean) =>
 export const addToGolden = (machine: string, products: string[]) =>
   invoke<number>("add_to_golden", { machine, products });
 /** Stop suggesting this version of the product, on every linked machine. */
-export const ignoreSuggestion = (product: string, version: string | null) =>
-  invoke<void>("ignore_suggestion", { product, version });
+export const ignoreSuggestions = (items: { product: string; version: string | null }[]) =>
+  invoke<void>("ignore_suggestions", { items });
+
+/** ReaPack repositories and packages (patchpilot_parity::reapack), which can number in the thousands. */
+export const isReapack = (productId: string) =>
+  productId.startsWith("reapack/") || productId.startsWith("reapack-repo/");
 export const importBundle = (path: string) => invoke<{ lines: string[] }>("import_bundle", { path });
 
 // Bring over (decision #47); mirrors src-tauri/src/bring.rs and patchpilot_local::bring.
