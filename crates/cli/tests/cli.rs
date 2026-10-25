@@ -45,7 +45,7 @@ fn diff_lists_states_and_reasons() {
         "1 plug-in is missing",
         "\nMissing\n  Acme Gate",
         "\nOut of date\n  Acme Comp",
-        "3.0 (Golden 3.0.1)",
+        "3.0 (Primary 3.0.1)",
         "missing AAX",
         "1 item(s) on Travel MacBook couldn't be identified",
     ] {
@@ -96,7 +96,7 @@ fn scan_fixture_folders() {
     assert!(ids.contains(&"acme-audio/acme-verb"), "{ids:?}");
 }
 
-/// Golden Rig commands against a DB seeded with two saved machines.
+/// Primary Rig commands against a DB seeded with two saved machines.
 #[test]
 fn golden_init_propose_promote_and_history() {
     let dir = tempfile::tempdir().unwrap();
@@ -113,19 +113,19 @@ fn golden_init_propose_promote_and_history() {
     }
     let golden = |args: &[&str]| {
         let mut all: Vec<&std::ffi::OsStr> =
-            vec!["--db".as_ref(), db.as_os_str(), "golden".as_ref()];
+            vec!["--db".as_ref(), db.as_os_str(), "primary".as_ref()];
         all.extend(args.iter().map(std::ffi::OsStr::new));
         patchpilot(&all)
     };
 
     let (ok, _, err) = golden(&["show"]);
-    assert!(!ok && err.contains("golden init"), "{err}");
+    assert!(!ok && err.contains("primary init"), "{err}");
     let (ok, _, err) = golden(&["promote", "--machine", "studio-pc"]);
-    assert!(!ok && err.contains("golden init"), "{err}");
+    assert!(!ok && err.contains("primary init"), "{err}");
 
     let (ok, out, err) = golden(&["init", "--machine", "studio-pc"]);
     assert!(ok, "{err}");
-    assert_eq!(out, "Created Golden Rig v1 from Studio PC\n");
+    assert_eq!(out, "Created Primary Rig v1 from Studio PC\n");
     let (ok, _, err) = golden(&["init", "--machine", "studio-pc"]);
     assert!(!ok && err.contains("already exists (v1)"), "{err}");
 
@@ -140,7 +140,7 @@ fn golden_init_propose_promote_and_history() {
     ]);
     assert!(ok, "{err}");
     assert!(
-        out.starts_with("Golden Rig v2 takes 1 product(s) from Travel MacBook"),
+        out.starts_with("Primary Rig v2 takes 1 product(s) from Travel MacBook"),
         "{out}"
     );
     let (ok, _, err) = golden(&["propose", "--from", "travel-macbook", "--product", "Nope"]);
@@ -149,7 +149,7 @@ fn golden_init_propose_promote_and_history() {
     let (ok, out, err) = golden(&["promote", "--machine", "studio-pc"]);
     assert!(ok, "{err}");
     assert!(
-        out.starts_with("Golden Rig v3 is now Studio PC's latest scan (was v2)"),
+        out.starts_with("Primary Rig v3 is now Studio PC's latest scan (was v2)"),
         "{out}"
     );
     let (ok, _, err) = golden(&["promote", "--machine", "studio-pc"]);
@@ -158,8 +158,8 @@ fn golden_init_propose_promote_and_history() {
     let (ok, out, err) = golden(&["history"]);
     assert!(ok, "{err}");
     let lines: Vec<_> = out.lines().collect();
-    assert_eq!(lines[0], "3 Golden Rig version(s)");
-    assert!(lines[1].trim_start().starts_with("Golden Rig v3"), "{out}");
+    assert_eq!(lines[0], "3 Primary Rig version(s)");
+    assert!(lines[1].trim_start().starts_with("Primary Rig v3"), "{out}");
     assert!(
         lines[2].contains("from Travel MacBook") && lines[2].ends_with("\"add the tuner\""),
         "{out}"
@@ -169,7 +169,7 @@ fn golden_init_propose_promote_and_history() {
     let file = dir.path().join("golden-v2.json");
     let (ok, out, err) = golden(&["show", "--version", "2", "--out", file.to_str().unwrap()]);
     assert!(ok, "{err}");
-    assert!(out.starts_with("Golden Rig v2"), "{out}");
+    assert!(out.starts_with("Primary Rig v2"), "{out}");
     assert!(out.contains("8 products"), "{out}");
     let (ok, out, err) = patchpilot(&[
         "diff".as_ref(),
@@ -178,9 +178,9 @@ fn golden_init_propose_promote_and_history() {
         "--all".as_ref(),
     ]);
     assert!(ok, "{err}");
-    assert!(out.contains("vs Golden Golden Rig v2"), "{out}");
+    assert!(out.contains("vs Primary Rig v2"), "{out}");
     let (ok, _, err) = golden(&["show", "--version", "9"]);
-    assert!(!ok && err.contains("no Golden Rig v9"), "{err}");
+    assert!(!ok && err.contains("no Primary Rig v9"), "{err}");
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn profiles_drive_diff() {
     );
 
     let (ok, _, err) = run(&["diff", "--machine", "Travel MacBook"]);
-    assert!(!ok && err.contains("golden init"), "{err}");
+    assert!(!ok && err.contains("primary init"), "{err}");
     assert!(run(&["golden", "init", "--machine", "studio-pc"]).0);
 
     // Without a profile the laptop is marked down for the missing AAX.
@@ -349,7 +349,7 @@ fn profiles_drive_diff() {
     assert!(!ok && err.contains("built-in"), "{err}");
 
     let (ok, out, _) = run(&["profile", "set", "travel-macbook", "none"]);
-    assert!(ok && out.contains("whole Golden Rig"), "{out}");
+    assert!(ok && out.contains("whole Primary Rig"), "{out}");
     let (ok, _, err) = run(&["profile", "set", "nobody", "travel"]);
     assert!(!ok && err.contains("no saved machine"), "{err}");
 }
@@ -474,15 +474,15 @@ fn export_and_import_a_bundle() {
     );
     assert!(ok, "{err}");
     assert!(
-        out.contains("(1 machine(s), 1 Golden version(s), 0 profile(s))"),
+        out.contains("(1 machine(s), 1 Primary Rig version(s), 0 profile(s))"),
         "{out}"
     );
 
-    // A fresh Mac gets the studio PC and the Golden Rig.
+    // A fresh Mac gets the studio PC and the Primary Rig.
     let (ok, out, err) = run(&mac_db, &["import", bundle_s]);
     assert!(ok, "{err}");
     assert!(out.contains("New scans: Studio PC"), "{out}");
-    assert!(out.contains("Golden Rig: added v1"), "{out}");
+    assert!(out.contains("Primary Rig: added v1"), "{out}");
     let (ok, out, err) = run(&mac_db, &["golden", "history"]);
     assert!(ok, "{err}");
     assert!(out.contains("Imported: v1"), "{out}");
@@ -490,9 +490,9 @@ fn export_and_import_a_bundle() {
     let (ok, out, err) = run(&mac_db, &["import", bundle_s]);
     assert!(ok, "{err}");
     assert!(out.contains("Already up to date: Studio PC"), "{out}");
-    assert!(out.contains("Golden Rig: already up to date"), "{out}");
+    assert!(out.contains("Primary Rig: already up to date"), "{out}");
 
-    // Everything, then compare the Mac against the imported Golden.
+    // Everything, then compare the Mac against the imported Primary Rig.
     let (ok, out, err) = run(&studio_db, &["export", "--out", bundle_s, "--all-machines"]);
     assert!(ok, "{err}");
     assert!(out.contains("(2 machine(s)"), "{out}");
@@ -501,7 +501,7 @@ fn export_and_import_a_bundle() {
     assert!(out.contains("New scans: Travel MacBook"), "{out}");
     let (ok, out, err) = run(&mac_db, &["diff", "--machine", "Travel MacBook"]);
     assert!(ok, "{err}");
-    assert!(out.contains("vs Golden Golden Rig v1"), "{out}");
+    assert!(out.contains("vs Primary Rig v1"), "{out}");
 
     // A bundle from a newer Patch Pilot is refused.
     let text = std::fs::read_to_string(&bundle).unwrap().replacen(

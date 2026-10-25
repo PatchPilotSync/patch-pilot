@@ -238,7 +238,7 @@ function Updates({ alerts }: { alerts: UpdateAlert[] }) {
         <span className="font-medium text-accent-text">
           {alerts.length} plug-in update{alerts.length === 1 ? "" : "s"} available
         </span>
-        <span className="text-dim"> · a newer version is on another machine, the Golden Rig or the catalog</span>
+        <span className="text-dim"> · a newer version is on another machine, the Primary Rig or the catalog</span>
       </summary>
       <ul className="mt-1.5">
         {alerts.map((a) => (
@@ -295,7 +295,7 @@ function GoldenCard({
       <p className="flex items-center gap-2 border-b border-line px-4 py-2 text-xs text-dim">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ok" aria-hidden="true" />
         <span>
-          <span className="font-medium text-fg">Golden Rig v{golden.version}</span>
+          <span className="font-medium text-fg">Primary Rig v{golden.version}</span>
           {golden.from_this_machine
             ? " was made from this machine. Your other machines are compared to it."
             : " comes from another machine. Compare shows what this one is missing."}
@@ -306,11 +306,11 @@ function GoldenCard({
   return (
     <section className="flex items-center gap-3 border-b border-line px-4 py-2 text-xs">
       <span className="min-w-0 flex-1 text-dim">
-        <span className="font-medium text-fg">Make this your Golden Rig?</span> Your other machines will be
+        <span className="font-medium text-fg">Make this your Primary Rig?</span> Your other machines will be
         compared against this setup. You can change it later.
       </span>
       <Button onClick={onMakeGolden} disabled={busy}>
-        Make Golden
+        Make Primary
       </Button>
     </section>
   );

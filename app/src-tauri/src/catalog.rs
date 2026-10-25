@@ -33,7 +33,7 @@ pub struct UpdatesView {
 }
 
 /// Plug-ins on this machine with a newer version on another machine, in the
-/// latest Golden Rig, or in the catalog.
+/// latest Primary Rig, or in the catalog.
 #[tauri::command]
 pub async fn updates() -> Result<UpdatesView, String> {
     let catalog = patchpilot_catalog::current();

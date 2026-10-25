@@ -252,7 +252,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
 
       <section className="min-w-0 flex-1 overflow-auto">
         {view.golden_version === null ? (
-          <Empty text="Make a Golden Rig first. Scan your main machine and choose Make Golden." />
+          <Empty text="Make a Primary Rig first. Scan your main machine and choose Make Primary." />
         ) : !data ? (
           <Empty text={selected ? "Comparing…" : "No machines yet."} />
         ) : plan ? (
@@ -285,7 +285,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
             suggest={suggest}
           />
         ) : (
-          <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Golden Rig.</p>
+          <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Primary Rig.</p>
         )}
       </aside>
     </div>
@@ -309,7 +309,7 @@ function MachineItem({ m, active, onClick }: { m: MachineCard; active: boolean; 
         <span className="block w-full truncate text-[11px] text-dim">
           {m.os === "macos" ? "macOS" : "Windows"}
           {m.is_this_machine ? " · this machine" : ""}
-          {m.golden_source ? " · Golden source" : ""}
+          {m.golden_source ? " · Primary machine" : ""}
           {m.profile ? ` · ${m.profile.name}` : ""}
         </span>
       </button>
@@ -339,7 +339,7 @@ function Diff({
   const [vendor, setVendor] = useState("");
   const [format, setFormat] = useState<PluginFormat | "">("");
   const [showParity, setShowParity] = useState(false);
-  // Problems start open; the rest (In parity, Not in Golden, ...) start folded.
+  // Problems start open; the rest (In parity, Not in Primary, ...) start folded.
   const folders = useFolders("compare", (id) => !id.includes("/") && OPEN_STATES.includes(id as ParityState));
 
   const counts = useMemo(() => {
@@ -380,7 +380,7 @@ function Diff({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{machine.name}</h1>
           <p className="truncate text-xs text-dim">
-            compared with Golden Rig v{data.golden_version}
+            compared with Primary Rig v{data.golden_version}
             {machine.golden_source ? ", a saved copy of this machine" : ""} ·{" "}
             {machine.profile ? `${machine.profile.name} profile` : "whole rig"} · scanned {timeAgo(machine.scanned_at)}
           </p>
@@ -409,7 +409,7 @@ function Diff({
           </ul>
         </div>
       ) : (
-        <p className="text-xs text-ok">At parity with the Golden Rig.</p>
+        <p className="text-xs text-ok">At parity with the Primary Rig.</p>
       )}
 
       <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
@@ -544,7 +544,7 @@ interface NeededPlugin {
   id: string;
   name: string;
   vendor: string;
-  /** Its comparison row, when the Golden Rig has it. */
+  /** Its comparison row, when the Primary Rig has it. */
   row: ComparisonRow | null;
   /** Template paths, e.g. `FXChains/Bus Glue.RfxChain`. */
   templates: string[];
@@ -645,7 +645,7 @@ function TemplatesNotice({
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-dim">
               These templates would open with empty plug-in slots until these plug-ins are installed.
-              {anyInGolden && " Up To Speed lists the ones in the Golden Rig."}
+              {anyInGolden && " Up To Speed lists the ones in the Primary Rig."}
               {anyOutside && " The rest don't count in the score: install them if you use those templates."}
             </p>
             {anyInGolden && (
@@ -699,7 +699,7 @@ function AppGroup({
                 {n.name}
                 {n.vendor && <span className="ml-1.5 text-dim">{n.vendor}</span>}
               </span>
-              {!n.row && <Badge>not in Golden Rig</Badge>}
+              {!n.row && <Badge>not in Primary Rig</Badge>}
               <span className="min-w-0 flex-1 truncate text-right text-[11px] text-dim">
                 {n.templates.length === 1
                   ? templateLabel(n.templates[0])
@@ -750,8 +750,8 @@ function versionPair(r: ComparisonRow): string {
 }
 
 /**
- * The Golden Rig is a saved copy of the machine it was made from, so on that
- * machine "Not in Golden" reads as missing from itself: say "new since" instead.
+ * The Primary Rig is a saved copy of the machine it was made from, so on that
+ * machine "Not in Primary" reads as missing from itself: say "new since" instead.
  */
 function stateLabel(s: ParityState, m: MachineCard, version: number): string {
   if (m.golden_source && s === "extra") return `New since v${version}`;
@@ -760,16 +760,16 @@ function stateLabel(s: ParityState, m: MachineCard, version: number): string {
 
 function stateHint(s: ParityState, m: MachineCard, version: number): string {
   if (m.golden_source && s === "extra")
-    return `Added or found here after Golden Rig v${version} was saved. Doesn't affect the score.`;
-  if (m.golden_source && s === "newer_than_golden") return `Updated here after Golden Rig v${version} was saved.`;
+    return `Added or found here after Primary Rig v${version} was saved. Doesn't affect the score.`;
+  if (m.golden_source && s === "newer_than_golden") return `Updated here after Primary Rig v${version} was saved.`;
   return STATE_HINT[s];
 }
 
-/** "Propose to Golden" (M9): add or ignore what a machine has that the Golden Rig doesn't. */
+/** "Propose to Primary Rig" (M9): add or ignore what a machine has that the Primary Rig doesn't. */
 interface SuggestActions {
   busy: boolean;
   add: (productIds: string[]) => void;
-  /** The machine's whole latest scan becomes the next Golden version. */
+  /** The machine's whole latest scan becomes the next Primary Rig version. */
   update: () => void;
   ignore: (rows: ComparisonRow[]) => void;
 }
@@ -781,7 +781,7 @@ function reapackLabel(rows: ComparisonRow[]): string {
 }
 
 /**
- * Products on this machine that the Golden Rig lacks or has an older version
+ * Products on this machine that the Primary Rig lacks or has an older version
  * of, each with Add and Ignore. Collapsed by default, like the templates line.
  */
 function SuggestionsNotice({
@@ -826,7 +826,7 @@ function SuggestionsNotice({
             ? `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`
             : source
               ? `new since v${v}`
-              : "not in Golden"}
+              : "not in Primary Rig"}
         </span>
       </button>
       <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore([r])} className="h-6 px-2">
@@ -847,8 +847,8 @@ function SuggestionsNotice({
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">
           {source
-            ? `${n === 1 ? `${first} is` : `${n} things are`} new on ${where} since Golden Rig v${v}`
-            : `${n === 1 ? `${first} on ${where} could` : `${n} things on ${where} could`} go into the Golden Rig`}
+            ? `${n === 1 ? `${first} is` : `${n} things are`} new on ${where} since Primary Rig v${v}`
+            : `${n === 1 ? `${first} on ${where} could` : `${n} things on ${where} could`} go into the Primary Rig`}
         </span>
         <span className="shrink-0 text-dim">{open ? "Hide" : "Review"}</span>
         <svg
@@ -866,20 +866,20 @@ function SuggestionsNotice({
           {source && (
             <div className="flex items-start gap-2">
               <p className="min-w-0 flex-1 text-dim">
-                Golden Rig v{v} is a saved copy of {data.machine.name} from when it was made, and these were added or
+                Primary Rig v{v} is a saved copy of {data.machine.name} from when it was made, and these were added or
                 found here since. Updating makes v{v + 1} from {data.machine.name}'s latest scan so they match again
-                (anything removed here leaves the Golden Rig too), and other machines are then asked to catch up.
+                (anything removed here leaves the Primary Rig too), and other machines are then asked to catch up.
               </p>
               <Button disabled={suggest.busy} onClick={suggest.update} className="shrink-0">
-                Update Golden Rig
+                Update Primary Rig
               </Button>
             </div>
           )}
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-dim">
               {source
-                ? "Or one at a time: Add puts just that one in a new Golden version, Ignore stops suggesting that version."
-                : `On ${data.machine.name} but not in the Golden Rig, or newer there. Adding one makes a new Golden version with ${data.machine.name}'s copy, and other machines are then asked to install it. Ignore stops suggesting that version.`}
+                ? "Or one at a time: Add puts just that one in a new Primary Rig version, Ignore stops suggesting that version."
+                : `On ${data.machine.name} but not in the Primary Rig, or newer there. Adding one makes a new Primary Rig version with ${data.machine.name}'s copy, and other machines are then asked to install it. Ignore stops suggesting that version.`}
             </p>
             {n > 1 && (
               <Button
@@ -974,7 +974,7 @@ function Detail({
         </span>
         <span className="text-dim">{stateHint(row.state, machine, version)}</span>
       </p>
-      <Side title="Golden Rig" items={row.golden_items} />
+      <Side title="Primary Rig" items={row.golden_items} />
       <Side title={machine.name} items={row.machine_items} />
       {row.product_id.startsWith("presets/") && (
         <p className="text-xs leading-relaxed text-dim">
@@ -992,14 +992,14 @@ function Detail({
         <div className="flex flex-col gap-1.5">
           <div className="flex flex-wrap gap-1.5">
             <Button disabled={suggest.busy} onClick={() => suggest.add([row.product_id])}>
-              Add {machine.name}'s copy to Golden Rig
+              Add {machine.name}'s copy to Primary Rig
             </Button>
             <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore([row])}>
               Ignore
             </Button>
           </div>
           <p className="text-[11px] leading-relaxed text-dim">
-            Makes a new Golden Rig version with it. Machines without it are then asked to install it.
+            Makes a new Primary Rig version with it. Machines without it are then asked to install it.
           </p>
         </div>
       )}

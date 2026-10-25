@@ -3,7 +3,7 @@ import { fixReaperFolders, reaperExtras, restoreReapack, type ReaperExtras as Ex
 import { Badge, Button, Folder, useFolders } from "./ui";
 
 /**
- * Reaper extras (decision #52): the Golden Rig's ReaPack repositories and
+ * Reaper extras (decision #52): the Primary Rig's ReaPack repositories and
  * packages, and Reaper's folder settings pointed at this machine's folders.
  * Each is one click; Reaper must be closed, and every change is a restore
  * point that History can undo. Loads its own data, like Bring over.
@@ -54,7 +54,7 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
       <header className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-xs font-semibold">Reaper setup</h2>
-          <p className="truncate text-[11px] text-dim">{parts.length ? parts.join(" · ") : "Matches the Golden Rig."}</p>
+          <p className="truncate text-[11px] text-dim">{parts.length ? parts.join(" · ") : "Matches the Primary Rig."}</p>
         </div>
         {parts.length > 0 && (
           <Button variant="quiet" onClick={() => setOpen((o) => !o)} className="shrink-0">
@@ -146,7 +146,7 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
                 <div className="truncate text-[11px] text-dim" title={f.proposed ?? f.golden}>
                   {f.proposed !== null
                     ? `${f.current ?? "Not set"} → ${f.proposed}`
-                    : `Golden Rig uses ${f.golden}`}
+                    : `Primary Rig uses ${f.golden}`}
                 </div>
               </li>
             ))}

@@ -22,7 +22,7 @@ pub fn render(
     };
     let _ = writeln!(
         out,
-        "Parity {}%  ({} vs Golden {}{profile_note})",
+        "Parity {}%  ({} vs {}{profile_note})",
         score.score, machine.machine.name, golden.machine.name
     );
     for r in &score.reasons {
@@ -39,8 +39,8 @@ pub fn render(
             let _ = writeln!(out, "\n{}", state_title(p.state));
         }
         let versions = match (&p.golden_version, &p.machine_version) {
-            (Some(g), Some(m)) if g != m => format!("{m} (Golden {g})"),
-            (Some(g), None) => format!("Golden {g}"),
+            (Some(g), Some(m)) if g != m => format!("{m} (Primary {g})"),
+            (Some(g), None) => format!("Primary {g}"),
             (None, Some(m)) | (Some(_), Some(m)) => m.clone(),
             (None, None) => String::new(),
         };
@@ -141,10 +141,10 @@ fn state_title(s: ParityState) -> &'static str {
         ParityState::Missing => "Missing",
         ParityState::Incomplete => "Missing a format",
         ParityState::Outdated => "Out of date",
-        ParityState::Modified => "Different from Golden",
+        ParityState::Modified => "Different from Primary",
         ParityState::VersionUnknown => "Version can't be compared",
-        ParityState::NewerThanGolden => "Newer than Golden",
-        ParityState::Extra => "Not in Golden",
+        ParityState::NewerThanGolden => "Newer than Primary",
+        ParityState::Extra => "Not in Primary",
         ParityState::NotApplicable => "Not available on this OS",
         ParityState::InParity => "In parity",
     }
@@ -162,7 +162,7 @@ pub fn history(machine: &str, snapshots: &[SnapshotSummary]) -> String {
             SnapshotReason::BeforeApply => "before apply",
             SnapshotReason::DriftAccepted => "drift accepted",
             SnapshotReason::Manual => "manual",
-            SnapshotReason::Golden => "golden",
+            SnapshotReason::Golden => "primary rig",
             SnapshotReason::Imported => "imported",
         };
         let changes = if s.parent_id.is_some() {
@@ -181,7 +181,7 @@ pub fn history(machine: &str, snapshots: &[SnapshotSummary]) -> String {
     out
 }
 
-/// One Golden version: header, then counts by plug-in format.
+/// One Primary Rig version: header, then counts by plug-in format.
 pub fn golden(v: &GoldenVersionInfo, source: Option<&str>, m: &Manifest) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{}", golden_line(v, source));
@@ -212,10 +212,10 @@ pub fn golden(v: &GoldenVersionInfo, source: Option<&str>, m: &Manifest) -> Stri
     out
 }
 
-/// Golden versions, newest first.
+/// Primary Rig versions, newest first.
 pub fn golden_history(versions: &[(&GoldenVersionInfo, Option<String>)]) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "{} Golden Rig version(s)", versions.len());
+    let _ = writeln!(out, "{} Primary Rig version(s)", versions.len());
     for (v, source) in versions {
         let _ = writeln!(out, "  {}", golden_line(v, source.as_deref()));
     }
@@ -224,7 +224,7 @@ pub fn golden_history(versions: &[(&GoldenVersionInfo, Option<String>)]) -> Stri
 
 /// `v2  2026-10-23 18:04 UTC  from Travel MacBook  "note"`.
 fn golden_line(v: &GoldenVersionInfo, source: Option<&str>) -> String {
-    let mut line = format!("Golden Rig v{}  {}", v.version, utc(v.created_at));
+    let mut line = format!("Primary Rig v{}  {}", v.version, utc(v.created_at));
     if let Some(s) = source {
         let _ = write!(line, "  from {s}");
     }

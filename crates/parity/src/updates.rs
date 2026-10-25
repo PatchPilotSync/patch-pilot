@@ -1,6 +1,6 @@
 //! Update alerts: plug-ins on a machine that have a newer version somewhere.
 //!
-//! "Somewhere" is another of the user's machines, the Golden Rig, or the
+//! "Somewhere" is another of the user's machines, the Primary Rig, or the
 //! plug-in catalog's latest release. Only versions that parse and compare as
 //! older raise an alert; an unreadable version never does (decision #17).
 //! The alert names where the newer version was seen, so the user can judge it.
@@ -19,7 +19,7 @@ use crate::{VersionOrder, compare_versions};
 pub enum UpdateSource {
     /// Another machine's latest scan.
     Machine { name: String },
-    /// The latest Golden Rig version.
+    /// The latest Primary Rig version.
     Golden { version: u32 },
     /// The plug-in catalog.
     Catalog { released: Option<String> },

@@ -210,7 +210,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         match app_steps.get(m.app) {
             Some(&n) => after.push(n),
             None if !has(m.app) => {
-                // Golden doesn't list the app, but the machine needs it.
+                // Primary Rig doesn't list the app, but the machine needs it.
                 let n = push(
                     Phase::Foundation,
                     format!("Install {}", m.name),
@@ -300,7 +300,7 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         push(
             Phase::Manual,
             format!(
-                "Bring over {} DAW file{} from the Golden Rig",
+                "Bring over {} DAW file{} from the Primary Rig",
                 files.len(),
                 if files.len() == 1 { "" } else { "s" }
             ),

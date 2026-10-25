@@ -50,18 +50,18 @@ const STEPS: Step[] = [
     art: <MachinesArt />,
   },
   {
-    title: "The Golden Rig",
+    title: "The Primary Rig",
     body: "Your ideal setup: the plug-ins, versions, vendor apps and templates every machine should have. Make it from your best machine, and update it whenever your setup changes. Each version is kept.",
     art: <GoldenArt />,
   },
   {
     title: "Compare and catch drift",
-    body: "Compare shows what each machine is missing next to the Golden Rig, and the parity score sums it up with the reasons. It also flags Reaper templates that would open with empty plug-in slots, and which plug-ins they need. Link your machines with a short code and Compare updates live, end-to-end encrypted. Bought a plug-in on the laptop? Add it to the Golden Rig from there, and a quiet alert tells you when a machine drifts.",
+    body: "Compare shows what each machine is missing next to the Primary Rig, and the parity score sums it up with the reasons. It also flags Reaper templates that would open with empty plug-in slots, and which plug-ins they need. Link your machines with a short code and Compare updates live, end-to-end encrypted. Bought a plug-in on the laptop? Add it to the Primary Rig from there, and a quiet alert tells you when a machine drifts.",
     art: <CompareArt />,
   },
   {
     title: "Get up to speed",
-    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license. Templates, scripts and themes come over from the Golden Rig in one click.",
+    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license. Templates, scripts and themes come over from the Primary Rig in one click.",
     art: <ChecklistArt />,
   },
   {
@@ -193,7 +193,7 @@ function GoldenArt() {
     <div className="w-[220px] rounded-md border border-line bg-panel py-1 text-xs" aria-hidden="true">
       <div className="flex items-center gap-1.5 px-2.5 py-1">
         <span className="text-warn">★</span>
-        <span className="font-semibold">Golden Rig</span>
+        <span className="font-semibold">Primary Rig</span>
         <span className="flex-1" />
         <Badge>v3</Badge>
       </div>

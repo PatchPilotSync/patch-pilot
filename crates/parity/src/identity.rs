@@ -9,7 +9,7 @@
 //! First, both manifests go through the plug-in catalog
 //! ([`patchpilot_catalog::Catalog::canonicalize`]), which knows vendors'
 //! other names and products' other spellings. Scans are canonicalized when
-//! they are taken; doing it again here covers scans and Golden versions saved
+//! they are taken; doing it again here covers scans and Primary Rig versions saved
 //! by older builds or against an older catalog.
 
 use std::collections::BTreeMap;

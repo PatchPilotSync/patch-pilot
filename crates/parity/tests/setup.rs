@@ -13,7 +13,7 @@ fn load(name: &str) -> Manifest {
     Manifest::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// The laptop after installing these Golden products.
+/// The laptop after installing these Primary Rig products.
 fn with_golden(laptop: &Manifest, golden: &Manifest, products: &[&str]) -> Manifest {
     let mut m = laptop.clone();
     for id in products {
@@ -122,7 +122,7 @@ fn progress_follows_rescans() {
         report.starts_with("# Setup report: New Laptop\n"),
         "{report}"
     );
-    assert!(report.contains("Windows · Whole Golden Rig · compared with Golden Rig v2"));
+    assert!(report.contains("Windows · Whole Primary Rig · compared with Primary Rig v2"));
     assert!(report.contains("- Took: 1 h 5 min"));
     assert!(report.contains(&format!("- Parity score: {} → 100", p.score_before)));
     assert!(report.contains("- Steps done: 9 of 9"));

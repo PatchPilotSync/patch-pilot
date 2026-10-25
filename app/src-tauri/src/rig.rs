@@ -1,5 +1,5 @@
 //! First run (#40): scan this machine, show "Here's your rig", offer to make
-//! it the Golden Rig. Uses the same database and machine ID as the CLI.
+//! it the Primary Rig. Uses the same database and machine ID as the CLI.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -111,7 +111,7 @@ pub async fn scan_machine(
     result
 }
 
-/// Make this machine's latest saved scan Golden Rig v1.
+/// Make this machine's latest saved scan Primary Rig v1.
 #[tauri::command]
 pub async fn make_golden(app: AppHandle) -> Result<Overview, String> {
     let db = db_path()?;
@@ -121,7 +121,7 @@ pub async fn make_golden(app: AppHandle) -> Result<Overview, String> {
         .ok_or("scan this machine first")?;
     if let Some(g) = store.golden(None).map_err(err)? {
         return Err(format!(
-            "the Golden Rig already exists (v{})",
+            "the Primary Rig already exists (v{})",
             g.info.version
         ));
     }

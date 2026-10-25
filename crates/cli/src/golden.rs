@@ -1,4 +1,4 @@
-//! `patchpilot golden ...`: the versioned Golden Profile (#35).
+//! `patchpilot primary ...`: the versioned Primary Rig (#35).
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,7 @@ use crate::{anonymize_for_sharing, db_path, now, open_existing_store, report, th
 
 #[derive(Subcommand)]
 pub enum GoldenCommand {
-    /// Make a machine's latest saved scan Golden v1 ("Make this your Golden Rig").
+    /// Make a machine's latest saved scan Primary Rig v1 ("Make this your Primary Rig").
     Init {
         /// Machine ID (default: this machine).
         #[arg(long)]
@@ -18,7 +18,7 @@ pub enum GoldenCommand {
         #[arg(long)]
         note: Option<String>,
     },
-    /// Replace the Golden Rig with a machine's latest saved scan, as a new version.
+    /// Replace the Primary Rig with a machine's latest saved scan, as a new version.
     Promote {
         /// Machine ID (default: this machine).
         #[arg(long)]
@@ -26,7 +26,7 @@ pub enum GoldenCommand {
         #[arg(long)]
         note: Option<String>,
     },
-    /// Take selected products from a machine into a new Golden version.
+    /// Take selected products from a machine into a new Primary Rig version.
     Propose {
         /// Machine ID (default: this machine).
         #[arg(long)]
@@ -37,7 +37,7 @@ pub enum GoldenCommand {
         #[arg(long)]
         note: Option<String>,
     },
-    /// Show a Golden version (default: the latest).
+    /// Show a Primary Rig version (default: the latest).
     Show {
         #[arg(long)]
         version: Option<u32>,
@@ -48,7 +48,7 @@ pub enum GoldenCommand {
         #[arg(long)]
         keep_paths: bool,
     },
-    /// List every Golden version, newest first.
+    /// List every Primary Rig version, newest first.
     History,
 }
 
@@ -59,14 +59,14 @@ pub fn run(db: Option<PathBuf>, cmd: GoldenCommand) -> Result<(), String> {
         GoldenCommand::Init { machine, note } => {
             if let Some(g) = store.golden(None).map_err(err)? {
                 return Err(format!(
-                    "the Golden Rig already exists (v{}); use `golden promote` or `golden propose`",
+                    "the Primary Rig already exists (v{}); use `primary promote` or `primary propose`",
                     g.info.version
                 ));
             }
             let (id, scan) = latest_scan(&store, &path, machine)?;
             let v = save(&mut store, &scan, &id, note)?;
             println!(
-                "Created Golden Rig v{} from {}",
+                "Created Primary Rig v{} from {}",
                 v.version, scan.machine.name
             );
         }
@@ -75,7 +75,7 @@ pub fn run(db: Option<PathBuf>, cmd: GoldenCommand) -> Result<(), String> {
             let (id, scan) = latest_scan(&store, &path, machine)?;
             let v = save(&mut store, &scan, &id, note)?;
             println!(
-                "Golden Rig v{} is now {}'s latest scan (was v{})",
+                "Primary Rig v{} is now {}'s latest scan (was v{})",
                 v.version,
                 scan.machine.name,
                 v.parent.unwrap_or_default()
@@ -92,7 +92,7 @@ pub fn run(db: Option<PathBuf>, cmd: GoldenCommand) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             let v = save(&mut store, &next, &id, note)?;
             println!(
-                "Golden Rig v{} takes {} product(s) from {} (was v{})",
+                "Primary Rig v{} takes {} product(s) from {} (was v{})",
                 v.version,
                 products.len(),
                 scan.machine.name,
@@ -107,7 +107,7 @@ pub fn run(db: Option<PathBuf>, cmd: GoldenCommand) -> Result<(), String> {
             let g = match store.golden(version).map_err(err)? {
                 Some(g) => g,
                 None if version.is_some() => {
-                    return Err(format!("there is no Golden Rig v{}", version.unwrap_or(0)));
+                    return Err(format!("there is no Primary Rig v{}", version.unwrap_or(0)));
                 }
                 None => return Err(NO_GOLDEN.to_owned()),
             };
@@ -140,7 +140,7 @@ pub fn run(db: Option<PathBuf>, cmd: GoldenCommand) -> Result<(), String> {
     Ok(())
 }
 
-const NO_GOLDEN: &str = "no Golden Rig yet; run `patchpilot golden init`";
+const NO_GOLDEN: &str = "no Primary Rig yet; run `patchpilot primary init`";
 
 fn err(e: StoreError) -> String {
     e.to_string()

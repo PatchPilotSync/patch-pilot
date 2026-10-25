@@ -1,5 +1,5 @@
-//! "Propose to Golden" and drift alerts on this machine (M9): add a
-//! suggestion from any machine to the Golden Rig, ignore one, and work out
+//! "Propose to Primary Rig" and drift alerts on this machine (M9): add a
+//! suggestion from any machine to the Primary Rig, ignore one, and work out
 //! which alerts are new. The file of what the user was last told lives in
 //! app-data, never in user folders.
 
@@ -13,7 +13,7 @@ use patchpilot_store::Store;
 const SEEN_FILE: &str = "alerts-seen.json";
 const OFF_FILE: &str = "drift-alerts-off";
 
-/// Add `products` (IDs) from `machine_id`'s latest scan to a new Golden
+/// Add `products` (IDs) from `machine_id`'s latest scan to a new Primary Rig
 /// version, noting where they came from.
 pub fn add_to_golden(
     store: &mut Store,
@@ -24,7 +24,7 @@ pub fn add_to_golden(
     let golden = store
         .golden(None)
         .map_err(err)?
-        .ok_or("there's no Golden Rig yet")?;
+        .ok_or("there's no Primary Rig yet")?;
     let scan = store
         .latest_manifest(machine_id)
         .map_err(err)?
@@ -44,9 +44,9 @@ pub fn add_to_golden(
         .map_err(err)
 }
 
-/// "Update Golden Rig from this machine": the whole of `machine_id`'s latest
-/// scan becomes the next Golden version. For the machine the Golden Rig was
-/// made from, whose later scans otherwise read as "not in Golden".
+/// "Update Primary Rig from this machine": the whole of `machine_id`'s latest
+/// scan becomes the next Primary Rig version. For the machine the Primary Rig was
+/// made from, whose later scans otherwise read as "not in Primary Rig".
 pub fn update_from(
     store: &mut Store,
     machine_id: &str,
@@ -72,8 +72,8 @@ pub fn ignored_keys(store: &Store) -> Result<BTreeSet<String>, String> {
         .collect())
 }
 
-/// Every machine against the latest Golden through its profile. Empty
-/// without a Golden Rig.
+/// Every machine against the latest Primary Rig through its profile. Empty
+/// without a Primary Rig.
 pub fn observe(store: &Store, this: Option<&str>) -> Result<Vec<Observed>, String> {
     let Some(golden) = store.golden(None).map_err(err)? else {
         return Ok(Vec::new());
@@ -118,7 +118,7 @@ pub fn check_alerts(
 }
 
 /// Record the current state without alerting, after a change the user made
-/// here (a new Golden version, an ignored suggestion).
+/// here (a new Primary Rig version, an ignored suggestion).
 pub fn rebaseline(store: &Store, app_dir: &Path, this: Option<&str>) -> Result<(), String> {
     let (_, seen) = patchpilot_parity::alerts(&load_seen(app_dir), &observe(store, this)?);
     save_seen(app_dir, &seen)
@@ -181,7 +181,7 @@ mod tests {
         Manifest::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
-    /// The laptop with a plug-in the studio's Golden Rig doesn't have.
+    /// The laptop with a plug-in the studio's Primary Rig doesn't have.
     fn laptop_with_delay() -> Manifest {
         let mut m = load("parity/score/laptop.json");
         let mut item = m.items[0].clone();
@@ -233,7 +233,7 @@ mod tests {
         // The studio now lacks Acme Delay: one drift alert, about itself.
         let alerts = check_alerts(&store, app, this).unwrap();
         assert_eq!(alerts.len(), 1, "{alerts:?}");
-        assert_eq!(alerts[0].title(), "Studio PC drifted from the Golden Rig");
+        assert_eq!(alerts[0].title(), "Studio PC drifted from the Primary Rig");
         assert!(check_alerts(&store, app, this).unwrap().is_empty());
     }
 

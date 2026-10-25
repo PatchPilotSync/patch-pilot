@@ -1,6 +1,6 @@
 use crate::Manifest;
 
-/// One version of the Golden Profile (decision 2): the ideal rig as a
+/// One version of the Primary Rig (decision 2): the ideal rig as a
 /// manifest that outlives any one machine.
 ///
 /// Versions are never overwritten. Each one records the version it came
@@ -9,11 +9,11 @@ use crate::Manifest;
 pub struct GoldenVersion {
     pub info: GoldenVersionInfo,
     /// The ideal rig. Its `machine` names this version (`golden@<n>`,
-    /// "Golden Rig v<n>"); items keep the platform they were scanned on.
+    /// "Primary Rig v<n>"); items keep the platform they were scanned on.
     pub manifest: Manifest,
 }
 
-/// A Golden Profile version without its manifest.
+/// A Primary Rig version without its manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GoldenVersionInfo {
     /// 1, 2, 3, ...
@@ -26,12 +26,12 @@ pub struct GoldenVersionInfo {
     pub note: Option<String>,
 }
 
-/// The `machine.id` a Golden version's manifest carries, e.g. `golden@2`.
+/// The `machine.id` a Primary Rig version's manifest carries, e.g. `golden@2`.
 pub fn golden_machine_id(version: u32) -> String {
     format!("golden@{version}")
 }
 
-/// The display name of a Golden version, e.g. "Golden Rig v2".
+/// The display name of a Primary Rig version, e.g. "Primary Rig v2".
 pub fn golden_name(version: u32) -> String {
-    format!("Golden Rig v{version}")
+    format!("Primary Rig v{version}")
 }

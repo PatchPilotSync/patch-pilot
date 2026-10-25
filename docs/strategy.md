@@ -4,9 +4,9 @@ _October 2026. The product thinking behind Patch Pilot. Decisions that came out 
 
 ## The short version: what to change before building
 
-1. **"Golden Rig" should be a Golden *Profile*, not a physical machine.** The core question is "if this machine died today…". If the source of truth is a machine, then when the Golden Rig dies, the truth dies with it. The Golden Profile is a versioned manifest that lives apart from any one computer. A machine can be "seeded from" it or "promoted to" it. Users still see the simple "Golden Rig" idea in the interface.
-2. **Not every machine should match everything.** A travel laptop shouldn't hold 600 GB of orchestral libraries or AAX plug-ins. We need **target profiles**, e.g. "Travel = Golden minus Spitfire, minus AAX, minus Kontakt libraries over 20 GB." The parity score measures a machine against *its own target*. Otherwise every laptop permanently shows 60% and people learn to ignore the score.
-3. **Changes happen on secondary machines too.** You buy a plug-in on the laptop in a hotel. We need a clean "propose this to Golden" flow. Still one-directional (Golden wins), but changes can enter from anywhere.
+1. **"Primary Rig" should be a Primary Rig *Profile*, not a physical machine.** The core question is "if this machine died today…". If the source of truth is a machine, then when the Primary Rig dies, the truth dies with it. The Primary Rig is a versioned manifest that lives apart from any one computer. A machine can be "seeded from" it or "promoted to" it. Users still see the simple "Primary Rig" idea in the interface.
+2. **Not every machine should match everything.** A travel laptop shouldn't hold 600 GB of orchestral libraries or AAX plug-ins. We need **target profiles**, e.g. "Travel = Primary Rig minus Spitfire, minus AAX, minus Kontakt libraries over 20 GB." The parity score measures a machine against *its own target*. Otherwise every laptop permanently shows 60% and people learn to ignore the score.
+3. **Changes happen on secondary machines too.** You buy a plug-in on the laptop in a hotel. We need a clean "propose this to Primary Rig" flow. Still one-directional (Primary Rig wins), but changes can enter from anywhere.
 4. **It syncs a manifest, not software.** Plug-ins, licenses and big libraries can't be copied. "Bring This Machine Up To Speed" is an honest **guided checklist**: launch this vault installer, open Native Access to install these 4, run iLok License Manager. Only small user-owned files actually sync: presets, scripts, templates, configs. Marketing must never promise one-click restore.
 5. **The Installer Vault is weaker than it looks.** The biggest vendors (Native Instruments, Waves, UA, Arturia, Spitfire, iZotope) install through their own download managers and usually leave no reusable installer behind. The vault matters most for indie and boutique developers who ship direct downloads. Worth building, not the headline.
 6. **The Patch Notes Hub is a content business hiding inside a software product.** Cut from MVP.
@@ -57,7 +57,7 @@ Defensible advantages: (a) cross-platform canonical plug-in identity catalog, (b
 **In:**
 - Plug-in inventory (VST2, VST3, AU, CLAP, AAX) by **reading metadata only — never loading plug-ins**
 - Canonical product matching across formats and OSes
-- Golden Profile, target profiles with exclusions, parity score per machine
+- Primary Rig, target profiles with exclusions, parity score per machine
 - Machine comparison view and "Up To Speed" guided checklist
 - Reaper: Resource folder sync (scripts, JSFX, themes, toolbars/menus, `reaper-kb.ini`, templates), ReaPack package-list restore, path remapping in `reaper.ini`
 - Ableton: User Library sync (racks, presets, templates, M4L devices, clips) + plug-in dependency checks
@@ -103,7 +103,7 @@ The client does all the intelligent work. The server stores encrypted data it ca
 
 ## 8. Local-first vs cloud
 
-Local-first with a cloud relay. Every machine works offline. The cloud only: moves manifests and small blobs between machines, keeps Golden Profile history off any single machine, and serves the catalog. Never use the user's Dropbox/iCloud folder as transport (conflict copies). LAN peer-to-peer later for cloud-averse studios.
+Local-first with a cloud relay. Every machine works offline. The cloud only: moves manifests and small blobs between machines, keeps Primary Rig history off any single machine, and serves the catalog. Never use the user's Dropbox/iCloud folder as transport (conflict copies). LAN peer-to-peer later for cloud-averse studios.
 
 ## 9. Database (per machine, SQLite)
 
@@ -114,7 +114,7 @@ Local-first with a cloud relay. Every machine works offline. The cloud only: mov
 | `items` | id, machine_id, kind (plugin / daw_asset / vendor_app / license_tool / folder / config), product_id, format, platform, version, path, content_hash, size, mtime, platform_portable |
 | `snapshots` | id, machine_id, created_at, reason, parent_id, manifest_hash |
 | `snapshot_items` | snapshot_id, item_id, hash (immutable) |
-| `profiles` + `profile_rules` | Golden and target profiles; include/exclude by vendor, kind, format, size, glob |
+| `profiles` + `profile_rules` | Primary Rig and target profiles; include/exclude by vendor, kind, format, size, glob |
 | `path_maps` | machine_id, logical name (e.g. `SAMPLES_ROOT`), physical path |
 | `vault_entries` | hash, vendor, product_id, version, os, arch, filename, source, verified_sig |
 | `dependencies` | asset item → product (from templates, racks, projects) |
@@ -135,14 +135,14 @@ Local-first with a cloud relay. Every machine works offline. The cloud only: mov
 - Taken on: first scan, before every apply, on drift acceptance, daily if changed, manually.
 - Diff chain from parent with periodic full snapshots; dedupe by hash.
 - Rollback restores user files exactly and produces a reverse checklist for software.
-- Retention: everything 30 days, then weekly/monthly. Golden Profile snapshots forever.
+- Retention: everything 30 days, then weekly/monthly. Primary Rig snapshots forever.
 
 ## 12. Conflict resolution
 
-1. **3-way detection** — Golden, target, last common snapshot. One side changed = no conflict.
+1. **3-way detection** — Primary Rig, target, last common snapshot. One side changed = no conflict.
 2. **Classify** by file type; key-level diff for `.ini` (e.g. `reaper-kb.ini`); "which version?" for binaries.
 3. **Explain** in plain language.
-4. **Recommend**: keep Golden / promote to Golden / merge by key (ini only) / ignore permanently.
+4. **Recommend**: keep Primary Rig / promote to Primary Rig / merge by key (ini only) / ignore permanently.
 5. **Snapshot, then apply atomically** — stage, fsync, rename. Refuse to touch DAW configs while the DAW runs (Reaper rewrites `reaper.ini` on exit).
 
 **Hard rules:** never write `(1)` / "conflict copy" files; never leave hidden sync folders in user directories (state lives in app-data); never apply without a snapshot.
@@ -175,7 +175,7 @@ Local-first with a cloud relay. Every machine works offline. The cloud only: mov
 ## 16. UX & onboarding
 
 1. Install → first scan (<60 s for 500 plug-ins, metadata only) → **"Here's your rig."**
-2. "Make this your Golden Rig?" → profile + first snapshot.
+2. "Make this your Primary Rig?" → profile + first snapshot.
 3. **Readiness:** "Your 4 Reaper templates depend on 61 plug-ins, all present."
 4. Pair second machine with a code.
 5. Second machine scans, shows score, offers **"Bring this machine up to speed."**
@@ -201,8 +201,8 @@ Tray/menu-bar app + Cmd/Ctrl+K palette. Three-pane window (Machines · Diff · D
 | Tier | Price | Includes |
 |---|---|---|
 | **Free** | $0 | 1 machine: inventory, readiness checks, shareable Rig Report |
-| **Pro** | $59 one-time (1 yr updates; ~$29/yr to continue) | Unlimited personal machines, Golden Profile, LAN/manual sync, Vault, snapshots |
-| **Pro Sync** | ~$4/mo or $39/yr | Hosted encrypted sync, cloud Golden history, update alerts |
+| **Pro** | $59 one-time (1 yr updates; ~$29/yr to continue) | Unlimited personal machines, Primary Rig, LAN/manual sync, Vault, snapshots |
+| **Pro Sync** | ~$4/mo or $39/yr | Hosted encrypted sync, cloud Primary Rig history, update alerts |
 | **Studio** | ~$12/seat/mo, min 5 | Fleet dashboard, shared profiles, onboarding, audit reports |
 
 ## 19. Monetization
@@ -244,7 +244,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Area | What | Status |
 |---|---|---|
 | Scanning | Rust scanners for Windows + macOS, VST2/VST3/AU/AAX/CLAP, metadata only; identity v1; SQLite index; 500 plug-ins under 60 s | Shipped (v0.1.0) |
-| Golden Rig | Golden Profile (versioned, promote), target profiles per machine, comparison with parity score and reasons | Shipped (v0.1.0) |
+| Primary Rig | Primary Rig (versioned, promote), target profiles per machine, comparison with parity score and reasons | Shipped (v0.1.0) |
 | Readiness | Reaper template / FX chain plug-in checks in the score; "templates not ready" grouped by app and plug-in, Reaper's own plug-ins ignored | Shipped (v0.1.0); compact view on main |
 | Up To Speed | Guided checklist: licensing tools first, then vendor apps, then the rest | Shipped (v0.1.0) |
 | App | Tauri desktop app, compact "Mica + Frost" look in light and dark, pixel-plane logo | Shipped (v0.1.0) |
@@ -266,8 +266,8 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Reaper | ReaPack restore and path remap between Windows and macOS | In progress |
 | Installer Vault | Keep installers for each plug-in version; detect vendor apps and iLok (never sign in to them) | In progress |
 | Rig Report | Shareable report of a rig | In progress |
-| New machine | Guided setup of a new machine from the Golden Rig (migration workflow v1) | In progress |
-| Golden Rig | "Propose this to Golden" from any machine, and alerts when a machine drifts | In progress |
+| New machine | Guided setup of a new machine from the Primary Rig (migration workflow v1) | In progress |
+| Primary Rig | "Propose this to Primary Rig" from any machine, and alerts when a machine drifts | In progress |
 | Catalog | Plug-in catalog service and update alerts | In progress |
 | Presets | Find presets in the top 30 vendors' preset locations | In progress |
 
@@ -286,7 +286,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | When | Milestone |
 |---|---|
 | M1–2 | Rust scanners (Win + Mac, all formats), identity v1, SQLite index, first-scan UI. Closed alpha, 30 Reaper users. |
-| M3–4 | Golden Profile, target profiles, comparison + score, snapshots, LAN/file manifest exchange. |
+| M3–4 | Primary Rig, target profiles, comparison + score, snapshots, LAN/file manifest exchange. |
 | M5–6 | Reaper module (Resource sync, ReaPack restore, path remap, template deps). Public beta, Rig Report. |
 | M7–8 | Ableton module, Installer Vault, vendor app + iLok detection. |
 | M9 | Hosted encrypted sync, migration workflow v1. **Pro launch.** |
@@ -300,4 +300,4 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 
 ## Verdict
 
-Patch Pilot can become the definitive parity tool if we (1) build the Golden *Profile* with target profiles, (2) lead with readiness and dependency checks rather than the vault, (3) treat the plug-in identity catalog as the core asset, and (4) aim the business at studios and teams by year 2.
+Patch Pilot can become the definitive parity tool if we (1) build the Primary Rig *Profile* with target profiles, (2) lead with readiness and dependency checks rather than the vault, (3) treat the plug-in identity catalog as the core asset, and (4) aim the business at studios and teams by year 2.

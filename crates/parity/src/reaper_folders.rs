@@ -3,7 +3,7 @@
 //!
 //! `reaper.ini` keeps absolute paths: the recording, project and render
 //! folders, the peaks folder, and the Media Explorer's folder shortcuts
-//! (often the sample library). The Golden Rig might say `D:\Samples\Drums`
+//! (often the sample library). The Primary Rig might say `D:\Samples\Drums`
 //! where this Mac has `/Volumes/Samples/Drums`. Each setting travels in the
 //! manifest as a `config` item whose path is the setting's folder, made
 //! portable with the machine's path map (`HOME`, `REAPER_RESOURCES`, ...).
@@ -174,12 +174,12 @@ pub struct LocalFolders<'a> {
     pub exists: &'a dyn Fn(&str) -> bool,
 }
 
-/// One folder setting that doesn't match the Golden Rig.
+/// One folder setting that doesn't match the Primary Rig.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FolderFix {
     pub setting: Setting,
     pub name: String,
-    /// The folder on the Golden Rig, as its OS spells it.
+    /// The folder on the Primary Rig, as its OS spells it.
     pub golden: String,
     /// This machine's setting; `None` when it isn't set here.
     pub current: Option<String>,
@@ -187,7 +187,7 @@ pub struct FolderFix {
     pub proposed: Option<String>,
 }
 
-/// Golden's folder settings that differ on `machine`, Golden's order.
+/// Primary Rig's folder settings that differ on `machine`, Primary Rig's order.
 pub fn folder_plan(golden: &Manifest, machine: &Manifest, local: &LocalFolders) -> Vec<FolderFix> {
     let settings = |m: &Manifest| -> Vec<(Setting, PortablePath)> {
         m.items
@@ -247,8 +247,8 @@ fn setting_of(id: &ProductId, m: &Manifest) -> Option<Setting> {
     })
 }
 
-/// The folder on this machine matching Golden's `path` (`golden_folder` as
-/// Golden spells it).
+/// The folder on this machine matching Primary Rig's `path` (`golden_folder` as
+/// Primary Rig spells it).
 fn remap(
     path: &PortablePath,
     golden_folder: &str,

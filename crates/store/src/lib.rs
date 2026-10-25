@@ -44,7 +44,7 @@ pub enum StoreError {
     },
     #[error("unknown machine {0:?}")]
     UnknownMachine(String),
-    #[error("nothing to save: the Golden Rig already matches v{0}")]
+    #[error("nothing to save: the Primary Rig already matches v{0}")]
     GoldenUnchanged(u32),
     #[error("unknown target profile {0:?}")]
     UnknownProfile(String),
@@ -62,7 +62,7 @@ pub enum SnapshotReason {
     BeforeApply,
     DriftAccepted,
     Manual,
-    /// A Golden Profile version (#35).
+    /// A Primary Rig version (#35).
     Golden,
     /// Brought in from an exchange bundle (#38).
     Imported,
@@ -133,21 +133,21 @@ pub struct ImportReport {
     pub profiles_added: Vec<String>,
     /// Profiles whose ID exists here with different rules; left as they are.
     pub profiles_conflicting: Vec<String>,
-    /// Golden suggestions ignored on the other machine and now here too.
+    /// Primary Rig suggestions ignored on the other machine and now here too.
     pub ignored_added: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum GoldenImport {
-    /// The bundle has no Golden Rig.
+    /// The bundle has no Primary Rig.
     #[default]
     NotInBundle,
-    /// This machine already has the bundle's latest Golden version (or newer).
+    /// This machine already has the bundle's latest Primary Rig version (or newer).
     UpToDate,
     /// New local versions, oldest first.
     Imported(Vec<u32>),
-    /// Both sides changed the Golden Rig since they last matched. Nothing was
-    /// imported; the user picks with `golden promote` / `golden propose`.
+    /// Both sides changed the Primary Rig since they last matched. Nothing was
+    /// imported; the user picks with `primary promote` / `primary propose`.
     Diverged,
 }
 
@@ -261,10 +261,10 @@ impl Store {
         .collect()
     }
 
-    /// Save `manifest` as the next Golden Profile version (v1 if none yet).
+    /// Save `manifest` as the next Primary Rig version (v1 if none yet).
     ///
     /// The stored manifest's `machine` is renamed to the version
-    /// (`golden@<n>`, "Golden Rig v<n>"); everything else is kept. Fails with
+    /// (`golden@<n>`, "Primary Rig v<n>"); everything else is kept. Fails with
     /// [`StoreError::GoldenUnchanged`] if its products and items equal the
     /// latest version's, so history only grows on real changes.
     pub fn save_golden(
@@ -304,7 +304,7 @@ impl Store {
         })
     }
 
-    /// A Golden Profile version, or the latest when `version` is `None`.
+    /// A Primary Rig version, or the latest when `version` is `None`.
     /// `Ok(None)` if there is no such version.
     pub fn golden(&self, version: Option<u32>) -> Result<Option<GoldenVersion>> {
         let row = self
@@ -318,15 +318,16 @@ impl Store {
             )
             .optional()?;
         row.map(|(info, snapshot_id)| {
-            Ok(GoldenVersion {
-                info,
-                manifest: self.snapshot_manifest(snapshot_id)?,
-            })
+            let mut manifest = self.snapshot_manifest(snapshot_id)?;
+            // Versions saved before the rename (decision #60) are stored as
+            // "Golden Rig v<n>".
+            manifest.machine.name = golden_name(info.version);
+            Ok(GoldenVersion { info, manifest })
         })
         .transpose()
     }
 
-    /// Every Golden Profile version, newest first.
+    /// Every Primary Rig version, newest first.
     pub fn golden_history(&self) -> Result<Vec<GoldenVersionInfo>> {
         let mut stmt = self.conn.prepare(
             "SELECT version, parent_version, created_at, source_machine_id, note
@@ -337,7 +338,7 @@ impl Store {
     }
 
     /// Bundle these machines' latest scans (and their profile assignments),
-    /// every Golden version and every user target profile.
+    /// every Primary Rig version and every user target profile.
     pub fn export_bundle(
         &self,
         machine_ids: &[String],
@@ -385,8 +386,8 @@ impl Store {
     ///
     /// Machines get a new `imported` snapshot (none if unchanged); this
     /// machine's own scan is skipped. User profiles are added if their ID is
-    /// free. Golden versions are added only as a fast-forward: when this
-    /// machine has no Golden Rig, or its latest version appears in the
+    /// free. Primary Rig versions are added only as a fast-forward: when this
+    /// machine has no Primary Rig, or its latest version appears in the
     /// bundle's history. A profile assignment is copied only if the machine
     /// has none here.
     pub fn import_bundle(
@@ -492,7 +493,7 @@ impl Store {
         Ok(GoldenImport::Imported(added))
     }
 
-    /// Stop suggesting this product version for the Golden Rig (M9). Kept in
+    /// Stop suggesting this product version for the Primary Rig (M9). Kept in
     /// the `decisions` table as an `ignore` of state `suggestion`, with the
     /// version in `note`. False if it was already ignored.
     pub fn ignore_suggestion(
@@ -518,7 +519,7 @@ impl Store {
         Ok(true)
     }
 
-    /// Every ignored Golden suggestion, oldest first.
+    /// Every ignored Primary Rig suggestion, oldest first.
     pub fn ignored_suggestions(&self) -> Result<Vec<IgnoredSuggestion>> {
         let mut stmt = self.conn.prepare(
             "SELECT product_id, note, decided_at FROM decisions
@@ -534,7 +535,7 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Every machine with saved scans (not Golden versions), by name.
+    /// Every machine with saved scans (not Primary Rig versions), by name.
     pub fn machines(&self) -> Result<Vec<MachineInfo>> {
         let ids: Vec<String> = self
             .conn
@@ -616,7 +617,7 @@ impl Store {
     }
 
     /// Create or replace a user target profile (rules replaced wholesale).
-    /// Built-in presets and the Golden profile can't be overwritten.
+    /// Built-in presets and the Primary Rig profile can't be overwritten.
     pub fn save_target_profile(&mut self, profile: &TargetProfile) -> Result<()> {
         let existing: Option<(String, bool)> = self
             .conn
@@ -819,10 +820,10 @@ impl Store {
     }
 }
 
-/// The one Golden Profile per install (`profiles` row from migration 2).
+/// The one Primary Rig per install (`profiles` row from migration 2).
 const GOLDEN_ID: &str = "golden";
 
-/// Same items and same products in use, for Golden versions. The machine
+/// Same items and same products in use, for Primary Rig versions. The machine
 /// header, time and item paths are ignored: paths don't change what the rig
 /// is, and a bundle's copy may have the username removed (#38).
 fn same_content(a: &Manifest, b: &Manifest) -> bool {

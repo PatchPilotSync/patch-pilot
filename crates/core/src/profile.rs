@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Item, ItemKind, PluginFormat, PortablePath, Product, ProductId};
 
-/// A Golden Profile narrowed for one machine, e.g. "Travel: no AAX, no
+/// A Primary Rig narrowed for one machine, e.g. "Travel: no AAX, no
 /// libraries over 20 GB".
 ///
 /// Rules are checked in order and the **last** matching rule wins, like

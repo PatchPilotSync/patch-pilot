@@ -1,4 +1,4 @@
-//! Diff a machine manifest against a Golden manifest, per product.
+//! Diff a machine manifest against a Primary Rig manifest, per product.
 //!
 //! Comparison is at the product level so a Windows VST3 and a macOS AU/VST3
 //! of the same product count as the same thing. Items must already carry a
@@ -11,23 +11,23 @@ use patchpilot_core::{Item, Manifest, Os, PluginFormat, ProductId};
 
 use crate::version::{VersionOrder, compare_versions};
 
-/// Where a product stands on the machine relative to Golden.
+/// Where a product stands on the machine relative to Primary Rig.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ParityState {
-    /// In Golden, not on the machine.
+    /// In Primary Rig, not on the machine.
     Missing,
-    /// On the machine, but some formats Golden has are absent (e.g. no AAX).
+    /// On the machine, but some formats Primary Rig has are absent (e.g. no AAX).
     Incomplete,
     Outdated,
-    /// A user-owned file whose content differs from Golden at the same version.
+    /// A user-owned file whose content differs from Primary Rig at the same version.
     Modified,
     /// Versions differ in a way we can't order (unparseable strings).
     VersionUnknown,
     NewerThanGolden,
-    /// On the machine, not in Golden.
+    /// On the machine, not in Primary Rig.
     Extra,
-    /// Golden's formats of this product don't exist on this OS (e.g. AU on Windows).
+    /// Primary Rig's formats of this product don't exist on this OS (e.g. AU on Windows).
     NotApplicable,
     InParity,
 }
@@ -40,7 +40,7 @@ pub struct ProductDiff {
     pub state: ParityState,
     pub golden_version: Option<String>,
     pub machine_version: Option<String>,
-    /// Golden formats that apply to this OS but aren't installed.
+    /// Primary Rig formats that apply to this OS but aren't installed.
     pub missing_formats: Vec<PluginFormat>,
 }
 
@@ -142,10 +142,10 @@ fn by_product(m: &Manifest) -> BTreeMap<&ProductId, Vec<&Item>> {
     by
 }
 
-/// Golden items that matter for a machine on `os`.
+/// Primary Rig items that matter for a machine on `os`.
 ///
-/// If Golden has items built for this OS (or portable ones), use those.
-/// Otherwise Golden was scanned on the other OS: use its items whose format
+/// If Primary Rig has items built for this OS (or portable ones), use those.
+/// Otherwise Primary Rig was scanned on the other OS: use its items whose format
 /// exists here, since a VST3 on Windows implies a VST3 on macOS.
 fn relevant_golden_items<'a>(items: &[&'a Item], os: Os) -> Vec<&'a Item> {
     let native: Vec<_> = items

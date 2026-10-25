@@ -1,6 +1,6 @@
 //! ReaPack and Reaper folder settings on this machine: reading them into the
 //! manifest at scan time, and the file changes that bring them in line with
-//! the Golden Rig (decision #52).
+//! the Primary Rig (decision #52).
 //!
 //! Reading is read-only (ReaPack's registry is opened read-only). Nothing
 //! here writes: [`reapack_changes`] and [`folder_changes`] return the new
@@ -116,7 +116,7 @@ fn entry_columns(conn: &Connection) -> Result<Vec<String>, String> {
     }
 }
 
-/// ReaPack and folder fixes for this machine against Golden.
+/// ReaPack and folder fixes for this machine against Primary Rig.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ReaperExtras {
     /// Reaper's resource folder exists here.

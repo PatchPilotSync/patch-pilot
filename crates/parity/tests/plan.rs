@@ -51,7 +51,7 @@ fn stable_ordered_plan() {
             (
                 6,
                 Phase::Manual,
-                "Bring over 1 DAW file from the Golden Rig",
+                "Bring over 1 DAW file from the Primary Rig",
                 vec![]
             ),
         ]

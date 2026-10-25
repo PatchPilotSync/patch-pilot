@@ -38,14 +38,14 @@ fn propose_newer_and_extra_products_from_laptop() {
 
     assert_eq!(state(&next, &laptop, "acme-delay"), ParityState::InParity);
     assert_eq!(state(&next, &laptop, "acme-tuner"), ParityState::InParity);
-    // Golden is per platform (decision 17): the Mac slot moved to 1.5, the
-    // Windows studio PC is still measured against Golden's Windows 1.4.
+    // Primary Rig is per platform (decision 17): the Mac slot moved to 1.5, the
+    // Windows studio PC is still measured against Primary Rig's Windows 1.4.
     assert_eq!(state(&next, &studio, "acme-delay"), ParityState::InParity);
     // Unselected products are untouched.
     assert_eq!(state(&next, &laptop, "acme-comp"), ParityState::Outdated);
     assert!(next.product(&"acme-tuner".into()).is_some());
 
-    // Golden keeps its Windows VST3 next to the Mac one it took.
+    // Primary Rig keeps its Windows VST3 next to the Mac one it took.
     let delay: Vec<_> = next
         .items
         .iter()
@@ -56,7 +56,7 @@ fn propose_newer_and_extra_products_from_laptop() {
         delay,
         [(Os::Windows, Some("1.4")), (Os::Macos, Some("1.5"))]
     );
-    // The input Golden is not modified.
+    // The input Primary Rig is not modified.
     assert_eq!(golden, load("golden-studio-win.json"));
 }
 

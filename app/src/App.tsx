@@ -179,7 +179,7 @@ export default function App() {
             <button
               key={t}
               disabled={t === "compare" && !canCompare}
-              title={t === "compare" && !canCompare ? "Make a Golden Rig first" : undefined}
+              title={t === "compare" && !canCompare ? "Make a Primary Rig first" : undefined}
               onClick={() => setTab(t)}
               className={`disabled:opacity-40 ${tab === t ? "font-medium text-fg" : "text-dim hover:text-fg"}`}
             >
@@ -198,7 +198,7 @@ export default function App() {
       )}
       {replay && (
         <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-panel px-3 text-xs text-dim">
-          <span className="flex-1">Replaying the first run. Your saved machines and Golden Rig are untouched.</span>
+          <span className="flex-1">Replaying the first run. Your saved machines and Primary Rig are untouched.</span>
           <button onClick={() => setReplay(false)} className="hover:text-fg">
             Exit
           </button>

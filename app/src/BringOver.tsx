@@ -3,7 +3,7 @@ import { bringFiles, fileKey, filesToBring, type BringResult, type BringView, ty
 import { Badge, Button, buildTree, Folder, FolderTree, isConflictCopy, useFolders } from "./ui";
 
 /**
- * Bring over (decision #45): the Golden Rig's templates, scripts and themes
+ * Bring over (decision #45): the Primary Rig's templates, scripts and themes
  * this machine lacks, grouped by app. One click brings the ticked ones over;
  * anything replaced is backed up first. Loads its own list, so any screen
  * about this machine can show it.
@@ -55,7 +55,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
     <section className="rounded-lg border border-line bg-panel px-3 py-2.5">
       <header className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-xs font-semibold">Bring over from the Golden Rig</h2>
+          <h2 className="text-xs font-semibold">Bring over from the Primary Rig</h2>
           <p className="truncate text-[11px] text-dim">
             {view.files.length === 0
               ? "Everything is here."
@@ -76,7 +76,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
 
       {!view.linked && view.files.length > 0 && (
         <p className="mt-1.5 text-[11px] text-dim">
-          Link this machine with the Golden one (Link a machine, top bar) to bring these over.
+          Link this machine with the Primary one (Link a machine, top bar) to bring these over.
         </p>
       )}
 
@@ -89,7 +89,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
           {result.unavailable.length > 0 && (
             <span className="text-warn">
               {" "}
-              {result.unavailable.length} not available yet: open Patch Pilot on the Golden machine so it can send
+              {result.unavailable.length} not available yet: open Patch Pilot on the Primary machine so it can send
               them.
             </span>
           )}

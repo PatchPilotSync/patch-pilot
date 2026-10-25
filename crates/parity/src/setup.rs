@@ -185,7 +185,7 @@ pub fn plan_progress(
 
 /// True while the plan made from `baseline` still covers everything
 /// `machine` needs, so it can keep tracking progress. False once something
-/// new is missing (or the Golden Rig changed), when a fresh plan is due.
+/// new is missing (or the Primary Rig changed), when a fresh plan is due.
 pub fn plan_still_covers(
     golden: &Manifest,
     profile: &TargetProfile,
@@ -232,7 +232,7 @@ fn plan_step(
         }
     }
     let status = if s.products.is_empty() {
-        // "Install Native Access" when Golden doesn't list the app: done once
+        // "Install Native Access" when Primary Rig doesn't list the app: done once
         // the live plan stops asking for it.
         if live.steps.iter().any(|l| l.title == s.title) {
             StepStatus::Todo
@@ -270,7 +270,7 @@ fn plan_step(
 pub struct ReportInfo<'a> {
     pub machine: &'a str,
     pub os: Os,
-    /// Target profile name, None for the whole Golden Rig.
+    /// Target profile name, None for the whole Primary Rig.
     pub profile: Option<&'a str>,
     pub golden_version: u32,
     /// Unix seconds.
@@ -287,12 +287,12 @@ pub fn setup_report(info: &ReportInfo, p: &SetupProgress) -> String {
         Os::Macos => "macOS",
         Os::Windows => "Windows",
     };
-    let profile = info.profile.unwrap_or("Whole Golden Rig");
+    let profile = info.profile.unwrap_or("Whole Primary Rig");
     let end = info.finished_at.unwrap_or(info.now);
     let _ = writeln!(out, "# Setup report: {}\n", info.machine);
     let _ = writeln!(
         out,
-        "{os} · {profile} · compared with Golden Rig v{}\n",
+        "{os} · {profile} · compared with Primary Rig v{}\n",
         info.golden_version
     );
     let _ = writeln!(out, "- Started: {}", utc(info.started_at));

@@ -1,5 +1,5 @@
 //! Drift alerts (M9): a quiet OS notification when a machine falls further
-//! from the Golden Rig, or when this machine gets something the Golden Rig
+//! from the Primary Rig, or when this machine gets something the Primary Rig
 //! doesn't have. Checked only after something changed (a scan here, data from
 //! a linked machine), never on a timer. "Drift Alerts" in the tray menu turns
 //! them off. What to say lives in `patchpilot_local::golden`.

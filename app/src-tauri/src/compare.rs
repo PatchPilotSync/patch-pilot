@@ -1,6 +1,6 @@
-//! Comparison view (#41): every machine's score against the Golden Rig
+//! Comparison view (#41): every machine's score against the Primary Rig
 //! through its target profile, the diff with reasons, the Up To Speed plan,
-//! suggestions for the Golden Rig (M9), and importing another machine's
+//! suggestions for the Primary Rig (M9), and importing another machine's
 //! export file.
 
 use std::collections::BTreeSet;
@@ -30,12 +30,12 @@ pub struct MachineCard {
     pub os: Os,
     pub scanned_at: i64,
     pub is_this_machine: bool,
-    /// True when the latest Golden version was made from this machine.
+    /// True when the latest Primary Rig version was made from this machine.
     pub golden_source: bool,
     pub profile: Option<ProfileRef>,
-    /// None until there is a Golden Rig.
+    /// None until there is a Primary Rig.
     pub score: Option<u8>,
-    /// Products here the Golden Rig lacks or has older, not ignored.
+    /// Products here the Primary Rig lacks or has older, not ignored.
     pub suggestions: usize,
 }
 
@@ -50,8 +50,8 @@ pub struct MachineComparison {
     pub machine: MachineCard,
     pub golden_version: u32,
     pub comparison: Comparison,
-    /// Product IDs of `comparison.rows` that could go into the Golden Rig
-    /// (newer here or not in Golden), without the ones the user ignored.
+    /// Product IDs of `comparison.rows` that could go into the Primary Rig
+    /// (newer here or not in Primary Rig), without the ones the user ignored.
     pub suggested: Vec<String>,
 }
 
@@ -94,7 +94,7 @@ pub async fn plan_machine(id: String) -> Result<Plan, String> {
 
 /// Get Up To Speed for a machine, with each step ticked off once a rescan
 /// shows it done. The checklist keeps the scan it was made from; a new one
-/// starts when the Golden Rig or the machine's profile changes, or when
+/// starts when the Primary Rig or the machine's profile changes, or when
 /// something new is missing.
 #[tauri::command]
 pub async fn plan_progress(id: String) -> Result<SetupProgress, String> {
@@ -203,10 +203,10 @@ pub async fn import_bundle(path: PathBuf) -> Result<ImportSummary, String> {
         GoldenImport::NotInBundle | GoldenImport::UpToDate => {}
         GoldenImport::Imported(v) => {
             let v: Vec<_> = v.iter().map(|n| format!("v{n}")).collect();
-            lines.push(format!("Golden Rig: added {}", v.join(", ")));
+            lines.push(format!("Primary Rig: added {}", v.join(", ")));
         }
         GoldenImport::Diverged => {
-            lines.push("Golden Rig: both machines changed it, so nothing was imported".to_owned())
+            lines.push("Primary Rig: both machines changed it, so nothing was imported".to_owned())
         }
     }
     if !report.profiles_added.is_empty() {
@@ -218,7 +218,7 @@ pub async fn import_bundle(path: PathBuf) -> Result<ImportSummary, String> {
     Ok(ImportSummary { lines })
 }
 
-/// "Add to Golden Rig" on a suggestion: a new Golden version taking these
+/// "Add to Primary Rig" on a suggestion: a new Primary Rig version taking these
 /// products from `machine`. Every linked machine gets it through sync.
 #[tauri::command]
 pub async fn add_to_golden(
@@ -237,8 +237,8 @@ pub async fn add_to_golden(
     Ok(v.version)
 }
 
-/// "Update Golden Rig from this machine": `machine`'s whole latest scan
-/// becomes the next Golden version.
+/// "Update Primary Rig from this machine": `machine`'s whole latest scan
+/// becomes the next Primary Rig version.
 #[tauri::command]
 pub async fn update_golden_from(app: AppHandle, machine: String) -> Result<u32, String> {
     let mut store = existing_store()?.ok_or("no saved scans yet")?;
@@ -278,7 +278,7 @@ fn changed_here(app: &AppHandle, store: &Store) {
     let _ = app.emit("data-changed", ());
 }
 
-const NO_GOLDEN: &str = "no Golden Rig yet";
+const NO_GOLDEN: &str = "no Primary Rig yet";
 
 pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<MachinesView, String> {
     let golden = store.golden(None).map_err(err)?;

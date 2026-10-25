@@ -1,6 +1,6 @@
 //! Parity score v1: one number per machine, always with reasons.
 //!
-//! Each Golden product (after the target profile) carries a weight by kind,
+//! Each Primary Rig product (after the target profile) carries a weight by kind,
 //! boosted when a template depends on it. Its state earns a share of that
 //! weight. The score is earned / possible, 0–100. Reasons group the lost
 //! weight so the UI can say "92% · 3 plug-ins your templates need are missing".
@@ -160,7 +160,7 @@ pub fn score_machine(
     }
 }
 
-/// Golden filtered through a target profile.
+/// Primary Rig filtered through a target profile.
 pub fn apply_profile(golden: &Manifest, profile: &TargetProfile) -> Manifest {
     let mut target = golden.clone();
     target.items.retain(|item| {
@@ -230,7 +230,7 @@ impl ReasonKey {
         let state = match self.state {
             ParityState::Missing => format!("{be} missing"),
             ParityState::Outdated => format!("{be} out of date"),
-            ParityState::Modified => format!("{be} different from Golden"),
+            ParityState::Modified => format!("{be} different from the Primary Rig"),
             ParityState::VersionUnknown => format!("{be} at a version we can't compare"),
             ParityState::Incomplete => {
                 let formats: Vec<_> = self.formats.iter().map(|f| format_name(*f)).collect();

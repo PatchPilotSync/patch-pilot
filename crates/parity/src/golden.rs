@@ -1,5 +1,5 @@
-//! "Propose to Golden" (#35, strategy point 3): take products from a
-//! secondary machine into a new Golden Profile version.
+//! "Propose to Primary Rig" (#35, strategy point 3): take products from a
+//! secondary machine into a new Primary Rig version.
 
 use patchpilot_core::{Manifest, ProductId};
 
@@ -16,9 +16,9 @@ pub enum ProposeError {
 /// A copy of `golden` that takes the selected products from `machine`.
 ///
 /// `products` are product IDs or names (case-insensitive). For each selected
-/// product, the machine's items replace Golden's items of the same kind,
-/// format and platform (or are added); Golden items in other slots stay, so
-/// proposing a Mac's AU keeps Golden's Windows VST3. Unselected products are untouched. IDs are aligned
+/// product, the machine's items replace Primary Rig's items of the same kind,
+/// format and platform (or are added); Primary Rig items in other slots stay, so
+/// proposing a Mac's AU keeps Primary Rig's Windows VST3. Unselected products are untouched. IDs are aligned
 /// first ([`align_products`]), so `unknown/x` on one side matches `vendor/x`.
 pub fn propose_to_golden(
     golden: &Manifest,

@@ -162,7 +162,7 @@ export function ReportDialog({
               <label
                 key={key}
                 className={`flex items-center gap-2 ${enabled ? "" : "text-dim"}`}
-                title={enabled ? undefined : "Make a Golden Rig first"}
+                title={enabled ? undefined : "Make a Primary Rig first"}
               >
                 <input
                   type="checkbox"

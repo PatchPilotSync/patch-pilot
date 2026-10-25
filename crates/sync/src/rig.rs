@@ -147,7 +147,7 @@ impl fmt::Debug for RigKey {
     }
 }
 
-/// The relay object holding a machine's latest scan, Golden versions and
+/// The relay object holding a machine's latest scan, Primary Rig versions and
 /// profiles: `machine/<machine id>`.
 pub fn machine_object(machine_id: &str) -> Result<String> {
     let name = format!("machine/{machine_id}");

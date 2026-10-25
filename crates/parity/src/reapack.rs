@@ -230,12 +230,12 @@ pub fn from_manifest(m: &Manifest) -> (Vec<Remote>, Vec<Package>) {
     (remotes, packages)
 }
 
-/// What a machine needs to match the Golden Rig's ReaPack setup.
+/// What a machine needs to match the Primary Rig's ReaPack setup.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ReaPackRestore {
-    /// Golden's repositories this machine doesn't have (matched by URL, then name).
+    /// Primary Rig's repositories this machine doesn't have (matched by URL, then name).
     pub missing_remotes: Vec<Remote>,
-    /// Golden's packages this machine hasn't installed. Extensions built for
+    /// Primary Rig's packages this machine hasn't installed. Extensions built for
     /// another OS are left out: ReaPack picks the right build itself.
     pub missing_packages: Vec<Package>,
 }

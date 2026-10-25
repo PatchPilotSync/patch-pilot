@@ -42,7 +42,7 @@ impl Default for ReportOptions {
     }
 }
 
-/// The machine's score against the Golden Rig.
+/// The machine's score against the Primary Rig.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportParity {
     pub score: u8,
@@ -132,7 +132,7 @@ impl<'a> Report<'a> {
     fn parity_line(&self) -> Option<String> {
         self.parity.map(|p| {
             format!(
-                "{}% in parity with Golden Rig v{}",
+                "{}% in parity with Primary Rig v{}",
                 p.score, p.golden_version
             )
         })
@@ -469,7 +469,7 @@ mod tests {
                 .contains(&format!("**{}** plug-ins", inv.products))
         );
         assert!(r.markdown.contains("Formats: VST3"));
-        assert!(r.markdown.contains("96% in parity with Golden Rig v3"));
+        assert!(r.markdown.contains("96% in parity with Primary Rig v3"));
         assert!(r.html.contains("<h1>Home &lt;studio&gt;</h1>"));
         assert!(r.html.contains("24 October 2026"));
         assert!(r.html.contains("dot ok"));

@@ -213,7 +213,7 @@ fn golden_versions_are_kept_and_chained() {
     let g1 = store.golden(Some(1)).unwrap().unwrap();
     assert_eq!(g1.info, v1);
     assert_eq!(g1.manifest.machine.id, "golden@1");
-    assert_eq!(g1.manifest.machine.name, "Golden Rig v1");
+    assert_eq!(g1.manifest.machine.name, "Primary Rig v1");
     assert_eq!(g1.manifest.items, studio.items);
     assert_eq!(g1.manifest.machine.path_map, studio.machine.path_map);
 
@@ -237,7 +237,7 @@ fn golden_versions_are_kept_and_chained() {
         .collect();
     assert_eq!(history, [2, 1]);
 
-    // Golden versions don't show up as the scanned machine's history.
+    // Primary Rig versions don't show up as the scanned machine's history.
     assert_eq!(store.snapshots(&studio.machine.id).unwrap().len(), 0);
 }
 
@@ -405,7 +405,7 @@ fn bundle_moves_machines_golden_and_profiles_between_stores() {
     let studio = fixture_manifest();
     let mac = mac_manifest();
 
-    // Windows studio PC: its own scan, a Golden v1 and a custom profile
+    // Windows studio PC: its own scan, a Primary Rig v1 and a custom profile
     // assigned to the Mac it knows about.
     let mut win = Store::open_in_memory().unwrap();
     win.save_manifest(&studio, SnapshotReason::FirstScan, 1)
@@ -430,7 +430,7 @@ fn bundle_moves_machines_golden_and_profiles_between_stores() {
     );
     let bundle = Bundle::from_json(&bundle.to_json_pretty()).unwrap();
 
-    // The Mac imports it: the studio PC and Golden arrive, its own scan is
+    // The Mac imports it: the studio PC and Primary Rig arrive, its own scan is
     // skipped, the profile and its own assignment come along.
     let mut mac_store = Store::open_in_memory().unwrap();
     mac_store
@@ -547,7 +547,7 @@ fn golden_import_only_fast_forwards() {
     );
     assert_eq!(diverged.golden(None).unwrap().unwrap().info.version, 2);
 
-    // No Golden in the bundle.
+    // No Primary Rig in the bundle.
     let empty = Bundle::new(1, None);
     assert_eq!(
         diverged.import_bundle(&empty, None, 50).unwrap().golden,

@@ -48,7 +48,7 @@ fn rig_key_path(app_dir: &Path) -> PathBuf {
     app_dir.join(RIG_KEY_FILE)
 }
 
-/// This machine's object for the relay: its latest scan, every Golden version
+/// This machine's object for the relay: its latest scan, every Primary Rig version
 /// and the user's profiles, sealed. `None` before the first saved scan.
 ///
 /// Paths stay as they are: only this user's own machines can read it.
@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(outgoing(&mac, &laptop.machine.id, &rig).unwrap(), None);
         crate::save_scan(&mut mac, &laptop).unwrap();
 
-        // PC uploads; the Mac gets the PC's scan and the Golden Rig.
+        // PC uploads; the Mac gets the PC's scan and the Primary Rig.
         let (object, sealed) = outgoing(&pc, &studio.machine.id, &rig).unwrap().unwrap();
         assert!(is_other_machine(&object, &laptop.machine.id));
         assert!(!is_other_machine(&object, &studio.machine.id));
