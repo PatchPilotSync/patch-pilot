@@ -13,6 +13,10 @@ becomes its release notes, which the app shows when it offers that update
 - Preset folder rows (Arturia presets, Kilohearts presets, ...) now show where the folder is and how big it is, and say what Patch Pilot does with it.
 - "no profile" on Compare now reads "whole rig".
 
+### Fixed
+
+- Compare really stays on the machine you click now. With a big rig, the slower comparison of this machine could finish after the one you picked and replace it on screen, while the sidebar still showed your pick.
+
 ## 0.3.1 - 2026-10-25
 
 ### New
