@@ -158,3 +158,65 @@ fn refuses_an_index_from_a_newer_app() {
     .unwrap();
     assert!(Vault::new(dir.path()).index().is_err());
 }
+
+#[test]
+fn removing_undoes_an_add_and_tidies_empty_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Vault::new(dir.path().join("Vault"));
+    let src = dir.path().join("Pro-Q.exe");
+    fs::write(&src, b"q").unwrap();
+    let keep = dir.path().join("Other.exe");
+    fs::write(&keep, b"other").unwrap();
+    let kept = vault
+        .add(&keep, meta("1.0", Some(Os::Windows)), None, 0)
+        .unwrap();
+    let added = vault
+        .add(&src, meta("3.21", Some(Os::Windows)), None, 0)
+        .unwrap();
+
+    let removed = vault.remove(&added.entry().id).unwrap();
+    assert_eq!(&removed, added.entry());
+    assert!(src.exists(), "the download is untouched");
+    assert!(!vault.path_of(added.entry()).exists());
+    assert!(
+        !vault.root.join("FabFilter/Pro-Q 3/3.21").exists(),
+        "empty folders go"
+    );
+    assert!(
+        vault.root.join("FabFilter/Pro-Q 3/1.0").exists(),
+        "others stay"
+    );
+    assert_eq!(
+        vault.index().unwrap().entries,
+        std::slice::from_ref(kept.entry())
+    );
+    assert!(vault.remove(&added.entry().id).is_err());
+}
+
+#[test]
+fn adds_at_the_same_time_all_land() {
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Vault::new(dir.path().join("Vault"));
+    let files: Vec<_> = (0..4)
+        .map(|i| {
+            let p = dir.path().join(format!("Setup{i}.exe"));
+            fs::write(&p, vec![i as u8; 200_000]).unwrap();
+            p
+        })
+        .collect();
+    std::thread::scope(|s| {
+        for f in &files {
+            let vault = &vault;
+            s.spawn(move || {
+                vault
+                    .add(f, meta("1.0", Some(Os::Windows)), None, 0)
+                    .unwrap()
+            });
+        }
+    });
+    let entries = vault.index().unwrap().entries;
+    assert_eq!(entries.len(), 4);
+    for e in &entries {
+        assert!(vault.verify(e).unwrap());
+    }
+}

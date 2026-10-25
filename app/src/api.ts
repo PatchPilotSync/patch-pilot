@@ -358,6 +358,7 @@ export interface VaultView {
   downloads: string | null;
   entries: VaultEntry[];
   inbox: InboxItem[];
+  skipped: InboxItem[];
   products: Product[];
   problem: string | null;
 }
@@ -391,7 +392,10 @@ export const vaultSetRoot = (path: string) => invoke<VaultView>("vault_set_root"
 export const vaultAdd = (path: string, meta: NewEntry) =>
   invoke<{ entry: VaultEntry; already: boolean; signer_warning: string | null }>("vault_add", { path, meta });
 export const vaultInspect = (paths: string[]) => invoke<InboxItem[]>("vault_inspect", { paths });
-export const vaultDismiss = (path: string) => invoke<void>("vault_dismiss", { path });
+/** Skip downloads (not for the vault), or with `skip` false bring them back. */
+export const vaultSkip = (paths: string[], skip = true) => invoke<void>("vault_skip", { paths, skip });
+/** Undo an add: deletes the vault's copy only. */
+export const vaultRemove = (entryId: string) => invoke<void>("vault_remove", { entryId });
 export const vaultMatches = (products: string[]) => invoke<VaultMatch[]>("vault_matches", { products });
 export const vaultRun = (entryId: string) => invoke<void>("vault_run", { entryId });
 export const vaultReveal = (entryId: string | null = null) => invoke<void>("vault_reveal", { entryId });

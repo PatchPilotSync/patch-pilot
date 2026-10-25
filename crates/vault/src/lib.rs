@@ -185,9 +185,11 @@ impl Vault {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "installer".to_owned());
-        let temp = self
-            .root
-            .join(format!("incoming-{}.partial", std::process::id()));
+        let temp = self.root.join(format!(
+            "incoming-{}-{}.partial",
+            std::process::id(),
+            next_temp()
+        ));
         let result = (|| {
             let (hash, size) = copy_hashing(src, &temp)?;
             let index = self.index()?;
@@ -240,14 +242,22 @@ impl Vault {
 
     /// Re-read the index, change it, write it back (temporary file, then
     /// rename). Reading first keeps entries another machine added meanwhile.
+    /// Updates in this process take turns, so two adds at once can't lose
+    /// each other's entry.
     fn update_index(&self, change: impl FnOnce(&mut Index)) -> Result<(), VaultError> {
+        static INDEX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _turn = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut index = self.index()?;
         change(&mut index);
         index.entries.sort_by(|a, b| {
             (&a.vendor, &a.product, &a.file).cmp(&(&b.vendor, &b.product, &b.file))
         });
         let path = self.root.join(INDEX_FILE);
-        let temp = self.root.join(format!("{INDEX_FILE}.partial"));
+        let temp = self.root.join(format!(
+            "{INDEX_FILE}.{}-{}.partial",
+            std::process::id(),
+            next_temp()
+        ));
         let json = serde_json::to_string_pretty(&index).expect("index serializes");
         let write = || -> io::Result<()> {
             let mut f = File::create(&temp)?;
@@ -256,6 +266,29 @@ impl Vault {
             fs::rename(&temp, &path)
         };
         write().map_err(io_err(&path))
+    }
+
+    /// Take an installer out of the vault: delete Patch Pilot's copy and its
+    /// index entry, and any folders left empty by it. The original download
+    /// is untouched. Used to undo an add.
+    pub fn remove(&self, id: &str) -> Result<Entry, VaultError> {
+        let entry = self.entry(id)?;
+        let path = self.path_of(&entry);
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_err(&path)(e)),
+        }
+        // Up to (not including) the root; remove_dir only removes empty ones.
+        let mut dir = path.parent();
+        while let Some(d) = dir.filter(|d| *d != self.root && d.starts_with(&self.root)) {
+            if fs::remove_dir(d).is_err() {
+                break;
+            }
+            dir = d.parent();
+        }
+        self.update_index(|i| i.entries.retain(|e| e.id != entry.id))?;
+        Ok(entry)
     }
 
     /// True when the file is still exactly what was added.
@@ -315,6 +348,14 @@ pub fn installers_in(dir: &Path) -> Vec<PathBuf> {
         .collect();
     found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     found.into_iter().map(|(_, p)| p).collect()
+}
+
+/// A number for temporary file names, unique within this process, so two
+/// adds running at once never share one.
+fn next_temp() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// BLAKE3 of a file, hex.

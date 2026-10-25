@@ -2,21 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   onVaultChanged,
-  vaultAdd,
-  vaultDismiss,
   vaultInspect,
   vaultReveal,
   vaultRun,
   vaultSetRoot,
   vaultStatus,
   type InboxItem,
-  type NewEntry,
   type Os,
-  type Product,
   type VaultEntry,
   type VaultView,
 } from "../api";
-import { Badge, Button, Folder, FolderControls, inputClass, timeAgo, useFolders } from "../ui";
+import { Badge, Button, Folder, FolderControls, inputClass, useFolders } from "../ui";
+import { Triage } from "./VaultTriage";
 
 const OS_LABEL: Record<Os, string> = { windows: "Windows", macos: "macOS" };
 
@@ -85,30 +82,6 @@ export function Vault({
 
   const waiting = [...extra, ...view.inbox.filter((i) => !extra.some((x) => x.path === i.path))];
 
-  async function add(item: InboxItem, meta: NewEntry) {
-    try {
-      const r = await vaultAdd(item.path, meta);
-      const lines = [r.already ? `${item.file_name} is already in the vault.` : `Added ${item.file_name} to the vault.`];
-      if (r.signer_warning) lines.push(r.signer_warning);
-      onNotice(lines);
-      setExtra((x) => x.filter((i) => i.path !== item.path));
-      refresh();
-    } catch (e) {
-      onError(String(e));
-    }
-  }
-
-  async function skip(item: InboxItem) {
-    setExtra((x) => x.filter((i) => i.path !== item.path));
-    if (!view?.inbox.some((i) => i.path === item.path)) return;
-    try {
-      await vaultDismiss(item.path);
-      refresh();
-    } catch (e) {
-      onError(String(e));
-    }
-  }
-
   return (
     <div className="flex flex-col pb-6">
       <header className="flex items-center gap-3 border-b border-line px-4 py-2.5">
@@ -127,24 +100,15 @@ export function Vault({
       </header>
       {view.problem && <p className="px-4 pt-3 text-xs text-bad">{view.problem}</p>}
 
-      {waiting.length > 0 && (
-        <section>
-          <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">
-            New installers{view.downloads ? " in Downloads" : ""}: add them to keep a copy
-          </h3>
-          <ul>
-            {waiting.map((item) => (
-              <InboxRow
-                key={item.path}
-                item={item}
-                products={view.products}
-                onAdd={(meta) => add(item, meta)}
-                onSkip={() => skip(item)}
-              />
-            ))}
-          </ul>
-        </section>
-      )}
+      <Triage
+        items={waiting}
+        skipped={view.skipped}
+        products={view.products}
+        fromDownloads={!!view.downloads}
+        onChanged={refresh}
+        onError={onError}
+        onNotice={onNotice}
+      />
 
       <Entries entries={view.entries} onError={onError} />
       {view.entries.length === 0 && waiting.length === 0 && (
@@ -205,97 +169,6 @@ function PickFolder({
         )}
       </div>
     </div>
-  );
-}
-
-function InboxRow({
-  item,
-  products,
-  onAdd,
-  onSkip,
-}: {
-  item: InboxItem;
-  products: Product[];
-  onAdd: (meta: NewEntry) => void;
-  onSkip: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [productId, setProductId] = useState(item.product?.canonical_id ?? "");
-  const [vendor, setVendor] = useState(item.product?.vendor ?? "");
-  const [name, setName] = useState(item.product?.name ?? item.guess.name);
-  const [version, setVersion] = useState(item.guess.version ?? "");
-  const [os, setOs] = useState<Os | "">(item.guess.os ?? "");
-
-  function pick(id: string) {
-    setProductId(id);
-    const p = products.find((p) => p.canonical_id === id);
-    if (p) {
-      setVendor(p.vendor);
-      setName(p.name);
-    }
-  }
-
-  async function add() {
-    setBusy(true);
-    await onAdd({
-      vendor: vendor.trim(),
-      product: name.trim() || item.guess.name,
-      product_id: productId || null,
-      version: version.trim() || null,
-      os: os || null,
-      arch: item.guess.arch,
-    });
-    setBusy(false);
-  }
-
-  const summary = [vendor && name ? `${vendor} ${name}` : name, version, os ? OS_LABEL[os] : "any OS"]
-    .filter(Boolean)
-    .join(" · ");
-
-  return (
-    <li className="px-4 py-1.5 hover:bg-sel/40">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1">
-          <span className="block truncate" title={item.path}>
-            {item.file_name}
-          </span>
-          <span className="block truncate text-xs text-dim">
-            {productId ? summary : `${summary} · not matched to a plug-in you have`} · {formatSize(item.size)} ·{" "}
-            {timeAgo(item.modified)}
-          </span>
-        </span>
-        <Button variant="quiet" onClick={() => setEditing(!editing)}>
-          {editing ? "Done" : "Edit"}
-        </Button>
-        <Button variant="quiet" onClick={onSkip} title="Don't offer this file again">
-          Skip
-        </Button>
-        <Button onClick={add} disabled={busy}>
-          {busy ? "Adding…" : "Add"}
-        </Button>
-      </div>
-      {editing && (
-        <div className="mt-1.5 grid grid-cols-[1fr_1fr] gap-1.5 text-xs">
-          <select className={`${inputClass} col-span-2`} value={productId} onChange={(e) => pick(e.target.value)}>
-            <option value="">Not one of my plug-ins</option>
-            {products.map((p) => (
-              <option key={p.canonical_id} value={p.canonical_id}>
-                {p.vendor ? `${p.vendor} · ${p.name}` : p.name}
-              </option>
-            ))}
-          </select>
-          <input className={inputClass} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
-          <input className={inputClass} placeholder="Product" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className={inputClass} placeholder="Version" value={version} onChange={(e) => setVersion(e.target.value)} />
-          <select className={inputClass} value={os} onChange={(e) => setOs(e.target.value as Os | "")}>
-            <option value="windows">Windows</option>
-            <option value="macos">macOS</option>
-            <option value="">Either (e.g. a zip with both)</option>
-          </select>
-        </div>
-      )}
-    </li>
   );
 }
 
@@ -370,10 +243,4 @@ function Entries({ entries, onError }: { entries: VaultEntry[]; onError: (e: str
       })}
     </>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes >= 1e6) return `${Math.round(bytes / 1e6)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
 }
