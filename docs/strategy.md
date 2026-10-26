@@ -271,6 +271,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Primary Rig | "Propose this to Primary Rig" from any machine, and alerts when a machine drifts | In progress |
 | Catalog | Plug-in catalog service and update alerts | In progress |
 | Presets | Find presets in the top 30 vendors' preset locations; bring them over to linked machines (files up to 1.9 MB) | In progress |
+| Presets | Find the same preset saved in several folders and clean up the extra copies, undoable from History (#66) | In progress |
 
 ### Not started
 
