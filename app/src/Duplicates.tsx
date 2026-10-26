@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { cleanUpDuplicates, findDuplicates, type DuplicateGroup, type Duplicates as Found } from "./api";
+import {
+  cleanUpDuplicates,
+  findDuplicates,
+  revealPath,
+  SHOW_IN_FOLDER,
+  type DuplicateGroup,
+  type Duplicates as Found,
+} from "./api";
 import { Badge, Button, Folder, FolderControls, useFolders } from "./ui";
 
 /**
@@ -124,7 +131,7 @@ export function Duplicates() {
                   {g.copies.map((c, i) => {
                     const isKept = kept(g) === c.path;
                     return (
-                      <li key={c.path} className="flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
+                      <li key={c.path} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
                         <input
                           type="radio"
                           name={g.hash}
@@ -140,6 +147,13 @@ export function Duplicates() {
                         >
                           {c.path}
                         </span>
+                        <Button
+                          variant="link"
+                          className="h-5 shrink-0 px-0 text-[11px] opacity-0 focus:opacity-100 group-hover:opacity-100"
+                          onClick={() => revealPath(c.path).catch((e) => setError(String(e)))}
+                        >
+                          {SHOW_IN_FOLDER}
+                        </Button>
                         {i === 0 && <Badge>suggested</Badge>}
                       </li>
                     );

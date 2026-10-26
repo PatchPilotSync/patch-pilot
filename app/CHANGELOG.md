@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.11 - 2026-10-26
+
+### Improved
+
+- Files left out of a backup now have **Show in Finder** (Mac) or **Show in Explorer** (Windows), which opens their folder with the file selected. Duplicate presets have the same link on each copy when you point at it.
+
 ## 0.4.10 - 2026-10-26
 
 ### Improved

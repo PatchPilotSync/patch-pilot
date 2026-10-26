@@ -37,6 +37,17 @@ fn app_version() -> AppVersion {
     }
 }
 
+/// Show a file the app listed (a skipped backup file, a duplicate preset)
+/// selected in Finder or Explorer. Only shows it: nothing is opened or run.
+#[tauri::command]
+async fn reveal_path(path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(path);
+    if !path.is_absolute() || !path.exists() {
+        return Err("That file isn't there any more.".into());
+    }
+    patchpilot_local::open::reveal(&path).map_err(|e| e.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Opening Patch Pilot again (Start menu, Finder) while it runs in the
@@ -82,6 +93,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_version,
+            reveal_path,
             rig::overview,
             rig::scan_machine,
             rig::make_golden,
