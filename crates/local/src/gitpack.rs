@@ -119,8 +119,15 @@ pub fn commit(tree: &str, parent: Option<&str>, message: &str, time: i64) -> Vec
     s.into_bytes()
 }
 
-/// A pack of whole objects.
+/// A pack of whole objects. An object given twice (two folders with the
+/// same files have the same tree) goes in once: Git refuses a pack with
+/// the same object twice.
 pub fn pack(objects: &[(Kind, &[u8])]) -> Vec<u8> {
+    let mut seen = std::collections::HashSet::new();
+    let objects: Vec<&(Kind, &[u8])> = objects
+        .iter()
+        .filter(|(kind, body)| seen.insert(object_id(*kind, body)))
+        .collect();
     let mut out = Vec::new();
     out.extend_from_slice(b"PACK");
     out.extend_from_slice(&2u32.to_be_bytes());
@@ -171,10 +178,10 @@ pub enum PushStatus {
     Rejected(String),
 }
 
-/// Read a `report-status` response.
-pub fn push_status(response: &[u8]) -> PushStatus {
-    let mut lines = Vec::new();
-    let mut rest = response;
+/// The payloads of the pkt-lines in `data`, up to where they stop making sense.
+fn pkt_lines(data: &[u8]) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    let mut rest = data;
     while rest.len() >= 4 {
         let Some(len) = std::str::from_utf8(&rest[..4])
             .ok()
@@ -189,24 +196,47 @@ pub fn push_status(response: &[u8]) -> PushStatus {
         if len < 4 || len > rest.len() {
             break;
         }
-        lines.push(String::from_utf8_lossy(&rest[4..len]).trim_end().to_owned());
+        out.push(&rest[4..len]);
         rest = &rest[len..];
     }
-    if let Some(unpack) = lines.iter().find(|l| l.starts_with("unpack ")) {
-        if unpack != "unpack ok" {
-            return PushStatus::Rejected(unpack.clone());
+    out
+}
+
+/// Read a `report-status` response. GitHub may wrap some or all of it in
+/// side-band channels (1: the report, 2: progress, 3: an error) even
+/// unasked.
+pub fn push_status(response: &[u8]) -> PushStatus {
+    let text = |b: &[u8]| String::from_utf8_lossy(b).trim_end().to_owned();
+    let mut lines = Vec::new();
+    let mut report = Vec::new();
+    let mut error = String::new();
+    for p in pkt_lines(response) {
+        match p.split_first() {
+            Some((1, data)) => report.extend_from_slice(data),
+            Some((2, _)) => {}
+            Some((3, data)) => error.push_str(&text(data)),
+            _ => lines.push(text(p)),
         }
-    } else {
-        let text = String::from_utf8_lossy(response).trim().to_owned();
-        return PushStatus::Rejected(if text.is_empty() {
-            "GitHub didn't say whether it took the files.".into()
-        } else {
-            text
-        });
+    }
+    lines.extend(pkt_lines(&report).into_iter().map(text));
+    if !error.is_empty() {
+        return PushStatus::Rejected(error);
+    }
+    match lines.iter().find(|l| l.starts_with("unpack ")) {
+        Some(unpack) if unpack != "unpack ok" => {
+            return PushStatus::Rejected(format!(
+                "it couldn't read the files sent ({})",
+                unpack.trim_start_matches("unpack ")
+            ));
+        }
+        Some(_) => {}
+        None => {
+            return PushStatus::Rejected("it didn't say whether it took the files".into());
+        }
     }
     match lines.iter().find(|l| l.starts_with("ng ")) {
         None if lines.iter().any(|l| l.starts_with("ok ")) => PushStatus::Ok,
-        None => PushStatus::Rejected("GitHub didn't update the branch.".into()),
+        None => PushStatus::Rejected("it didn't update the branch".into()),
         Some(ng) => {
             let why = ng.splitn(3, ' ').nth(2).unwrap_or_default().to_owned();
             if ["fast-forward", "fetch first", "stale info", "lock"]
@@ -330,10 +360,31 @@ mod tests {
             ])),
             PushStatus::Rejected("protected branch hook declined".into())
         );
-        assert!(matches!(
+        let unreadable =
+            PushStatus::Rejected("it couldn't read the files sent (index-pack failed)".into());
+        assert_eq!(
             push_status(&lines(&["unpack index-pack failed"])),
-            PushStatus::Rejected(_)
-        ));
+            unreadable
+        );
+        // What GitHub sent Joshua's PC: the first line on side-band 1, the
+        // rest plain.
+        let github =
+            b"0022\x01001dunpack index-pack failed\n001eng refs/heads/main failed\n00000000";
+        assert_eq!(push_status(github), unreadable);
+        // All on side-band 1, with progress on 2.
+        let mut banded = pkt_line("\x02Resolving deltas: 100%\n");
+        banded.extend(pkt_line(&format!(
+            "\x01{}",
+            String::from_utf8(lines(&["unpack ok", "ok refs/heads/main"])).unwrap()
+        )));
+        banded.extend_from_slice(b"0000");
+        assert_eq!(push_status(&banded), PushStatus::Ok);
+        let mut refused = pkt_line("\x03The repository is over its size limit\n");
+        refused.extend_from_slice(b"0000");
+        assert_eq!(
+            push_status(&refused),
+            PushStatus::Rejected("The repository is over its size limit".into())
+        );
     }
     /// Real Git takes what Patch Pilot pushes. Skipped where Git isn't installed.
     #[test]
@@ -366,6 +417,9 @@ mod tests {
                 .unwrap()
                 .success()
         );
+        // Check every object and always use index-pack, as GitHub does.
+        git(&["config", "receive.fsckObjects", "true"]);
+        git(&["config", "transfer.unpackLimit", "1"]);
         let push = |old: &str, files: &[(&str, &[u8])], parent: Option<&str>| {
             let map: BTreeMap<String, String> = files
                 .iter()
@@ -393,7 +447,12 @@ mod tests {
         let zero = "0".repeat(40);
         let (first, status) = push(
             &zero,
-            &[("Studio PC/a b.txt", b"hello\n"), ("Studio PC/a/x", b"x")],
+            // Two folders with the same file have the same tree: it goes once.
+            &[
+                ("Studio PC/a b.txt", b"hello\n"),
+                ("Studio PC/a/x", b"x"),
+                ("Studio PC/c/x", b"x"),
+            ],
             None,
         );
         assert_eq!(status, PushStatus::Ok);
