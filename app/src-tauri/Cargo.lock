@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "patchpilot-app"
-version = "0.4.11"
+version = "0.4.12"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
@@ -3049,6 +3049,7 @@ name = "patchpilot-local"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "flate2",
  "notify",
  "patchpilot-catalog",
  "patchpilot-core",
@@ -3061,6 +3062,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1_smol",
+ "tar",
  "tempfile",
  "thiserror 2.0.21",
  "walkdir",

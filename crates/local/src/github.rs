@@ -14,11 +14,13 @@
 //! No network here: the app talks to GitHub through [`Remote`].
 
 use std::collections::{BTreeMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::backup::{FOLDER_NAME, below, own_folder, remove_empty_parents, safe_rel, write_atomic};
+use crate::gitpack;
 
 /// [`crate::backup::BackupSettings::service`] while syncing with GitHub.
 pub const SERVICE: &str = "github";
@@ -173,33 +175,38 @@ pub struct RemoteFile {
     pub id: String,
 }
 
-/// A file to add or replace (`Some(blob id)`) or remove (`None`) in a commit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Change {
-    pub path: String,
-    pub id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PushError {
-    /// Another machine pushed first: go again on the newer commit.
-    Moved,
-    Failed(String),
-}
-
-/// The repo, as the app reaches it over GitHub's API.
+/// The repo, as the app reaches it: reads through GitHub's REST API, a big
+/// first pull as one archive, and pushes over Git's own smart HTTP protocol,
+/// which takes thousands of files in one request.
 pub trait Remote {
     /// The branch's latest commit (making a first one in an empty repo).
     fn head(&self) -> Result<String, String>;
     /// Every file at `commit`.
     fn files(&self, commit: &str) -> Result<Vec<RemoteFile>, String>;
     fn download(&self, id: &str) -> Result<Vec<u8>, String>;
-    /// Store `bytes`, giving its blob ID.
-    fn upload(&self, bytes: &[u8]) -> Result<String, String>;
-    /// A commit of `changes` on `parent`, moving the branch to it only if
-    /// the branch is still at `parent`.
-    fn commit(&self, parent: &str, changes: &[Change], message: &str) -> Result<String, PushError>;
+    /// The whole repo at `commit` as a `.tar.gz` (one folder at its top).
+    fn archive(&self, commit: &str) -> Result<Box<dyn Read + '_>, String>;
+    /// Send a `git-receive-pack` request ([`gitpack::receive_pack_request`]);
+    /// the server's response.
+    fn receive_pack(&self, body: Vec<u8>) -> Result<Vec<u8>, String>;
 }
+
+/// How far a long sync has got, for "Uploading 3,200 of 15,456 files".
+/// Mirrored in `app/src/api.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Progress {
+    /// Sending this machine's files; otherwise bringing others' in.
+    pub uploading: bool,
+    pub done: usize,
+    pub total: usize,
+}
+
+/// More files than this to bring in come as one archive, not one by one.
+const ARCHIVE_OVER: usize = if cfg!(test) { 5 } else { 50 };
+/// One push carries at most this much: a big first upload goes in parts,
+/// each a commit, so a dropped connection loses one part at most.
+const PUSH_BYTES: u64 = 96 * 1024 * 1024;
+const PUSH_FILES: usize = if cfg!(test) { 4 } else { 4000 };
 
 /// What one sync did. Mirrored in `app/src/api.ts`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,7 +222,9 @@ pub struct GitHubReport {
 }
 
 /// Pull everything other machines changed into the copy at `dir`, then
-/// push what this machine (`this`) changed in its own folder.
+/// push what this machine (`this`) changed in its own folder, in parts of
+/// at most [`PUSH_FILES`] files. `progress` hears how a long one goes.
+#[allow(clippy::too_many_arguments)]
 pub fn sync(
     remote: &dyn Remote,
     dir: &Path,
@@ -224,8 +233,13 @@ pub fn sync(
     settings: &mut GitHubSettings,
     index: &mut FileIndex,
     now: i64,
+    progress: &mut dyn FnMut(Progress),
 ) -> Result<GitHubReport, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let branch = settings
+        .repo
+        .as_ref()
+        .map_or_else(|| "main".to_owned(), |r| r.branch.clone());
     // This machine's folder as it was before pulling: a machine whose copy
     // is new gets its own folder back from the repo like any other.
     let mine = own_folder(dir, this);
@@ -236,7 +250,10 @@ pub fn sync(
         })
     };
     let mut report = GitHubReport::default();
-    for _ in 0..4 {
+    let mut moved = 0;
+    // Files to send when the first part went: the total progress counts.
+    let mut upload_total: Option<usize> = None;
+    loop {
         let head = remote.head()?;
         let theirs: BTreeMap<String, String> = remote
             .files(&head)?
@@ -246,22 +263,55 @@ pub fn sync(
         let here = local_files(dir, index)?;
 
         // Pull: outside this machine's folder the copy follows the repo.
+        let mut wanted: BTreeMap<String, String> = BTreeMap::new();
         for (path, id) in &theirs {
             if in_mine(path) || here.get(path) == Some(id) {
                 continue;
             }
-            if !safe_rel(path) {
-                if !report.unsafe_paths.contains(path) {
-                    report.unsafe_paths.push(path.clone());
+            if safe_rel(path) {
+                wanted.insert(path.clone(), id.clone());
+            } else if !report.unsafe_paths.contains(path) {
+                report.unsafe_paths.push(path.clone());
+            }
+        }
+        let total = wanted.len();
+        if total > 0 {
+            let mut done = 0;
+            progress(Progress {
+                uploading: false,
+                done,
+                total,
+            });
+            if total > ARCHIVE_OVER {
+                let archive = remote.archive(&head)?;
+                extract(archive, dir, &mut wanted, &mut || {
+                    done += 1;
+                    if done % 100 == 0 {
+                        progress(Progress {
+                            uploading: false,
+                            done,
+                            total,
+                        });
+                    }
+                })?;
+            }
+            // What the archive didn't have (or a small pull), file by file.
+            for (path, id) in &wanted {
+                let bytes = remote.download(id)?;
+                if blob_id(&bytes) != *id {
+                    return Err(format!("GitHub sent a different copy of {path}."));
                 }
-                continue;
+                write_atomic(&below(dir, path), &bytes)?;
+                done += 1;
+                if done % 20 == 0 {
+                    progress(Progress {
+                        uploading: false,
+                        done,
+                        total,
+                    });
+                }
             }
-            let bytes = remote.download(id)?;
-            if blob_id(&bytes) != *id {
-                return Err(format!("GitHub sent a different copy of {path}."));
-            }
-            write_atomic(&below(dir, path), &bytes)?;
-            report.pulled += 1;
+            report.pulled += total;
         }
         for path in here.keys() {
             if !in_mine(path) && !theirs.contains_key(path) {
@@ -273,70 +323,161 @@ pub fn sync(
         }
 
         // Push: in this machine's folder the repo follows the copy.
-        let mut changes = Vec::new();
-        let mut uploads = Vec::new();
+        let mut files = theirs.clone();
+        let mut removed = 0;
+        for path in theirs.keys().filter(|p| in_mine(p)) {
+            if !here.contains_key(path) {
+                files.remove(path);
+                removed += 1;
+            }
+        }
         report.too_big.clear();
+        let mut sends: Vec<(&String, &String)> = Vec::new();
         for (path, id) in here.iter().filter(|(p, _)| in_mine(p)) {
             if theirs.get(path) == Some(id) {
                 continue;
             }
-            let file = below(dir, path);
-            let size = std::fs::metadata(&file).map_or(0, |m| m.len());
+            let size = std::fs::metadata(below(dir, path)).map_or(0, |m| m.len());
             if size > MAX_FILE_BYTES {
                 report.too_big.push(path.clone());
-                continue;
-            }
-            changes.push(Change {
-                path: path.clone(),
-                id: Some(id.clone()),
-            });
-            uploads.push((file, id));
-        }
-        for path in theirs.keys().filter(|p| in_mine(p)) {
-            if !here.contains_key(path) {
-                changes.push(Change {
-                    path: path.clone(),
-                    id: None,
-                });
+            } else {
+                sends.push((path, id));
             }
         }
-        if changes.is_empty() {
+        // A backup's list of files goes last, so another machine sees it
+        // only once the files it names are there.
+        if let Some(m) = &mine {
+            let lists = format!("{m}/Backups/");
+            sends.sort_by_key(|(p, _)| p.starts_with(&lists));
+        }
+        if sends.is_empty() && removed == 0 {
             settings.head = Some(head);
             settings.synced_at = Some(now);
             return Ok(report);
         }
-        // A file moved to Versions is already there under its old path.
+        let total = *upload_total.get_or_insert(sends.len() + removed);
+
+        // This part: blobs the repo lacks (a copy moved into Versions is
+        // already there), every tree, and the commit.
         let known: HashSet<&String> = theirs.values().collect();
-        for (file, id) in uploads {
-            if known.contains(id) {
-                continue;
+        let mut blobs: Vec<Vec<u8>> = Vec::new();
+        let mut packed: HashSet<String> = HashSet::new();
+        let (mut bytes, mut sent) = (0u64, 0usize);
+        for (path, id) in &sends {
+            if sent >= PUSH_FILES || bytes >= PUSH_BYTES {
+                break;
             }
-            let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-            let sent = remote.upload(&bytes)?;
-            if sent != *id {
-                return Err(format!(
-                    "GitHub stored a different copy of {}.",
-                    file.display()
-                ));
+            sent += 1;
+            let mut id = (*id).clone();
+            if !known.contains(&id) {
+                let file = below(dir, path);
+                let body = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+                // Changed since it was listed: send what's there now.
+                id = blob_id(&body);
+                if packed.insert(id.clone()) {
+                    bytes += body.len() as u64;
+                    blobs.push(body);
+                }
             }
+            files.insert((*path).clone(), id);
         }
-        let n = changes.len();
+        let left = sends.len() - sent;
+        let (tree, trees) = gitpack::trees(&files)?;
+        let n = sent + removed;
         let message = format!(
-            "{machine_name}: {n} file{} changed",
-            if n == 1 { "" } else { "s" }
+            "{machine_name}: {n} file{} changed{}",
+            if n == 1 { "" } else { "s" },
+            if left > 0 { ", more to come" } else { "" }
         );
-        match remote.commit(&head, &changes, &message) {
-            Ok(commit) => {
-                report.pushed = n;
-                settings.head = Some(commit);
-                settings.synced_at = Some(now);
-                return Ok(report);
+        let commit = gitpack::commit(&tree, Some(&head), &message, now);
+        let commit_id = gitpack::object_id(gitpack::Kind::Commit, &commit);
+        let mut objects: Vec<(gitpack::Kind, &[u8])> = blobs
+            .iter()
+            .map(|b| (gitpack::Kind::Blob, b.as_slice()))
+            .collect();
+        objects.extend(
+            trees
+                .iter()
+                .map(|(_, b)| (gitpack::Kind::Tree, b.as_slice())),
+        );
+        objects.push((gitpack::Kind::Commit, &commit));
+        let body =
+            gitpack::receive_pack_request(&head, &commit_id, &branch, &gitpack::pack(&objects));
+        drop(objects);
+        drop(blobs);
+        let done = total.saturating_sub(sends.len() + removed);
+        progress(Progress {
+            uploading: true,
+            done,
+            total,
+        });
+        match gitpack::push_status(&remote.receive_pack(body)?) {
+            gitpack::PushStatus::Ok => {
+                report.pushed += n;
+                settings.head = Some(commit_id);
+                progress(Progress {
+                    uploading: true,
+                    done: done + n,
+                    total,
+                });
+                if left == 0 {
+                    settings.synced_at = Some(now);
+                    return Ok(report);
+                }
             }
-            Err(PushError::Moved) => continue,
-            Err(PushError::Failed(e)) => return Err(e),
+            // Git says "failed to update ref" when the branch moved; GitHub
+            // may word it otherwise. Either way, a moved branch goes again.
+            gitpack::PushStatus::Rejected(why) if remote.head()? == head => {
+                return Err(format!("GitHub didn't take the files: {why}"));
+            }
+            gitpack::PushStatus::Moved | gitpack::PushStatus::Rejected(_) => {
+                moved += 1;
+                if moved > 4 {
+                    return Err(
+                        "GitHub kept changing while syncing. Patch Pilot tries again on the next change."
+                            .into(),
+                    );
+                }
+            }
         }
     }
-    Err("GitHub kept changing while syncing. Patch Pilot tries again on the next change.".into())
+}
+
+/// Write the files of a `.tar.gz` of the repo that are in `wanted` (and are
+/// the copy it names) into `dir`, taking each off `wanted`.
+fn extract(
+    archive: Box<dyn Read + '_>,
+    dir: &Path,
+    wanted: &mut BTreeMap<String, String>,
+    tick: &mut dyn FnMut(),
+) -> Result<(), String> {
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive));
+    let broken = |e: std::io::Error| format!("The download from GitHub broke off: {e}");
+    for entry in tar.entries().map_err(broken)? {
+        let mut entry = entry.map_err(broken)?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        // GitHub puts everything in one `owner-repo-commit/` folder.
+        let path = entry.path().map_err(broken)?;
+        let rel = path
+            .components()
+            .skip(1)
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let Some(id) = wanted.get(&rel) else {
+            continue;
+        };
+        let mut body = Vec::with_capacity(entry.size() as usize);
+        entry.read_to_end(&mut body).map_err(broken)?;
+        if blob_id(&body) == *id {
+            write_atomic(&below(dir, &rel), &body)?;
+            wanted.remove(&rel);
+            tick();
+        }
+    }
+    Ok(())
 }
 
 /// Every file in the copy, by `/`-separated path, with its blob ID. Files
@@ -384,85 +525,200 @@ fn local_files(dir: &Path, index: &mut FileIndex) -> Result<BTreeMap<String, Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
-    /// A repo in memory: commits as path -> blob ID maps.
-    #[derive(Default)]
+    use gitpack::Kind;
+
+    /// A repo in memory, made of real Git objects, that takes pushes the way
+    /// GitHub's `git-receive-pack` does.
     struct FakeRepo {
-        blobs: RefCell<HashMap<String, Vec<u8>>>,
-        commits: RefCell<Vec<BTreeMap<String, String>>>,
+        objects: RefCell<HashMap<String, (Kind, Vec<u8>)>>,
+        head: RefCell<String>,
         /// Another machine's commit lands just before the next push.
-        race: RefCell<Option<(String, Vec<u8>)>>,
-        uploads: RefCell<usize>,
+        race: RefCell<Option<(String, String)>>,
+        /// Blobs that came in pushes.
+        received: Cell<usize>,
+        pushes: Cell<usize>,
+        /// The connection drops on this push (counting from 1).
+        drop_push: Cell<Option<usize>>,
+        archives: Cell<usize>,
+        /// A file the archive leaves out.
+        archive_skips: RefCell<Option<String>>,
+        downloads: Cell<usize>,
     }
 
     impl FakeRepo {
         fn new() -> Self {
-            let r = Self::default();
-            r.commits.borrow_mut().push(BTreeMap::new());
+            let r = Self {
+                objects: RefCell::default(),
+                head: RefCell::default(),
+                race: RefCell::default(),
+                received: Cell::new(0),
+                pushes: Cell::new(0),
+                drop_push: Cell::new(None),
+                archives: Cell::new(0),
+                archive_skips: RefCell::default(),
+                downloads: Cell::new(0),
+            };
+            r.commit_files(&BTreeMap::new(), "Start");
             r
         }
-        fn put(&self, path: &str, body: &str) {
-            let id = blob_id(body.as_bytes());
-            self.blobs.borrow_mut().insert(id.clone(), body.into());
-            let mut next = self.commits.borrow().last().unwrap().clone();
-            next.insert(path.into(), id);
-            self.commits.borrow_mut().push(next);
+        fn store(&self, kind: Kind, body: &[u8]) -> String {
+            let id = gitpack::object_id(kind, body);
+            self.objects
+                .borrow_mut()
+                .insert(id.clone(), (kind, body.to_vec()));
+            id
+        }
+        fn object(&self, id: &str, kind: Kind) -> Vec<u8> {
+            let objects = self.objects.borrow();
+            let (k, body) = objects.get(id).unwrap_or_else(|| panic!("missing {id}"));
+            assert_eq!(*k, kind);
+            body.clone()
+        }
+        fn commit_files(&self, files: &BTreeMap<String, String>, message: &str) {
+            let (tree, trees) = gitpack::trees(files).unwrap();
+            for (_, body) in &trees {
+                self.store(Kind::Tree, body);
+            }
+            let parent = self.head.borrow().clone();
+            let parent = (!parent.is_empty()).then_some(parent.as_str());
+            let commit = gitpack::commit(&tree, parent, message, 0);
+            let id = self.store(Kind::Commit, &commit);
+            *self.head.borrow_mut() = id;
+        }
+        /// Every file at `commit`; panics if an object is missing.
+        fn files_at(&self, commit: &str) -> BTreeMap<String, String> {
+            let body = self.object(commit, Kind::Commit);
+            let text = String::from_utf8(body).unwrap();
+            let tree = text.lines().next().unwrap().strip_prefix("tree ").unwrap();
+            let mut out = BTreeMap::new();
+            self.walk(tree, "", &mut out);
+            out
+        }
+        fn walk(&self, tree: &str, prefix: &str, out: &mut BTreeMap<String, String>) {
+            let body = self.object(tree, Kind::Tree);
+            let mut rest = body.as_slice();
+            while !rest.is_empty() {
+                let nul = rest.iter().position(|&b| b == 0).unwrap();
+                let entry = std::str::from_utf8(&rest[..nul]).unwrap();
+                let (mode, name) = entry.split_once(' ').unwrap();
+                let id: String = rest[nul + 1..nul + 21]
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                rest = &rest[nul + 21..];
+                let path = format!("{prefix}{name}");
+                if mode == "40000" {
+                    self.walk(&id, &format!("{path}/"), out);
+                } else {
+                    self.object(&id, Kind::Blob);
+                    out.insert(path, id);
+                }
+            }
         }
         fn latest(&self) -> BTreeMap<String, String> {
-            self.commits.borrow().last().unwrap().clone()
+            self.files_at(&self.head.borrow().clone())
+        }
+        fn put(&self, path: &str, body: &str) {
+            let id = self.store(Kind::Blob, body.as_bytes());
+            let mut files = self.latest();
+            files.insert(path.into(), id);
+            self.commit_files(&files, "Another machine");
         }
         fn body(&self, path: &str) -> Option<String> {
             let id = self.latest().get(path)?.clone();
-            Some(String::from_utf8(self.blobs.borrow()[&id].clone()).unwrap())
+            Some(String::from_utf8(self.object(&id, Kind::Blob)).unwrap())
         }
+        fn message(&self) -> String {
+            let body = self.object(&self.head.borrow().clone(), Kind::Commit);
+            let text = String::from_utf8(body).unwrap();
+            text.split_once("\n\n").unwrap().1.trim().to_owned()
+        }
+    }
+
+    fn report(lines: &[&str]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for l in lines {
+            out.extend_from_slice(format!("{:04x}{l}\n", l.len() + 5).as_bytes());
+        }
+        out.extend_from_slice(b"0000");
+        out
     }
 
     impl Remote for FakeRepo {
         fn head(&self) -> Result<String, String> {
-            Ok((self.commits.borrow().len() - 1).to_string())
+            Ok(self.head.borrow().clone())
         }
         fn files(&self, commit: &str) -> Result<Vec<RemoteFile>, String> {
-            let i: usize = commit.parse().unwrap();
-            Ok(self.commits.borrow()[i]
-                .iter()
-                .map(|(p, id)| RemoteFile {
-                    path: p.clone(),
-                    id: id.clone(),
-                })
+            Ok(self
+                .files_at(commit)
+                .into_iter()
+                .map(|(path, id)| RemoteFile { path, id })
                 .collect())
         }
         fn download(&self, id: &str) -> Result<Vec<u8>, String> {
-            self.blobs.borrow().get(id).cloned().ok_or("no blob".into())
+            self.downloads.set(self.downloads.get() + 1);
+            Ok(self.object(id, Kind::Blob))
         }
-        fn upload(&self, bytes: &[u8]) -> Result<String, String> {
-            *self.uploads.borrow_mut() += 1;
-            let id = blob_id(bytes);
-            self.blobs.borrow_mut().insert(id.clone(), bytes.to_vec());
-            Ok(id)
-        }
-        fn commit(&self, parent: &str, changes: &[Change], _: &str) -> Result<String, PushError> {
-            if let Some((path, body)) = self.race.borrow_mut().take() {
-                self.put(&path, std::str::from_utf8(&body).unwrap());
-            }
-            if parent != self.head().unwrap() {
-                return Err(PushError::Moved);
-            }
-            let mut next = self.latest();
-            for c in changes {
-                match &c.id {
-                    Some(id) => {
-                        assert!(self.blobs.borrow().contains_key(id), "blob not uploaded");
-                        next.insert(c.path.clone(), id.clone());
-                    }
-                    None => {
-                        assert!(next.remove(&c.path).is_some(), "removed a path not there");
-                    }
+        fn archive(&self, commit: &str) -> Result<Box<dyn Read + '_>, String> {
+            self.archives.set(self.archives.get() + 1);
+            let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            let mut tar = tar::Builder::new(gz);
+            let top = format!("josh-backup-{}", &commit[..7]);
+            let skip = self.archive_skips.borrow().clone();
+            for (path, id) in self.files_at(commit) {
+                if skip.as_deref() == Some(path.as_str()) {
+                    continue;
                 }
+                let body = self.object(&id, Kind::Blob);
+                let mut header = tar::Header::new_gnu();
+                header.set_size(body.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                tar.append_data(&mut header, format!("{top}/{path}"), body.as_slice())
+                    .unwrap();
             }
-            self.commits.borrow_mut().push(next);
-            self.head().map_err(PushError::Failed)
+            let bytes = tar.into_inner().unwrap().finish().unwrap();
+            Ok(Box::new(std::io::Cursor::new(bytes)))
+        }
+        fn receive_pack(&self, body: Vec<u8>) -> Result<Vec<u8>, String> {
+            self.pushes.set(self.pushes.get() + 1);
+            if self.drop_push.get() == Some(self.pushes.get()) {
+                return Err("The connection to GitHub dropped.".into());
+            }
+            let len = usize::from_str_radix(std::str::from_utf8(&body[..4]).unwrap(), 16).unwrap();
+            let line = std::str::from_utf8(&body[4..len]).unwrap();
+            let (command, caps) = line.split_once('\0').unwrap();
+            assert!(caps.contains("report-status"));
+            let mut parts = command.split(' ');
+            let (old, new, branch) = (
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+            );
+            assert_eq!(branch, "refs/heads/main");
+            assert_eq!(&body[len..len + 4], b"0000");
+            if let Some((path, text)) = self.race.borrow_mut().take() {
+                self.put(&path, &text);
+            }
+            for (kind, object) in gitpack::unpack(&body[len + 4..]) {
+                if kind == Kind::Blob {
+                    self.received.set(self.received.get() + 1);
+                }
+                self.store(kind, &object);
+            }
+            if old != *self.head.borrow() {
+                return Ok(report(&[
+                    "unpack ok",
+                    "ng refs/heads/main failed to update ref",
+                ]));
+            }
+            // Every object the new commit needs is here.
+            self.files_at(new);
+            *self.head.borrow_mut() = new.to_owned();
+            Ok(report(&["unpack ok", "ok refs/heads/main"]))
         }
     }
 
@@ -496,6 +752,43 @@ mod tests {
         );
     }
 
+    /// A machine syncing with the repo.
+    struct Machine {
+        dir: PathBuf,
+        id: &'static str,
+        name: &'static str,
+        settings: GitHubSettings,
+        index: FileIndex,
+        heard: Vec<Progress>,
+    }
+
+    impl Machine {
+        fn new(root: &Path, id: &'static str, name: &'static str) -> Self {
+            Self {
+                dir: root.join(id),
+                id,
+                name,
+                settings: GitHubSettings::default(),
+                index: FileIndex::default(),
+                heard: Vec::new(),
+            }
+        }
+        fn sync(&mut self, repo: &FakeRepo, now: i64) -> Result<GitHubReport, String> {
+            self.heard.clear();
+            let heard = &mut self.heard;
+            sync(
+                repo,
+                &self.dir,
+                self.id,
+                self.name,
+                &mut self.settings,
+                &mut self.index,
+                now,
+                &mut |p| heard.push(p),
+            )
+        }
+    }
+
     #[test]
     fn blob_ids_match_git() {
         // `printf 'hello\n' | git hash-object --stdin`
@@ -509,174 +802,177 @@ mod tests {
     #[test]
     fn pushes_own_folder_and_pulls_the_rest() {
         let tmp = tempfile::tempdir().unwrap();
-        let mac = tmp.path().join("mac");
-        let pc = tmp.path().join("pc");
         let repo = FakeRepo::new();
         repo.put("README.md", "Patch Pilot backups");
-        let mut mac_s = GitHubSettings::default();
-        let mut pc_s = GitHubSettings::default();
-        let mut mac_i = FileIndex::default();
+        let mut mac = Machine::new(tmp.path(), "mac", "MacBook");
+        let mut pc = Machine::new(tmp.path(), "pc", "Studio PC");
 
-        backed_up(&mac, "MacBook", "mac");
-        put(
-            &mac,
-            "MacBook/Files/Reaper/FXChains/Vocal.RfxChain",
-            "vocal v1",
-        );
-        let r = sync(&repo, &mac, "mac", "MacBook", &mut mac_s, &mut mac_i, 10).unwrap();
+        backed_up(&mac.dir, "MacBook", "mac");
+        let v1 = "MacBook/Files/Reaper/FXChains/Vocal.RfxChain";
+        put(&mac.dir, v1, "vocal v1");
+        let r = mac.sync(&repo, 10).unwrap();
         assert_eq!((r.pulled, r.pushed), (1, 2));
-        assert_eq!(
-            repo.body("MacBook/Files/Reaper/FXChains/Vocal.RfxChain")
-                .as_deref(),
-            Some("vocal v1")
-        );
-        assert_eq!(mac_s.head.as_deref(), Some("2"));
-        assert_eq!(mac_s.synced_at, Some(10));
+        assert_eq!(repo.body(v1).as_deref(), Some("vocal v1"));
+        assert_eq!(repo.message(), "MacBook: 2 files changed");
+        assert_eq!(mac.settings.head, Some(repo.head().unwrap()));
+        assert_eq!(mac.settings.synced_at, Some(10));
 
         // The PC gets the Mac's folder and pushes its own.
-        backed_up(&pc, "Studio PC", "pc");
-        let r = sync(
-            &repo,
-            &pc,
-            "pc",
-            "Studio PC",
-            &mut pc_s,
-            &mut FileIndex::default(),
-            20,
-        )
-        .unwrap();
+        backed_up(&pc.dir, "Studio PC", "pc");
+        let r = pc.sync(&repo, 20).unwrap();
         assert_eq!((r.pulled, r.pushed), (3, 1));
         assert_eq!(
-            std::fs::read_to_string(pc.join("MacBook/Files/Reaper/FXChains/Vocal.RfxChain"))
-                .unwrap(),
+            std::fs::read_to_string(below(&pc.dir, v1)).unwrap(),
             "vocal v1"
         );
 
         // A change on the Mac, moving the old copy to Versions: the old
-        // content isn't uploaded again, and the PC follows.
-        let v1 = "MacBook/Files/Reaper/FXChains/Vocal.RfxChain";
-        std::fs::create_dir_all(mac.join("MacBook/Versions/s/Reaper/FXChains")).unwrap();
-        std::fs::rename(
-            below(&mac, v1),
-            mac.join("MacBook/Versions/s/Reaper/FXChains/Vocal.RfxChain"),
-        )
-        .unwrap();
-        put(&mac, v1, "vocal v2");
-        let before = *repo.uploads.borrow();
-        let r = sync(&repo, &mac, "mac", "MacBook", &mut mac_s, &mut mac_i, 30).unwrap();
+        // content isn't sent again, and the PC follows.
+        let old = "MacBook/Versions/s/Reaper/FXChains/Vocal.RfxChain";
+        std::fs::create_dir_all(below(&mac.dir, old).parent().unwrap()).unwrap();
+        std::fs::rename(below(&mac.dir, v1), below(&mac.dir, old)).unwrap();
+        put(&mac.dir, v1, "vocal v2");
+        let before = repo.received.get();
+        let r = mac.sync(&repo, 30).unwrap();
         assert_eq!(r.pushed, 2);
-        assert_eq!(*repo.uploads.borrow() - before, 1);
-        let r = sync(
-            &repo,
-            &pc,
-            "pc",
-            "Studio PC",
-            &mut pc_s,
-            &mut FileIndex::default(),
-            40,
-        )
-        .unwrap();
+        assert_eq!(repo.received.get() - before, 1);
+        let r = pc.sync(&repo, 40).unwrap();
         assert_eq!((r.pulled, r.pushed), (2, 0));
-        assert_eq!(std::fs::read_to_string(below(&pc, v1)).unwrap(), "vocal v2");
+        assert_eq!(
+            std::fs::read_to_string(below(&pc.dir, v1)).unwrap(),
+            "vocal v2"
+        );
 
         // A file gone from the Mac's folder goes from the repo, then the PC.
-        std::fs::remove_file(below(&mac, v1)).unwrap();
-        let r = sync(&repo, &mac, "mac", "MacBook", &mut mac_s, &mut mac_i, 50).unwrap();
+        std::fs::remove_file(below(&mac.dir, v1)).unwrap();
+        let r = mac.sync(&repo, 50).unwrap();
         assert_eq!(r.pushed, 1);
         assert!(repo.body(v1).is_none());
-        sync(
-            &repo,
-            &pc,
-            "pc",
-            "Studio PC",
-            &mut pc_s,
-            &mut FileIndex::default(),
-            60,
-        )
-        .unwrap();
-        assert!(!below(&pc, v1).exists());
-        assert!(
-            pc.join("MacBook/Versions/s/Reaper/FXChains/Vocal.RfxChain")
-                .is_file()
-        );
+        pc.sync(&repo, 60).unwrap();
+        assert!(!below(&pc.dir, v1).exists());
+        assert!(below(&pc.dir, old).is_file());
         // Nothing to do: nothing sent.
-        let r = sync(
-            &repo,
-            &pc,
-            "pc",
-            "Studio PC",
-            &mut pc_s,
-            &mut FileIndex::default(),
-            70,
-        )
-        .unwrap();
+        let pushes = repo.pushes.get();
+        let r = pc.sync(&repo, 70).unwrap();
         assert_eq!((r.pulled, r.pushed), (0, 0));
+        assert_eq!(repo.pushes.get(), pushes);
+        assert!(pc.heard.is_empty());
     }
 
     #[test]
     fn never_overwrites_this_machines_folder_and_retries_a_lost_race() {
         let tmp = tempfile::tempdir().unwrap();
-        let pc = tmp.path().join("pc");
         let repo = FakeRepo::new();
+        let mut pc = Machine::new(tmp.path(), "pc", "Studio PC");
         // The repo's copy of the PC's folder is older than the PC's own.
         repo.put("Studio PC/Files/a.txt", "old");
-        backed_up(&pc, "Studio PC", "pc");
-        put(&pc, "Studio PC/Files/a.txt", "new");
-        *repo.race.borrow_mut() = Some(("MacBook/Files/b.txt".into(), b"mac".to_vec()));
-        let mut s = GitHubSettings::default();
-        let r = sync(
-            &repo,
-            &pc,
-            "pc",
-            "Studio PC",
-            &mut s,
-            &mut FileIndex::default(),
-            1,
-        )
-        .unwrap();
+        backed_up(&pc.dir, "Studio PC", "pc");
+        put(&pc.dir, "Studio PC/Files/a.txt", "new");
+        *repo.race.borrow_mut() = Some(("MacBook/Files/b.txt".into(), "mac".into()));
+        let r = pc.sync(&repo, 1).unwrap();
         assert_eq!(repo.body("Studio PC/Files/a.txt").as_deref(), Some("new"));
         assert_eq!(repo.body("MacBook/Files/b.txt").as_deref(), Some("mac"));
         assert_eq!(
-            std::fs::read_to_string(pc.join("MacBook/Files/b.txt")).unwrap(),
+            std::fs::read_to_string(pc.dir.join("MacBook/Files/b.txt")).unwrap(),
             "mac"
         );
         assert_eq!(r.pushed, 2);
+        assert_eq!(repo.pushes.get(), 2);
+    }
+
+    #[test]
+    fn a_big_first_upload_goes_in_parts_and_picks_up_where_it_stopped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = FakeRepo::new();
+        let mut pc = Machine::new(tmp.path(), "pc", "Studio PC");
+        backed_up(&pc.dir, "Studio PC", "pc");
+        for i in 0..10 {
+            put(
+                &pc.dir,
+                &format!("Studio PC/Files/Presets/{i}.fxp"),
+                &format!("preset {i}"),
+            );
+        }
+        // 11 files go 4 at a time; the line drops on the second part.
+        repo.drop_push.set(Some(2));
+        let e = pc.sync(&repo, 1).unwrap_err();
+        assert!(e.contains("dropped"), "{e}");
+        assert_eq!(repo.latest().len(), 4);
+        // The backup's list of files goes last.
+        assert!(
+            repo.latest()
+                .keys()
+                .all(|p| p.starts_with("Studio PC/Files/"))
+        );
+        assert_eq!(repo.message(), "Studio PC: 4 files changed, more to come");
+        assert_eq!(pc.settings.head, Some(repo.head().unwrap()));
+        let p = |done, total| Progress {
+            uploading: true,
+            done,
+            total,
+        };
+        assert_eq!(pc.heard, vec![p(0, 11), p(4, 11), p(4, 11)]);
+
+        // The next try sends only what's left.
+        let r = pc.sync(&repo, 2).unwrap();
+        assert_eq!(r.pushed, 7);
+        assert_eq!(repo.latest().len(), 11);
+        assert_eq!(repo.received.get(), 11);
+        assert_eq!(pc.heard, vec![p(0, 7), p(4, 7), p(4, 7), p(7, 7)]);
+        assert_eq!(repo.message(), "Studio PC: 3 files changed");
+        assert_eq!(pc.settings.synced_at, Some(2));
+    }
+
+    #[test]
+    fn a_big_pull_comes_as_one_archive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = FakeRepo::new();
+        for i in 0..10 {
+            repo.put(
+                &format!("Studio PC/Files/Presets/{i}.fxp"),
+                &format!("preset {i}"),
+            );
+        }
+        *repo.archive_skips.borrow_mut() = Some("Studio PC/Files/Presets/3.fxp".into());
+        let mut mac = Machine::new(tmp.path(), "mac", "MacBook");
+        let r = mac.sync(&repo, 1).unwrap();
+        assert_eq!(r.pulled, 10);
+        assert_eq!((repo.archives.get(), repo.downloads.get()), (1, 1));
+        for i in 0..10 {
+            let f = mac.dir.join(format!("Studio PC/Files/Presets/{i}.fxp"));
+            assert_eq!(std::fs::read_to_string(f).unwrap(), format!("preset {i}"));
+        }
+        assert_eq!(
+            mac.heard.first(),
+            Some(&Progress {
+                uploading: false,
+                done: 0,
+                total: 10
+            })
+        );
+
+        // A few changes come one by one.
+        repo.put("Studio PC/Files/Presets/3.fxp", "preset 3b");
+        mac.sync(&repo, 2).unwrap();
+        assert_eq!((repo.archives.get(), repo.downloads.get()), (1, 2));
     }
 
     #[test]
     fn a_new_copy_gets_this_machines_folder_back() {
         let tmp = tempfile::tempdir().unwrap();
-        let pc = tmp.path().join("pc");
         let repo = FakeRepo::new();
-        backed_up(&pc, "Studio PC", "pc");
-        put(&pc, "Studio PC/Files/a.txt", "a");
-        sync(
-            &repo,
-            &pc,
-            "pc",
-            "Studio PC",
-            &mut GitHubSettings::default(),
-            &mut FileIndex::default(),
-            1,
-        )
-        .unwrap();
+        let mut pc = Machine::new(tmp.path(), "pc", "Studio PC");
+        backed_up(&pc.dir, "Studio PC", "pc");
+        put(&pc.dir, "Studio PC/Files/a.txt", "a");
+        pc.sync(&repo, 1).unwrap();
 
         // The app-data copy is gone (a reinstall): nothing is removed from
         // the repo, and the copy is whole again.
-        let fresh = tmp.path().join("fresh");
-        let r = sync(
-            &repo,
-            &fresh,
-            "pc",
-            "Studio PC",
-            &mut GitHubSettings::default(),
-            &mut FileIndex::default(),
-            2,
-        )
-        .unwrap();
+        let mut fresh = Machine::new(&tmp.path().join("fresh"), "pc", "Studio PC");
+        let r = fresh.sync(&repo, 2).unwrap();
         assert_eq!(r.pushed, 0);
         assert_eq!(
-            std::fs::read_to_string(fresh.join("Studio PC/Files/a.txt")).unwrap(),
+            std::fs::read_to_string(fresh.dir.join("Studio PC/Files/a.txt")).unwrap(),
             "a"
         );
         assert_eq!(repo.body("Studio PC/Files/a.txt").as_deref(), Some("a"));
@@ -688,21 +984,12 @@ mod tests {
         let repo = FakeRepo::new();
         repo.put("MacBook/Files/bad:name.txt", "x");
         repo.put("MacBook/Files/ok.txt", "y");
-        let r = sync(
-            &repo,
-            tmp.path(),
-            "pc",
-            "PC",
-            &mut GitHubSettings::default(),
-            &mut FileIndex::default(),
-            1,
-        )
-        .unwrap();
+        let r = Machine::new(tmp.path(), "pc", "PC").sync(&repo, 1).unwrap();
         assert_eq!(
             r.unsafe_paths,
             vec!["MacBook/Files/bad:name.txt".to_owned()]
         );
-        assert!(tmp.path().join("MacBook/Files/ok.txt").is_file());
+        assert!(tmp.path().join("pc/MacBook/Files/ok.txt").is_file());
     }
 
     #[test]
