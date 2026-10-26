@@ -691,8 +691,8 @@ function Diff({
         )}
         {c.unresolved > 0 && (
           <p className="px-2 text-[11px] text-dim">
-            {c.unresolved} file{c.unresolved === 1 ? "" : "s"} on this machine couldn't be identified and aren't
-            compared.
+            {c.unresolved} file{c.unresolved === 1 ? "" : "s"} on this machine couldn't be identified, so{" "}
+            {c.unresolved === 1 ? "it isn't" : "they aren't"} compared.
           </p>
         )}
       </div>
