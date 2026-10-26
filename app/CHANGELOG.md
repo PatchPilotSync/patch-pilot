@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.14 - 2026-10-26
+
+### Fixed
+
+- Syncing with GitHub: the first upload could fail with "GitHub didn't take the files" followed by codes. Uploads now go through, and if GitHub ever turns one down, the message says why in words.
+- Files inside a `.git` folder (a script folder that is its own Git checkout) stay on the machine instead of stopping the upload.
+
 ## 0.4.13 - 2026-10-26
 
 ### Fixed

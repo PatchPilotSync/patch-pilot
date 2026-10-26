@@ -217,7 +217,8 @@ pub struct GitHubReport {
     pub pushed: usize,
     /// Files too big for GitHub, left out.
     pub too_big: Vec<String>,
-    /// Paths that can't be a file on this OS, left out.
+    /// Paths that can't be a file on this OS, or can't go in a Git repo
+    /// (inside a `.git` folder), left out.
     pub unsafe_paths: Vec<String>,
 }
 
@@ -337,6 +338,12 @@ pub fn sync(
             if theirs.get(path) == Some(id) {
                 continue;
             }
+            if !git_can_hold(path) {
+                if !report.unsafe_paths.contains(path) {
+                    report.unsafe_paths.push(path.clone());
+                }
+                continue;
+            }
             let size = std::fs::metadata(below(dir, path)).map_or(0, |m| m.len());
             if size > MAX_FILE_BYTES {
                 report.too_big.push(path.clone());
@@ -428,7 +435,7 @@ pub fn sync(
             // Git says "failed to update ref" when the branch moved; GitHub
             // may word it otherwise. Either way, a moved branch goes again.
             gitpack::PushStatus::Rejected(why) if remote.head()? == head => {
-                return Err(format!("GitHub didn't take the files: {why}"));
+                return Err(format!("GitHub turned down the upload: {why}."));
             }
             gitpack::PushStatus::Moved | gitpack::PushStatus::Rejected(_) => {
                 moved += 1;
@@ -441,6 +448,15 @@ pub fn sync(
             }
         }
     }
+}
+
+/// Whether GitHub takes a file at `path`: it refuses anything in a `.git`
+/// folder (a script folder that's a Git checkout) and checks every
+/// `.gitmodules`, so neither goes up.
+fn git_can_hold(path: &str) -> bool {
+    !path
+        .split('/')
+        .any(|c| c.eq_ignore_ascii_case(".git") || c.eq_ignore_ascii_case(".gitmodules"))
 }
 
 /// Write the files of a `.tar.gz` of the repo that are in `wanted` (and are
@@ -527,6 +543,7 @@ mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
+    use std::io::Write;
 
     use gitpack::Kind;
 
@@ -773,7 +790,7 @@ mod tests {
                 heard: Vec::new(),
             }
         }
-        fn sync(&mut self, repo: &FakeRepo, now: i64) -> Result<GitHubReport, String> {
+        fn sync(&mut self, repo: &dyn Remote, now: i64) -> Result<GitHubReport, String> {
             self.heard.clear();
             let heard = &mut self.heard;
             sync(
@@ -787,6 +804,154 @@ mod tests {
                 &mut |p| heard.push(p),
             )
         }
+    }
+
+    /// A real Git repo, reached through Git's own commands the way the app
+    /// reaches GitHub. Pushes are checked as strictly as GitHub checks them.
+    struct GitRepo(PathBuf);
+
+    impl GitRepo {
+        /// `None` where Git isn't installed.
+        fn new(dir: &Path) -> Option<Self> {
+            std::process::Command::new("git")
+                .arg("--version")
+                .output()
+                .ok()?;
+            let repo = Self(dir.join("repo.git"));
+            std::fs::create_dir_all(&repo.0).unwrap();
+            repo.git(&["init", "-q", "--bare"], None);
+            repo.git(&["config", "receive.fsckObjects", "true"], None);
+            repo.git(&["config", "transfer.unpackLimit", "1"], None);
+            // GitHub starts a repo with a commit (Remote::head).
+            let tree = repo.git(&["mktree"], Some(b""));
+            let tree = String::from_utf8(tree).unwrap();
+            let commit = repo.git(&["commit-tree", tree.trim(), "-m", "Start"], None);
+            let commit = String::from_utf8(commit).unwrap();
+            repo.git(&["update-ref", "refs/heads/main", commit.trim()], None);
+            Some(repo)
+        }
+
+        fn git(&self, args: &[&str], input: Option<&[u8]>) -> Vec<u8> {
+            use std::process::{Command, Stdio};
+            let mut child = Command::new("git")
+                .arg("--git-dir")
+                .arg(&self.0)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut stdin = child.stdin.take().unwrap();
+            stdin.write_all(input.unwrap_or_default()).unwrap();
+            drop(stdin);
+            let out = child.wait_with_output().unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            out.stdout
+        }
+    }
+
+    impl Remote for GitRepo {
+        fn head(&self) -> Result<String, String> {
+            let out = self.git(&["rev-parse", "refs/heads/main"], None);
+            Ok(String::from_utf8(out).unwrap().trim().to_owned())
+        }
+        fn files(&self, commit: &str) -> Result<Vec<RemoteFile>, String> {
+            let out = self.git(&["ls-tree", "-r", "-z", commit], None);
+            Ok(out
+                .split(|&b| b == 0)
+                .filter(|e| !e.is_empty())
+                .map(|e| {
+                    let e = std::str::from_utf8(e).unwrap();
+                    let (meta, path) = e.split_once('\t').unwrap();
+                    RemoteFile {
+                        path: path.to_owned(),
+                        id: meta.rsplit(' ').next().unwrap().to_owned(),
+                    }
+                })
+                .collect())
+        }
+        fn download(&self, id: &str) -> Result<Vec<u8>, String> {
+            Ok(self.git(&["cat-file", "blob", id], None))
+        }
+        fn archive(&self, commit: &str) -> Result<Box<dyn Read + '_>, String> {
+            let tgz = self.git(
+                &[
+                    "archive",
+                    "--format=tar.gz",
+                    "--prefix=josh-sync-abc/",
+                    commit,
+                ],
+                None,
+            );
+            Ok(Box::new(std::io::Cursor::new(tgz)))
+        }
+        fn receive_pack(&self, body: Vec<u8>) -> Result<Vec<u8>, String> {
+            let repo = self.0.to_string_lossy().into_owned();
+            Ok(self.git(&["receive-pack", "--stateless-rpc", &repo], Some(&body)))
+        }
+    }
+
+    #[test]
+    fn syncs_through_real_git() {
+        let tmp = tempfile::tempdir().unwrap();
+        let Some(repo) = GitRepo::new(tmp.path()) else {
+            return;
+        };
+        let mut pc = Machine::new(tmp.path(), "pc", "Studio PC");
+        backed_up(&pc.dir, "Studio PC", "pc");
+        // The same files in two folders make the same tree twice, and the
+        // upload goes in parts.
+        for folder in ["Reaper/FXChains", "Versions/s/Reaper/FXChains"] {
+            for i in 0..5 {
+                put(
+                    &pc.dir,
+                    &format!("Studio PC/Files/{folder}/{i}.RfxChain"),
+                    &format!("chain {i}"),
+                );
+            }
+        }
+        // A script folder that's a Git checkout of its own stays here.
+        put(
+            &pc.dir,
+            "Studio PC/Files/Reaper/Scripts/mine/.git/config",
+            "x",
+        );
+        let r = pc.sync(&repo, 1).unwrap();
+        assert_eq!(r.pushed, 11);
+        assert_eq!(
+            r.unsafe_paths,
+            vec!["Studio PC/Files/Reaper/Scripts/mine/.git/config".to_owned()]
+        );
+        assert_eq!(pc.heard.last().map(|p| (p.done, p.total)), Some((11, 11)));
+        repo.git(&["fsck", "--strict"], None);
+
+        // A new machine brings it all in as one archive.
+        let mut mac = Machine::new(tmp.path(), "mac", "MacBook");
+        let r = mac.sync(&repo, 2).unwrap();
+        assert_eq!(r.pulled, 11);
+        assert_eq!(
+            std::fs::read_to_string(mac.dir.join("Studio PC/Files/Reaper/FXChains/3.RfxChain"))
+                .unwrap(),
+            "chain 3"
+        );
+        // And a change goes back the other way.
+        backed_up(&mac.dir, "MacBook", "mac");
+        put(&mac.dir, "MacBook/Files/new.txt", "new");
+        assert_eq!(mac.sync(&repo, 3).unwrap().pushed, 2);
+        pc.sync(&repo, 4).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(pc.dir.join("MacBook/Files/new.txt")).unwrap(),
+            "new"
+        );
     }
 
     #[test]
