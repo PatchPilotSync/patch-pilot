@@ -4,10 +4,10 @@ import { bringSummary, Needs } from "./bring";
 import { Badge, Button, buildTree, Folder, FolderTree, isConflictCopy, treeItems, useFolders } from "./ui";
 
 /**
- * Bring over (decision #45): the Primary Rig's templates, scripts and themes
- * this machine lacks, grouped by app. One click brings the ticked ones over,
- * each with every file it needs (decision #62); anything replaced is backed
- * up first. Loads its own list, so any screen about this machine can show it.
+ * Bring over (decision #45): the Primary Rig's templates, scripts, themes and
+ * plug-in presets (decision #63) this machine lacks, grouped by app. One
+ * click brings the ticked ones over, each with every file it needs (decision
+ * #62); anything replaced is backed up first. Loads its own list, so any screen about this machine can show it.
  */
 export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [view, setView] = useState<BringView | null>(null);
@@ -128,7 +128,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                   return (
                     <Folder
                       key={id}
-                      title={plural(kind)}
+                      title={isPreset(ks[0]) ? kind : plural(kind)}
                       count={ks.length}
                       className="pl-5 pr-1 text-xs"
                       open={folders.isOpen(id)}
@@ -137,7 +137,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                       actions={view.linked && <FolderTick files={ks} isChosen={isChosen} onChange={setChosen} />}
                     >
                       <FolderTree
-                        node={buildTree(ks, (f) => f.rel.split("/").slice(1, -1), id)}
+                        node={buildTree(ks, dirsOf, id)}
                         folders={folders}
                         indent={36}
                         actions={(node) =>
@@ -246,7 +246,9 @@ function FileLine({
           </span>
         )}
         {f.too_large ? (
-          <Badge>Too large to send</Badge>
+          <span title="Over 1.9 MB: the link between your machines carries files up to about 2 MB, so this one stays behind.">
+            <Badge>Too large to send</Badge>
+          </span>
         ) : f.incomplete ? (
           <span title="A file it needs is over the 2 MB the link can carry, so it would arrive without it.">
             <Badge>Needs a file too large to send</Badge>
@@ -271,8 +273,17 @@ function groupByApp(files: FileToBring[]): [string, FileToBring[]][] {
   return [...m.entries()];
 }
 
-/** "3 FX chains, 12 scripts" */
+/** Presets group by their vendor's folder, the rest by kind. */
+const isPreset = (f: FileToBring) => f.root.startsWith("PRESETS_");
+
+/** Folders to show a file in: below its kind's folder, or for a preset, its whole path. */
+function dirsOf(f: FileToBring): string[] {
+  return f.rel.split("/").slice(isPreset(f) ? 0 : 1, -1);
+}
+
+/** "3 FX chains, 12 scripts"; for presets "14 presets". */
 function summaryOf(files: FileToBring[]): string {
+  if (files.every(isPreset)) return `${files.length} preset${files.length === 1 ? "" : "s"}`;
   const counts = new Map<string, number>();
   for (const f of files) counts.set(f.kind, (counts.get(f.kind) ?? 0) + 1);
   return [...counts.entries()].map(([k, n]) => `${n} ${n === 1 ? lower(k) : plural(lower(k))}`).join(", ");
