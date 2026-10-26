@@ -958,14 +958,18 @@ mod tests {
         let dir = tmp.path().join("Dropbox").join(FOLDER_NAME);
         let r = back_up(&store, "pc", None, &dir, 1_761_446_918).unwrap();
         assert_eq!(r.files, 1);
+        let [f] = r.skipped.as_slice() else {
+            panic!("{:?}", r.skipped)
+        };
+        assert_eq!(f.name, "Vocal Bus.RfxChain");
+        // The fixture's path map is macOS's, so separators differ on Windows.
         assert_eq!(
-            r.skipped,
-            [SkippedFile {
-                name: "Vocal Bus.RfxChain".into(),
-                path: below(&reaper, VOCAL).display().to_string(),
-                too_big: Some(MAX_BACKUP_BYTES + 1),
-                error: None,
-            }]
+            PathBuf::from(&f.path).canonicalize().unwrap(),
+            below(&reaper, VOCAL).canonicalize().unwrap()
+        );
+        assert_eq!(
+            (f.too_big, f.error.as_deref()),
+            (Some(MAX_BACKUP_BYTES + 1), None)
         );
     }
 
