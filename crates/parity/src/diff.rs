@@ -123,7 +123,7 @@ pub fn diff_manifests(golden: &Manifest, machine: &Manifest) -> ManifestDiff {
         .items
         .iter()
         .enumerate()
-        .filter(|(_, i)| i.product_id.is_none())
+        .filter(|(_, i)| i.product_id.is_none() && !crate::presets::is_preset_file(i))
         .map(|(n, _)| n)
         .collect();
     ManifestDiff {
