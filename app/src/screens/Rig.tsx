@@ -185,7 +185,7 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
       {inv.presets.length > 0 && (
         <section>
           <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">
-            Preset folders · compared with your other machines, never copied
+            Preset folders · compared with your other machines; linked machines can bring them over
           </h3>
           <ul>
             {inv.presets.map((p) => (
