@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use patchpilot_core::{ContentHash, Item, Manifest, Os, PortablePath, ProductId, TargetProfile};
 use patchpilot_parity::ableton::{
-    ABLETON_PREFS, ABLETON_USER_LIBRARY, merge_incoming, prefs_label, shared_view,
+    ABLETON_PREFS, ABLETON_USER_LIBRARY, LIBRARY_CFG, merge_incoming, prefs_label, shared_view,
     user_library_label,
 };
 use patchpilot_parity::apply_profile;
@@ -104,10 +104,24 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         kind: prefs_label,
         default_dir: || crate::standard_ableton_dirs()?.prefs,
         guard: || crate::apps::write_guard(ABLETON_PREFS),
-        // Library.cfg shares only its Collection names, merged into this
-        // machine's own file so its paths and Places stay.
-        view: |_, rel, bytes| shared_view(ABLETON_PREFS, rel, bytes),
-        merge: |rel, current, incoming| merge_incoming(ABLETON_PREFS, rel, current, incoming),
+        // Library.cfg shares only its Collection names and the Places in
+        // cloud folders, merged into this machine's own file so its paths and
+        // other Places stay (decision #79).
+        view: |_, rel, bytes| {
+            if rel.eq_ignore_ascii_case(LIBRARY_CFG) {
+                shared_view(ABLETON_PREFS, rel, bytes, &crate::place_clouds())
+            } else {
+                bytes
+            }
+        },
+        merge: |rel, current, incoming| {
+            let clouds = if rel.eq_ignore_ascii_case(LIBRARY_CFG) {
+                crate::place_clouds()
+            } else {
+                Vec::new()
+            };
+            merge_incoming(ABLETON_PREFS, rel, current, incoming, &clouds, this_os())
+        },
         daw: Some(Daw::Ableton),
         closed_daw: |_| None,
     },
@@ -777,8 +791,9 @@ mod tests {
         std::fs::create_dir_all(&prefs).unwrap();
         std::fs::copy(&fixture, prefs.join("Library.cfg")).unwrap();
 
-        // What this machine shares is the names, checked against the scan's hash.
-        let names = b"1\tFaves\n2\tSynths & Keys\n3\t\n4\t\n5\t\n6\t\n7\t\n";
+        // What this machine shares is the names and the Places in shared
+        // folders (none here), checked against the scan's hash.
+        let names = b"1\tFaves\n2\tSynths & Keys\n3\t\n4\t\n5\t\n6\t\n7\t\nplaces\n";
         let file = SharedFile {
             hash: patchpilot_sync::content_hash(names),
             path: prefs.join("Library.cfg"),

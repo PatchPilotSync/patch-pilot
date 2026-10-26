@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.18 - 2026-10-26
+
+### New
+
+- Ableton Live's Places now keep in sync too. Add a folder from Dropbox (or another cloud folder, or your User Library) to Places on one machine and it appears on your others, pointing at the same folder there. Places on other drives stay on their own machine.
+- If a Place's folder isn't on this machine yet, Sync & backup's details name it.
+
 ## 0.4.17 - 2026-10-26
 
 ### Fixed

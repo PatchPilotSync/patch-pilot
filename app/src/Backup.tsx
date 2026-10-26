@@ -550,6 +550,7 @@ export function SyncHint() {
 /** Each other machine's latest backup, as this machine sees it. */
 function SyncSummary({ sync }: { sync: SyncView }) {
   const sources = sync.last?.sources ?? [];
+  const missing = sync.last?.missing_places ?? [];
   return (
     <div className="flex flex-col gap-0.5 text-[11px] text-dim">
       {sources.map((s) => (
@@ -569,10 +570,16 @@ function SyncSummary({ sync }: { sync: SyncView }) {
             : "not linked to this machine, so left alone"}
         </p>
       ))}
+      {missing.length > 0 && (
+        <p className="text-warn">
+          {missing.length === 1 ? "Live Place" : "Live Places"} whose folder isn't on this machine yet: {missing.join(", ")}.
+        </p>
+      )}
       <p>
         When two machines first sync, the Primary Rig's copy of a file wins. After that, new, changed and renamed files
-        travel both ways, and so do Reaper's shortcuts, menus and mouse modifiers and Live's Collection names (once the
-        app is closed). Deleted files and machine settings (audio device, MIDI, plug-in folders) never sync.
+        travel both ways, and so do Reaper's shortcuts, menus and mouse modifiers and Live's Collection names and Places
+        in Dropbox or another cloud folder (once the app is closed). Deleted files and machine settings (audio device,
+        MIDI, plug-in folders) never sync.
       </p>
       {sync.error && <p className="text-warn">{sync.error}</p>}
     </div>
