@@ -40,6 +40,8 @@ pub struct BackupView {
     pub settings: BackupSettings,
     /// The `Patch Pilot Backup` folder in use, if the folder picked is there.
     pub dir: Option<String>,
+    /// `owner/name` while the backup folder is a GitHub repo's copy.
+    pub github: Option<String>,
     /// The big-file folder, offered first when picking.
     pub transfer_folder: Option<String>,
     /// Every machine's backups there, this machine's first.
@@ -98,7 +100,12 @@ fn run(app: &AppHandle) -> Result<BackupReport, String> {
         }
         s.running = true;
     }
-    let result = back_up();
+    // With GitHub, the backup goes on to the repo (decision #73).
+    let result = back_up().and_then(|r| {
+        crate::github::sync_now(app)
+            .map(|_| r)
+            .map_err(|e| format!("it's saved here but hasn't reached GitHub. {e}"))
+    });
     if let Ok(mut s) = state.0.lock() {
         s.running = false;
         match &result {
@@ -130,6 +137,16 @@ fn back_up() -> Result<BackupReport, String> {
     )
 }
 
+/// `owner/name` while the backup folder is a GitHub repo's copy.
+fn github_repo(settings: &BackupSettings) -> Result<Option<String>, String> {
+    if settings.service.as_deref() != Some(patchpilot_local::github::SERVICE) {
+        return Ok(None);
+    }
+    Ok(patchpilot_local::github::load_settings(&app_dir()?)
+        .repo
+        .map(|r| r.full_name()))
+}
+
 #[tauri::command]
 pub async fn backup_view(app: AppHandle) -> Result<BackupView, String> {
     let settings = settings()?;
@@ -152,6 +169,7 @@ pub async fn backup_view(app: AppHandle) -> Result<BackupView, String> {
         .unwrap_or_default();
     Ok(BackupView {
         clouds: transfer::this_machines_clouds(),
+        github: github_repo(&settings)?,
         transfer_folder: transfer::load_settings(&app_dir()?)
             .folder
             .map(|f| f.to_string_lossy().into_owned()),

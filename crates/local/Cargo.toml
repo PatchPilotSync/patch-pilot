@@ -20,6 +20,8 @@ patchpilot-vault = { path = "../vault" }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+# Git blob IDs for the GitHub backend (decision #73).
+sha1_smol = "1.0.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 walkdir = "2.5.0"

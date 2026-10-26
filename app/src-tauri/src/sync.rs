@@ -470,7 +470,7 @@ async fn check(res: reqwest::Response) -> Result<reqwest::Response, String> {
 }
 
 /// rustls needs a process-wide crypto provider; ring, as the updater uses.
-fn install_crypto() {
+pub(crate) fn install_crypto() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();
