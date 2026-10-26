@@ -46,7 +46,12 @@ const files = (n: number) => `${n} file${n === 1 ? "" : "s"}`;
  * What a bring-over did, in words, with why anything was left out. `from` is
  * where the files came from ("the Primary machine", "Studio PC").
  */
-export function bringSummary(r: BringResult, from: string): { text: string; warn: string | null } {
+export function bringSummary(
+  r: BringResult,
+  from: string,
+  /** Files left out before asking: they need a file too large to send. */
+  tooLarge = 0,
+): { text: string; warn: string | null } {
   let text: string;
   if (r.written > 0) {
     text = `Brought over ${files(r.written)}`;
@@ -60,6 +65,10 @@ export function bringSummary(r: BringResult, from: string): { text: string; warn
     text = "Nothing was brought over.";
   }
   const warn: string[] = [];
+  if (tooLarge > 0)
+    warn.push(
+      `${files(tooLarge)} left out because ${tooLarge === 1 ? "it is, or needs," : "they are, or need,"} a file over the 2 MB the link can carry.`,
+    );
   if (r.unavailable.length > 0)
     warn.push(
       `${files(r.unavailable.length)} not available yet (${short(r.unavailable)}): open Patch Pilot on ${from} so it can send ${r.unavailable.length === 1 ? "it" : "them"}.`,
@@ -76,3 +85,7 @@ function short(paths: string[]): string {
   const names = paths.map((p) => p.slice(p.lastIndexOf("/") + 1));
   return names.length <= 2 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
+
+/** Reaper's scripts and the package files that come with them ("all Reaper scripts"). */
+export const isReaperScript = (f: FileToBring) =>
+  f.app === "Reaper" && (f.kind === "Script" || f.kind === "Effect" || f.kind === "Script data");

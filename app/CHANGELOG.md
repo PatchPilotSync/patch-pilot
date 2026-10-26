@@ -10,6 +10,7 @@ becomes its release notes, which the app shows when it offers that update
 
 - Scripts arrive whole. A script that loads other files (a library, images, settings), every file of a ReaPack package, a JSFX with its imports, and a theme with its image folder now come over together, so they work on arrival. If one of those files is too big to send over the link, Patch Pilot says so instead of bringing a script that would fail.
 - Bring over whole folders from Compare: each Reaper folder has a "Bring over" button for this machine, and when you look at another linked machine, "Copy here" copies its files straight onto this one.
+- One button for all of them: "Bring over all Reaper scripts" in Compare (or "Copy all Reaper scripts here" when you look at another machine), and "All scripts" on the Bring over card, bring every script and ReaPack package at once, each with the files it needs. Anything too large to send is left out and counted.
 - In Bring over, every folder has a checkbox, and ticking a script ticks the files it needs.
 - Compare shows when a script is missing files it needs on a machine.
 

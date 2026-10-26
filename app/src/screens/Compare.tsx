@@ -33,7 +33,7 @@ import {
   type VendorApp,
 } from "../api";
 import { BringOver } from "../BringOver";
-import { bringSummary, Needs } from "../bring";
+import { bringSummary, isReaperScript, Needs } from "../bring";
 import { ReaperExtras } from "../ReaperExtras";
 import { StepList, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
@@ -446,6 +446,28 @@ function Diff({
         </div>
       ) : (
         <p className="text-xs text-ok">At parity with the Primary Rig.</p>
+      )}
+
+      {bring.scripts.files.length > 0 && (
+        <div className="-mx-2 flex h-7 items-center gap-2.5 rounded-[5px] px-2 text-xs">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">
+            {bring.scripts.files.length.toLocaleString()} Reaper script file
+            {bring.scripts.files.length === 1 ? "" : "s"}{" "}
+            {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
+            {bring.scripts.tooLarge > 0 && (
+              <span className="text-dim"> ({bring.scripts.tooLarge} too large to send)</span>
+            )}
+          </span>
+          <Button
+            disabled={bring.busy}
+            onClick={() => bring.bring(bring.scripts.files, bring.scripts.tooLarge)}
+            className="h-6 shrink-0 px-2.5"
+            title={`Every script and ReaPack package, each with the files it needs. ${bring.hint}`}
+          >
+            {bring.from ? "Copy all Reaper scripts here" : "Bring over all Reaper scripts"}
+          </Button>
+        </div>
       )}
 
       {bring.message && (
@@ -1174,8 +1196,10 @@ interface BringHere {
   /** "Bring over 12" or "Copy 12 here". */
   label: (n: number) => string;
   hint: string;
-  bring: (files: FileToBring[]) => void;
+  bring: (files: FileToBring[], tooLarge?: number) => void;
   message: { text: string; warn: string | null } | null;
+  /** Every Reaper script (and package file) that can come, and how many can't (too large). */
+  scripts: { files: FileToBring[]; tooLarge: number };
 }
 
 /**
@@ -1211,6 +1235,13 @@ function useBringHere(machine: MachineCard | null, refresh: unknown, onError: (e
     [view],
   );
   const needs = useMemo(() => new Needs(view?.files ?? []), [view]);
+  const scripts = useMemo(() => {
+    const all = view?.linked ? view.files.filter(isReaperScript) : [];
+    return {
+      files: all.filter((f) => !f.incomplete && !isConflictCopy(f.rel)),
+      tooLarge: all.filter((f) => f.incomplete).length,
+    };
+  }, [view]);
   const source = from ? (machine?.name ?? "that machine") : "the Primary machine";
   return {
     file: (p) => byProduct.get(p),
@@ -1221,15 +1252,16 @@ function useBringHere(machine: MachineCard | null, refresh: unknown, onError: (e
     hint: from
       ? `Copies ${machine?.name}'s files onto this machine. Anything replaced is saved first; undo in History.`
       : "Brings the Primary Rig's copy onto this machine. Anything replaced is saved first; undo in History.",
-    bring: (files) => {
+    bring: (files, tooLarge = 0) => {
       setBusy(true);
       setMessage(null);
       bringFiles(files.map(fileKey), from)
-        .then((r) => setMessage(bringSummary(r, source)))
+        .then((r) => setMessage(bringSummary(r, source, tooLarge)))
         .catch((e) => onError(String(e)))
         .finally(() => setBusy(false));
     },
     message,
+    scripts,
   };
 }
 
