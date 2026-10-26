@@ -133,6 +133,7 @@ export function Folder({
   title,
   count,
   badges,
+  actions,
   open,
   onToggle,
   className = "px-4",
@@ -142,6 +143,8 @@ export function Folder({
   title: ReactNode;
   count: number;
   badges?: ReactNode;
+  /** Buttons or a checkbox at the header's end, outside the toggle. */
+  actions?: ReactNode;
   open: boolean;
   onToggle: () => void;
   /** Horizontal padding of the header, to line up with the rows. */
@@ -152,26 +155,31 @@ export function Folder({
 }) {
   return (
     <section>
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        className={`flex h-7 w-full items-center gap-1.5 text-left hover:bg-sel/60 ${className}`}
+      <div
+        className={`flex h-7 w-full items-center gap-1.5 hover:bg-sel/60 ${className}`}
         style={indent === undefined ? undefined : { paddingLeft: indent }}
       >
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          aria-hidden="true"
-          className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
+        <button
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
         >
-          <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <span className="min-w-0 truncate font-medium">{title}</span>
-        <span className="tabular-nums text-xs text-dim">{count}</span>
-        <span className="flex-1" />
-        {badges}
-      </button>
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            aria-hidden="true"
+            className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
+          >
+            <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="min-w-0 truncate font-medium">{title}</span>
+          <span className="tabular-nums text-xs text-dim">{count}</span>
+          <span className="flex-1" />
+          {badges}
+        </button>
+        {actions}
+      </div>
       {open && children}
     </section>
   );
@@ -239,6 +247,11 @@ export function buildTree<T>(items: T[], dirsOf: (item: T) => string[], id = "")
   return tidy(root);
 }
 
+/** Every item in a folder and its subfolders. */
+export function treeItems<T>(node: TreeNode<T>): T[] {
+  return [...node.items, ...node.dirs.flatMap(treeItems)];
+}
+
 /** A path tree as nested folders, each level indented `step` pixels more. */
 export function FolderTree<T>({
   node,
@@ -246,6 +259,7 @@ export function FolderTree<T>({
   indent,
   step = 14,
   renderItems,
+  actions,
 }: {
   node: TreeNode<T>;
   folders: ReturnType<typeof useFolders>;
@@ -254,6 +268,8 @@ export function FolderTree<T>({
   step?: number;
   /** The items directly in a folder, given the left padding for their rows. */
   renderItems: (items: T[], indent: number) => ReactNode;
+  /** Header buttons for a folder, e.g. "Bring over 12". */
+  actions?: (node: TreeNode<T>) => ReactNode;
 }) {
   return (
     <>
@@ -266,8 +282,16 @@ export function FolderTree<T>({
           indent={indent}
           open={folders.isOpen(d.id)}
           onToggle={() => folders.toggle(d.id)}
+          actions={actions?.(d)}
         >
-          <FolderTree node={d} folders={folders} indent={indent + step} step={step} renderItems={renderItems} />
+          <FolderTree
+            node={d}
+            folders={folders}
+            indent={indent + step}
+            step={step}
+            renderItems={renderItems}
+            actions={actions}
+          />
         </Folder>
       ))}
       {node.items.length > 0 && renderItems(node.items, indent + 16)}

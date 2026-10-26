@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   addToGolden,
+  bringFiles,
+  fileKey,
+  filesToBring,
   updateGoldenFrom,
   compareMachine,
   ignoreSuggestions,
@@ -16,7 +19,9 @@ import {
   vaultMatches,
   vaultRun,
   vendorApps,
+  type BringView,
   type ComparisonRow,
+  type FileToBring,
   type MachineCard,
   type MachineComparison,
   type MachinesView,
@@ -28,10 +33,26 @@ import {
   type VendorApp,
 } from "../api";
 import { BringOver } from "../BringOver";
+import { bringSummary, Needs } from "../bring";
 import { ReaperExtras } from "../ReaperExtras";
 import { StepList, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
-import { Badge, Button, buildTree, Folder, FolderControls, FolderTree, inputClass, isConflictCopy, Pill, ScoreBar, scoreColor, timeAgo, useFolders } from "../ui";
+import {
+  Badge,
+  Button,
+  buildTree,
+  Folder,
+  FolderControls,
+  FolderTree,
+  inputClass,
+  isConflictCopy,
+  Pill,
+  ScoreBar,
+  scoreColor,
+  timeAgo,
+  treeItems,
+  useFolders,
+} from "../ui";
 
 const STATE_ORDER: ParityState[] = [
   "missing",
@@ -141,6 +162,13 @@ function DiffRow({
             <Badge tone="amber">conflict copy</Badge>
           </span>
         )}
+        {r.works_with_missing.length > 0 && r.state !== "missing" && (
+          <span title={`Needs files this machine doesn't have: ${r.works_with_missing.join(", ")}`}>
+            <Badge tone="amber">
+              needs {r.works_with_missing.length} file{r.works_with_missing.length === 1 ? "" : "s"}
+            </Badge>
+          </span>
+        )}
         {r.needed_by_templates && <Badge tone="amber">template</Badge>}
         {r.confidence === "low" && <Badge tone="amber">name only</Badge>}
         {r.missing_formats.map((f) => (
@@ -184,6 +212,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   const setRow = (r: ComparisonRow | null) => setRowId(r?.product_id ?? null);
   const [wantPlan, setWantPlan] = useState(focus?.plan ?? false);
   const [busy, setBusy] = useState(false);
+  const bring = useBringHere(data?.machine ?? null, view, onError);
 
   // Both refresh every window through `data-changed`, which reloads `view`.
   const suggest: SuggestActions = {
@@ -273,6 +302,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
             selected={row}
             onSelect={setRow}
             suggest={suggest}
+            bring={bring}
             onPlan={() => setPlan(true)}
           />
         )}
@@ -286,6 +316,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
             version={data.golden_version}
             suggested={data.suggested.includes(row.product_id)}
             suggest={suggest}
+            bring={bring}
           />
         ) : (
           <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Primary Rig.</p>
@@ -329,12 +360,14 @@ function Diff({
   selected,
   onSelect,
   suggest,
+  bring,
   onPlan,
 }: {
   data: MachineComparison;
   selected: ComparisonRow | null;
   onSelect: (r: ComparisonRow) => void;
   suggest: SuggestActions;
+  bring: BringHere;
   onPlan: () => void;
 }) {
   const { machine, comparison: c } = data;
@@ -415,6 +448,13 @@ function Diff({
         <p className="text-xs text-ok">At parity with the Primary Rig.</p>
       )}
 
+      {bring.message && (
+        <p className="text-xs text-ok">
+          {bring.message.text}
+          {bring.message.warn && <span className="text-warn"> {bring.message.warn}</span>}
+        </p>
+      )}
+
       <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
       <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
 
@@ -487,12 +527,14 @@ function Diff({
                       className="rounded-[5px] pl-6 pr-2"
                       open={folders.isOpen(id)}
                       onToggle={() => folders.toggle(id)}
+                      actions={name === REAPER_FILES && <BringButton rows={rs} bring={bring} />}
                     >
                       {name === REAPER_FILES ? (
                         <FolderTree
                           node={buildTree(rs, reaperDirs, id)}
                           folders={folders}
                           indent={40}
+                          actions={(node) => <BringButton rows={treeItems(node)} bring={bring} />}
                           renderItems={(items, indent) => (
                             <ul style={{ paddingLeft: indent }}>
                               {items.map((r) => (
@@ -986,13 +1028,17 @@ function Detail({
   version,
   suggested,
   suggest,
+  bring,
 }: {
   row: ComparisonRow;
   machine: MachineCard;
   version: number;
   suggested: boolean;
   suggest: SuggestActions;
+  bring: BringHere;
 }) {
+  const file = bring.file(row.product_id);
+  const along = file ? bring.needs.withNeeds([fileKey(file)]).size - 1 : 0;
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
@@ -1013,6 +1059,49 @@ function Detail({
           A preset folder with files in it (empty ones are skipped). Patch Pilot compares a fingerprint of its files to
           spot changes; it never copies or changes them.
         </p>
+      )}
+      {row.works_with.length > 0 && (
+        <div className="text-xs leading-relaxed">
+          <p className="text-dim">
+            Works together with {row.works_with.length} other file{row.works_with.length === 1 ? "" : "s"} (its
+            ReaPack package, files it loads, or a theme's images).{" "}
+            {row.works_with_missing.length > 0 ? (
+              <span className="text-warn">
+                {row.works_with_missing.length} {row.works_with_missing.length === 1 ? "isn't" : "aren't"} on{" "}
+                {machine.name}, so it may not work there.
+              </span>
+            ) : (
+              `All of them are on ${machine.name}.`
+            )}
+          </p>
+          <ul className="mt-1 flex flex-col">
+            {row.works_with.slice(0, 8).map((f) => (
+              <li
+                key={f}
+                className={`truncate font-mono text-[11px] ${row.works_with_missing.includes(f) ? "text-warn" : "text-dim"}`}
+                title={f}
+              >
+                {f.slice(f.lastIndexOf("/") + 1)}
+              </li>
+            ))}
+            {row.works_with.length > 8 && (
+              <li className="text-[11px] text-dim">and {row.works_with.length - 8} more</li>
+            )}
+          </ul>
+        </div>
+      )}
+      {file && (
+        <div className="flex flex-col gap-1.5">
+          <Button disabled={bring.busy} onClick={() => bring.bring([file])} className="self-start">
+            {bring.from ? "Copy to this machine" : "Bring over to this machine"}
+          </Button>
+          <p className="text-[11px] leading-relaxed text-dim">
+            {along > 0
+              ? `Comes with the ${along} file${along === 1 ? "" : "s"} it needs. `
+              : ""}
+            {bring.hint}
+          </p>
+        </div>
       )}
       {row.needed_by_templates && (
         <p className="text-xs text-dim">A template uses this plug-in, so it counts three times in the score.</p>
@@ -1071,6 +1160,94 @@ function Side({ title, items }: { title: string; items: ComparisonRow["golden_it
         </ul>
       )}
     </div>
+  );
+}
+
+/** Bringing files onto this machine from Compare's folders and detail pane. */
+interface BringHere {
+  /** The file a row's product can bring, if it can come. */
+  file: (productId: string) => FileToBring | undefined;
+  needs: Needs;
+  /** The machine files come from; undefined for the Primary Rig. */
+  from: string | undefined;
+  busy: boolean;
+  /** "Bring over 12" or "Copy 12 here". */
+  label: (n: number) => string;
+  hint: string;
+  bring: (files: FileToBring[]) => void;
+  message: { text: string; warn: string | null } | null;
+}
+
+/**
+ * Looking at this machine, files come from the Primary Rig; looking at
+ * another linked machine, they're copied from it. Either way each file comes
+ * with every file it needs (decision #62).
+ */
+function useBringHere(machine: MachineCard | null, refresh: unknown, onError: (e: string) => void): BringHere {
+  const from = machine && !machine.is_this_machine ? machine.id : undefined;
+  const [view, setView] = useState<BringView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<BringHere["message"]>(null);
+  const id = machine?.id;
+  useEffect(() => {
+    setMessage(null);
+  }, [id]);
+  useEffect(() => {
+    if (!id) return;
+    let current = true;
+    filesToBring(from).then(
+      (v) => current && setView(v),
+      () => current && setView(null),
+    );
+    return () => {
+      current = false;
+    };
+  }, [id, from, refresh]);
+  const byProduct = useMemo(
+    () =>
+      new Map(
+        view?.linked ? view.files.filter((f) => f.product_id && !f.incomplete).map((f) => [f.product_id!, f]) : [],
+      ),
+    [view],
+  );
+  const needs = useMemo(() => new Needs(view?.files ?? []), [view]);
+  const source = from ? (machine?.name ?? "that machine") : "the Primary machine";
+  return {
+    file: (p) => byProduct.get(p),
+    needs,
+    from,
+    busy,
+    label: (n) => (from ? `Copy ${n} here` : `Bring over ${n}`),
+    hint: from
+      ? `Copies ${machine?.name}'s files onto this machine. Anything replaced is saved first; undo in History.`
+      : "Brings the Primary Rig's copy onto this machine. Anything replaced is saved first; undo in History.",
+    bring: (files) => {
+      setBusy(true);
+      setMessage(null);
+      bringFiles(files.map(fileKey), from)
+        .then((r) => setMessage(bringSummary(r, source)))
+        .catch((e) => onError(String(e)))
+        .finally(() => setBusy(false));
+    },
+    message,
+  };
+}
+
+/** A folder's "Bring over 12" / "Copy 12 here": the rows in it this machine can get. */
+function BringButton({ rows, bring }: { rows: ComparisonRow[]; bring: BringHere }) {
+  const files = rows.map((r) => bring.file(r.product_id)).filter((f): f is FileToBring => f !== undefined);
+  if (files.length === 0) return null;
+  const along = bring.needs.withNeeds(files.map(fileKey)).size - files.length;
+  return (
+    <Button
+      variant="quiet"
+      disabled={bring.busy}
+      onClick={() => bring.bring(files)}
+      className="h-6 shrink-0 px-2 text-accent-text!"
+      title={`${along > 0 ? `Also brings the ${along} file${along === 1 ? "" : "s"} they need. ` : ""}${bring.hint}`}
+    >
+      {bring.label(files.length)}
+    </Button>
   );
 }
 

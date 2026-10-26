@@ -24,11 +24,19 @@ Item fields: `kind` (`plugin`, `daw_asset`, `vendor_app`, `license_tool`,
 `version` (raw vendor string), `path`, `content_hash` (`blake3:<hex>`, only for
 user-owned files that may sync), `size`, `mtime` (Unix seconds),
 `platform_portable`, `confidence` (`low`, `medium`, `high`), `requires`
-(product IDs the item needs, sorted and unique; set on DAW templates, #37).
+(product IDs the item needs, sorted and unique; set on DAW templates, #37),
+`needs_files` (other files this one needs beside it to work, as `/`-separated
+paths below the same logical root, sorted and unique: the rest of its ReaPack
+package, the files a script loads, a JSFX's imports, a theme's images; they
+travel together, #62).
 
 Reaper templates are `daw_asset` items under the `REAPER_RESOURCES` root, one
 product each (`reaper-template/<path slug>`, vendor `REAPER`), portable and
-content-hashed. Their `requires` lists the plug-ins they use, keyed the same
+content-hashed (a key map with paths into the resource folder written as
+`<REAPER_RESOURCES>/...`, so the same shortcuts hash the same on every
+machine). `Effects/` and `Data/` files are items (`reaper-effect/`,
+`reaper-data/`) only when a ReaPack package installed them or a tracked file
+needs them. Their `requires` lists the plug-ins they use, keyed the same
 way the scanner keys products (`<vendor>/<name>`), so a template can require a
 product the machine doesn't have.
 

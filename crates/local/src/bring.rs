@@ -6,16 +6,18 @@
 //! No network here: the app fetches each file's bytes from the relay, sealed
 //! under the rig key and checked against the hash Primary Rig recorded.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use patchpilot_core::{ContentHash, Item, Manifest, Os, PortablePath, TargetProfile};
+use patchpilot_core::{ContentHash, Item, Manifest, Os, PortablePath, ProductId, TargetProfile};
 use patchpilot_parity::ableton::{
     ABLETON_PREFS, ABLETON_USER_LIBRARY, merge_incoming, prefs_label, shared_view,
     user_library_label,
 };
 use patchpilot_parity::apply_profile;
-use patchpilot_parity::reaper::{REAPER_RESOURCES, reaper_resource_dir, resource_kind};
+use patchpilot_parity::reaper::{
+    REAPER_RESOURCES, ResourceKind, portable_key_map, reaper_resource_dir, resource_kind,
+};
 use patchpilot_store::Store;
 use serde::Serialize;
 
@@ -40,9 +42,10 @@ pub struct SharedRoot {
     /// Checked before writing under the root, e.g. "Close the DAW first"
     /// for its settings (CLAUDE.md rule 5).
     pub guard: fn() -> Result<(), String>,
-    /// The bytes others get for a file here (`rel`, its bytes): the file
-    /// itself, or for a settings file only its shareable part.
-    pub view: fn(&str, Vec<u8>) -> Vec<u8>,
+    /// The bytes others get for a file here (the root's folder, `rel`, its
+    /// bytes): the file itself, or for a settings file only its shareable
+    /// part. Hashed at scan time the same way.
+    pub view: fn(&Path, &str, Vec<u8>) -> Vec<u8>,
     /// What to write given what's there now (`rel`, current bytes, incoming
     /// bytes): the incoming file, or the current one with the shared part
     /// merged in.
@@ -66,7 +69,11 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         // Templates, scripts and themes aren't Reaper's settings, and Reaper
         // reads them when they are used, so writing them while it runs is safe.
         guard: || Ok(()),
-        view: |_, bytes| bytes,
+        // Key maps travel with this machine's resource folder spelled portably.
+        view: |dir, rel, bytes| match resource_kind(rel) {
+            Some(ResourceKind::KeyMap) => portable_key_map(bytes, dir, this_os()),
+            _ => bytes,
+        },
         merge: |_, _, incoming| Ok(incoming),
         daw: None,
         // Key maps and menus are Reaper's own settings: only while it's closed.
@@ -84,7 +91,7 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         kind: user_library_label,
         default_dir: || crate::standard_ableton_dirs()?.user_library,
         guard: || crate::apps::write_guard(ABLETON_USER_LIBRARY),
-        view: |_, bytes| bytes,
+        view: |_, _, bytes| bytes,
         merge: |_, _, incoming| Ok(incoming),
         daw: Some(Daw::Ableton),
         closed_daw: |_| None,
@@ -97,12 +104,18 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         guard: || crate::apps::write_guard(ABLETON_PREFS),
         // Library.cfg shares only its Collection names, merged into this
         // machine's own file so its paths and Places stay.
-        view: |rel, bytes| shared_view(ABLETON_PREFS, rel, bytes),
+        view: |_, rel, bytes| shared_view(ABLETON_PREFS, rel, bytes),
         merge: |rel, current, incoming| merge_incoming(ABLETON_PREFS, rel, current, incoming),
         daw: Some(Daw::Ableton),
         closed_daw: |_| None,
     },
 ];
+
+/// The OS paths here are spelled for (macOS's `/` where neither applies, as
+/// in tests on Linux).
+fn this_os() -> Os {
+    Os::current().unwrap_or(Os::Macos)
+}
 
 fn shared_root(root: &str) -> Option<&'static SharedRoot> {
     SHARED_ROOTS.iter().find(|r| r.root == root)
@@ -136,6 +149,21 @@ pub struct FileToBring {
     pub replaces: bool,
     /// Over [`MAX_FILE_BYTES`], so it can't travel over the link.
     pub too_large: bool,
+    /// Its product, to find it from the comparison's rows.
+    pub product_id: Option<ProductId>,
+    /// Other files in this list it needs beside it to work (decision #62),
+    /// as `root/rel` keys: they are brought over with it.
+    pub needs: Vec<String>,
+    /// It, or a file it needs, can't travel, so it would arrive incomplete:
+    /// it isn't brought over.
+    pub incomplete: bool,
+}
+
+impl FileToBring {
+    /// `root/rel`, as the app names files to bring.
+    pub fn key(&self) -> String {
+        format!("{}/{}", self.root, self.rel)
+    }
 }
 
 /// A user-owned file this machine shares with its linked machines.
@@ -151,7 +179,8 @@ pub struct SharedFile {
 /// read or has changed since the scan (the next scan shares the new one).
 pub fn read_shared(file: &SharedFile) -> Option<Vec<u8>> {
     let bytes = std::fs::read(&file.path).ok()?;
-    let bytes = (shared_root(&file.root)?.view)(&file.rel, bytes);
+    let dir = file.path.ancestors().nth(file.rel.split('/').count())?;
+    let bytes = (shared_root(&file.root)?.view)(dir, &file.rel, bytes);
     (patchpilot_sync::content_hash(&bytes) == file.hash).then_some(bytes)
 }
 
@@ -176,8 +205,10 @@ pub fn shared_files(machine: &Manifest) -> Vec<SharedFile> {
 }
 
 /// What Primary Rig (narrowed by this machine's profile) has that `machine` lacks
-/// or holds a different copy of, sorted by app, then path. `machine` is
-/// `None` before this machine's first scan.
+/// or holds a different copy of, sorted by app, then path, each with the
+/// files it needs. `machine` is `None` before this machine's first scan.
+/// Another linked machine's latest scan, with the default profile, works as
+/// `golden` too.
 pub fn files_to_bring(
     golden: &Manifest,
     profile: &TargetProfile,
@@ -233,11 +264,139 @@ pub fn files_to_bring(
                 size: item.size,
                 hash,
                 replaces,
+                product_id: item.product_id.clone(),
+                // Every file it needs, listed or not; narrowed below.
+                needs: item
+                    .needs_files
+                    .iter()
+                    .map(|n| format!("{}/{n}", shared.root))
+                    .collect(),
+                incomplete: false,
             })
         })
         .collect();
     out.sort_by(|a, b| (&a.app, &a.rel).cmp(&(&b.app, &b.rel)));
-    out
+    link(out)
+}
+
+/// Narrow each file's `needs` to files in the list (the rest are here
+/// already), spelled as listed, and mark the files that can't arrive whole.
+fn link(mut files: Vec<FileToBring>) -> Vec<FileToBring> {
+    let listed: HashMap<String, String> = files
+        .iter()
+        .map(|f| (f.key().to_lowercase(), f.key()))
+        .collect();
+    for f in &mut files {
+        let mut needs: Vec<String> = f
+            .needs
+            .iter()
+            .filter_map(|n| listed.get(&n.to_lowercase()).cloned())
+            .filter(|n| *n != f.key())
+            .collect();
+        needs.sort();
+        needs.dedup();
+        f.needs = needs;
+    }
+    let bad: BTreeSet<String> = files
+        .iter()
+        .filter(|f| f.too_large)
+        .map(FileToBring::key)
+        .collect();
+    let blocked = blocked(&files, &bad);
+    for f in &mut files {
+        f.incomplete = f.too_large || blocked.contains(&f.key());
+    }
+    files
+}
+
+/// `keys` and every listed file they need, directly or through others.
+pub fn with_needs<'a>(files: &'a [FileToBring], keys: &[String]) -> Vec<&'a FileToBring> {
+    let by_key: HashMap<String, &FileToBring> = files.iter().map(|f| (f.key(), f)).collect();
+    let all = patchpilot_parity::reaper_links::with_needs(keys.iter().map(String::as_str), |k| {
+        by_key.get(k).map(|f| f.needs.as_slice())
+    });
+    files.iter().filter(|f| all.contains(&f.key())).collect()
+}
+
+/// Keys of the files that need one of `bad` (files that can't be had),
+/// directly or through others, so they'd arrive without it. `bad` itself
+/// isn't included.
+pub fn blocked(files: &[FileToBring], bad: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    loop {
+        let before = out.len();
+        for f in files {
+            let key = f.key();
+            if !bad.contains(&key)
+                && !out.contains(&key)
+                && f.needs.iter().any(|n| bad.contains(n) || out.contains(n))
+            {
+                out.insert(key);
+            }
+        }
+        if out.len() == before {
+            return out;
+        }
+    }
+}
+
+/// `files` without the ones this machine already has the same copy of, by
+/// reading them now: its last scan may be older than the files (they were
+/// written since), or a key map may hold the same shortcuts with this
+/// machine's paths. `source` is the manifest the files come from.
+pub fn drop_same_here(
+    source: &Manifest,
+    machine: Option<&Manifest>,
+    files: Vec<FileToBring>,
+) -> Vec<FileToBring> {
+    let mut dirs: HashMap<String, Option<PathBuf>> = HashMap::new();
+    let mut kept = Vec::new();
+    for f in files {
+        let dir = dirs
+            .entry(f.root.clone())
+            .or_insert_with(|| root_dir(machine, &f.root))
+            .clone();
+        let same = dir.is_some_and(|dir| same_here(source, &f, &dir));
+        if !same {
+            kept.push(f);
+        }
+    }
+    link(kept)
+}
+
+fn same_here(source: &Manifest, f: &FileToBring, dir: &Path) -> bool {
+    let path = f
+        .rel
+        .split('/')
+        .fold(dir.to_owned(), |p, part| p.join(part));
+    let Ok(bytes) = std::fs::read(&path) else {
+        return false;
+    };
+    let Some(shared) = shared_root(&f.root) else {
+        return false;
+    };
+    let hash = |b: &[u8]| patchpilot_sync::content_hash(b);
+    if hash(&(shared.view)(dir, &f.rel, bytes.clone())) == f.hash || hash(&bytes) == f.hash {
+        return true;
+    }
+    // A key map from a build before #62 has the source's own paths in it.
+    if f.root != REAPER_RESOURCES || resource_kind(&f.rel) != Some(ResourceKind::KeyMap) {
+        return false;
+    }
+    let (Some(from), Ok(text)) = (
+        source.machine.path_map.roots.get(REAPER_RESOURCES),
+        String::from_utf8(bytes),
+    ) else {
+        return false;
+    };
+    let theirs = patchpilot_parity::reaper::remap_key_map(
+        &text,
+        &dir.to_string_lossy(),
+        this_os(),
+        from,
+        source.machine.os,
+    );
+    hash(theirs.as_bytes()) == f.hash
 }
 
 /// Where `root` is on this machine: as its last scan mapped it, else the
@@ -261,6 +420,8 @@ fn default_reaper_dir() -> Option<PathBuf> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct WriteReport {
     pub written: usize,
+    /// Files that were already the same here, so weren't written.
+    pub same: usize,
     /// Files that were replaced; their old bytes are in the restore point.
     pub backed_up: usize,
     /// The restore point History can undo, if anything was written.
@@ -279,19 +440,23 @@ pub fn adapt_for_here(
     os: Os,
     bytes: Vec<u8>,
 ) -> Vec<u8> {
-    use patchpilot_parity::reaper::{ResourceKind, remap_key_map};
+    use patchpilot_parity::reaper::{KEY_MAP_ROOT, remap_key_map};
     if root != REAPER_RESOURCES || resource_kind(rel) != Some(ResourceKind::KeyMap) {
         return bytes;
     }
-    let Some(from) = golden.machine.path_map.roots.get(REAPER_RESOURCES) else {
-        return bytes;
-    };
     let text = match String::from_utf8(bytes) {
         Ok(t) => t,
         // Not UTF-8: leave it alone rather than mangle it.
         Err(e) => return e.into_bytes(),
     };
-    remap_key_map(&text, from, golden.machine.os, &dir.to_string_lossy(), os).into_bytes()
+    let here = dir.to_string_lossy();
+    // Shared portably since #62; older builds shared their own paths.
+    let text = remap_key_map(&text, KEY_MAP_ROOT, Os::Macos, &here, os);
+    match golden.machine.path_map.roots.get(REAPER_RESOURCES) {
+        Some(from) => remap_key_map(&text, from, golden.machine.os, &here, os),
+        None => text,
+    }
+    .into_bytes()
 }
 
 /// Write files (`rel` below `root`, which is at `dir` here, and their bytes)
@@ -314,6 +479,7 @@ pub fn write_files(
     (shared.guard)()?;
     let mut changes = Vec::new();
     let mut backed_up = 0;
+    let mut same = 0;
     let mut daw = None;
     for (rel, bytes) in files {
         if (shared.kind)(rel).is_none() {
@@ -327,7 +493,10 @@ pub fn write_files(
         };
         let bytes = (shared.merge)(rel, current.as_deref(), bytes.clone())?;
         match current {
-            Some(old) if old == bytes => continue,
+            Some(old) if old == bytes => {
+                same += 1;
+                continue;
+            }
             Some(_) => backed_up += 1,
             None => {}
         }
@@ -350,6 +519,7 @@ pub fn write_files(
     let point = apply_changes(store, blobs, &req).map_err(|e| e.to_string())?;
     Ok(WriteReport {
         written: point.changed.len(),
+        same,
         backed_up,
         restore_point: point.id,
     })
@@ -379,6 +549,7 @@ mod tests {
             platform_portable: true,
             confidence: Confidence::High,
             requires: Vec::new(),
+            needs_files: Vec::new(),
         }
     }
 
@@ -718,5 +889,140 @@ mod tests {
             kb.clone(),
         );
         assert_eq!(menus, kb, "only the key map is rewritten");
+    }
+
+    #[test]
+    fn files_come_with_what_they_need_or_not_at_all() {
+        let needing = |rel: &str, body: &str, needs: &[&str]| {
+            let mut i = template(Os::Windows, rel, body);
+            i.needs_files = needs.iter().map(|s| s.to_string()).collect();
+            i
+        };
+        let mut big = needing("Scripts/Big/main.lua", "big", &["Scripts/Big/samples.dat"]);
+        big.size = Some(10);
+        let mut data = template(Os::Windows, "Scripts/Big/samples.dat", "dat");
+        data.size = Some(MAX_FILE_BYTES + 1);
+        let golden = manifest(
+            Os::Windows,
+            r"C:\Users\a\AppData\Roaming\REAPER",
+            vec![
+                needing(
+                    "Scripts/Tool/main.lua",
+                    "main",
+                    &["Scripts/Tool/lib/gui.lua", "Scripts/Lib/core.lua"],
+                ),
+                needing("Scripts/Tool/lib/gui.lua", "gui", &[]),
+                needing("Scripts/Lib/core.lua", "core", &[]),
+                needing("Scripts/Other.lua", "other", &[]),
+                big,
+                data,
+            ],
+        );
+        // This machine already has the shared library.
+        let mac = manifest(
+            Os::Macos,
+            "/Users/a/Library/Application Support/REAPER",
+            vec![template(Os::Macos, "Scripts/Lib/core.lua", "core")],
+        );
+        let list = files_to_bring(&golden, &TargetProfile::default(), Some(&mac));
+        let main = list
+            .iter()
+            .find(|f| f.rel == "Scripts/Tool/main.lua")
+            .unwrap();
+        assert_eq!(main.needs, ["REAPER_RESOURCES/Scripts/Tool/lib/gui.lua"]);
+        assert!(!main.incomplete);
+        assert_eq!(main.product_id, golden.items[0].product_id);
+        let big = list
+            .iter()
+            .find(|f| f.rel == "Scripts/Big/main.lua")
+            .unwrap();
+        assert!(big.incomplete, "needs a file too large to send");
+
+        let picked = with_needs(&list, &["REAPER_RESOURCES/Scripts/Tool/main.lua".into()]);
+        let rels: Vec<_> = picked.iter().map(|f| f.rel.as_str()).collect();
+        assert_eq!(rels, ["Scripts/Tool/lib/gui.lua", "Scripts/Tool/main.lua"]);
+
+        // If the library can't be had, the script stays behind too.
+        let bad = BTreeSet::from(["REAPER_RESOURCES/Scripts/Tool/lib/gui.lua".to_owned()]);
+        assert_eq!(
+            blocked(&list, &bad),
+            BTreeSet::from(["REAPER_RESOURCES/Scripts/Tool/main.lua".to_owned()])
+        );
+    }
+
+    #[test]
+    fn files_already_here_are_dropped_even_before_a_rescan() {
+        let tmp = tempfile::tempdir().unwrap();
+        let here = tmp.path().join("REAPER");
+        std::fs::create_dir_all(here.join("Scripts")).unwrap();
+        std::fs::write(here.join("Scripts/a.lua"), "same").unwrap();
+        let win = r"C:\Users\j\AppData\Roaming\REAPER";
+        // A key map from a Primary Rig scanned before #62, with its own paths.
+        let kb = format!("SCR 4 0 RS1 \"Custom: a.lua\" \"{win}\\Scripts\\a.lua\"\n");
+        let os = this_os();
+        let sep = os.separator();
+        std::fs::write(
+            here.join("reaper-kb.ini"),
+            format!(
+                "SCR 4 0 RS1 \"Custom: a.lua\" \"{}{sep}Scripts{sep}a.lua\"\n",
+                here.display()
+            ),
+        )
+        .unwrap();
+        let mut kb_item = template(Os::Windows, "reaper-kb.ini", &kb);
+        kb_item.path = PortablePath::logical(REAPER_RESOURCES, "reaper-kb.ini");
+        let golden = manifest(
+            Os::Windows,
+            win,
+            vec![
+                template(Os::Windows, "Scripts/a.lua", "same"),
+                template(Os::Windows, "Scripts/b.lua", "new"),
+                kb_item,
+            ],
+        );
+        // This machine's last scan predates the files.
+        let mac = manifest(os, &here.to_string_lossy(), Vec::new());
+        let list = files_to_bring(&golden, &TargetProfile::default(), Some(&mac));
+        assert_eq!(list.len(), 3);
+        let left = drop_same_here(&golden, Some(&mac), list);
+        let rels: Vec<_> = left.iter().map(|f| f.rel.as_str()).collect();
+        assert_eq!(rels, ["Scripts/b.lua"]);
+    }
+
+    #[test]
+    fn key_maps_travel_portably() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("REAPER");
+        std::fs::create_dir_all(&dir).unwrap();
+        let os = this_os();
+        let sep = os.separator();
+        let kb = format!(
+            "SCR 4 0 RS1 \"Custom: a.lua\" \"{}{sep}Scripts{sep}a.lua\"\n",
+            dir.display()
+        );
+        std::fs::write(dir.join("reaper-kb.ini"), &kb).unwrap();
+        let portable = "SCR 4 0 RS1 \"Custom: a.lua\" \"<REAPER_RESOURCES>/Scripts/a.lua\"\n";
+        let file = SharedFile {
+            hash: hash(portable),
+            path: dir.join("reaper-kb.ini"),
+            root: REAPER_RESOURCES.into(),
+            rel: "reaper-kb.ini".into(),
+        };
+        assert_eq!(read_shared(&file).unwrap(), portable.as_bytes());
+        // And arrive with this machine's folder.
+        let golden = manifest(Os::Windows, r"C:\R", Vec::new());
+        let here = Path::new("/Users/j/REAPER");
+        let out = adapt_for_here(
+            &golden,
+            REAPER_RESOURCES,
+            "reaper-kb.ini",
+            here,
+            Os::Macos,
+            portable.as_bytes().to_vec(),
+        );
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "SCR 4 0 RS1 \"Custom: a.lua\" \"/Users/j/REAPER/Scripts/a.lua\"\n"
+        );
     }
 }

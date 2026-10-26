@@ -5,6 +5,7 @@ pub mod presets;
 pub mod reapack;
 pub mod reaper;
 pub mod reaper_folders;
+pub mod reaper_links;
 
 mod ini;
 

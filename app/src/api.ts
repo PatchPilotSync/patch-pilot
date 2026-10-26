@@ -165,6 +165,10 @@ export interface ComparisonRow {
   needed_by_templates: boolean;
   golden_items: ItemSide[];
   machine_items: ItemSide[];
+  /** Other files this one needs beside it to work (decision #62): paths below its root. */
+  works_with: string[];
+  /** Those of `works_with` the machine has no copy of. */
+  works_with_missing: string[];
 }
 
 export interface Reason {
@@ -246,10 +250,18 @@ export interface FileToBring {
   /** This machine has a different copy, backed up before it is replaced. */
   replaces: boolean;
   too_large: boolean;
+  /** Its product, to match it with comparison rows. */
+  product_id: string | null;
+  /** Keys (`root/rel`) of other listed files it needs beside it to work; they come with it (decision #62). */
+  needs: string[];
+  /** It, or a file it needs, can't travel, so it isn't brought over. */
+  incomplete: boolean;
 }
 
 export interface BringView {
   linked: boolean;
+  /** There is a Primary Rig (or the machine asked for) to bring from. */
+  has_source: boolean;
   files: FileToBring[];
 }
 
@@ -257,12 +269,21 @@ export interface BringResult {
   written: number;
   /** Replaced files, saved first so History can undo the bring-over. */
   backed_up: number;
+  /** Already the same here, so nothing was written. */
+  same: number;
+  /** Files that came because a chosen file needs them. */
+  companions: number;
   unavailable: string[];
+  /** Left behind because a file they need didn't arrive. */
+  held_back: string[];
 }
 
 export const fileKey = (f: FileToBring) => `${f.root}/${f.rel}`;
-export const filesToBring = () => invoke<BringView>("files_to_bring");
-export const bringFiles = (keys: string[]) => invoke<BringResult>("bring_files", { keys });
+/** What this machine could bring over from the Primary Rig, or `from` another linked machine. */
+export const filesToBring = (from?: string) => invoke<BringView>("files_to_bring", { from: from ?? null });
+/** Bring these files and every file they need; from the Primary Rig unless `from` names a linked machine. */
+export const bringFiles = (keys: string[], from?: string) =>
+  invoke<BringResult>("bring_files", { keys, from: from ?? null });
 
 export const STATE_LABEL: Record<ParityState, string> = {
   missing: "Missing",

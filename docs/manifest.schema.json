@@ -91,6 +91,13 @@
             "null"
           ]
         },
+        "needs_files": {
+          "description": "Other files this one needs beside it to work, as `/`-separated paths\nbelow the same logical root, sorted and unique: the rest of its ReaPack\npackage, the files a script loads, a theme's image folder. They travel\nwith it when it is brought over (decision #62).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "path": {
           "$ref": "#/$defs/PortablePath"
         },

@@ -284,19 +284,26 @@ fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
 }
 
 /// Add Reaper templates under `dir` as items that require their plug-ins,
-/// plus the scripts and themes Bring over shares (#45). Returns how many
+/// plus the scripts, themes and ReaPack package files Bring over shares
+/// (#45), each with the files it needs (#62). Returns how many
 /// templates were added.
 pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
-    use patchpilot_parity::reaper::{REAPER_RESOURCES, template_items};
-    let (products, items) = template_items(dir, manifest.machine.os, |r| {
-        // Stock plug-ins ship with Reaper; user JSFX aren't scanned yet.
-        (!r.is_stock() && r.format != PluginFormat::Jsfx).then(|| {
-            patchpilot_scanner::product_id(
-                r.vendor.as_deref(),
-                &patchpilot_scanner::normalize_name(&r.name).name,
-            )
-        })
-    });
+    use patchpilot_parity::reaper::{REAPER_RESOURCES, resource_items};
+    let packages = reaper_extras::read_package_files(dir);
+    let (products, items) = resource_items(
+        dir,
+        manifest.machine.os,
+        |r| {
+            // Stock plug-ins ship with Reaper; user JSFX aren't scanned yet.
+            (!r.is_stock() && r.format != PluginFormat::Jsfx).then(|| {
+                patchpilot_scanner::product_id(
+                    r.vendor.as_deref(),
+                    &patchpilot_scanner::normalize_name(&r.name).name,
+                )
+            })
+        },
+        &packages,
+    );
     if items.is_empty() {
         return 0;
     }

@@ -260,7 +260,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Area | What | Status |
 |---|---|---|
 | Up To Speed | Rename the button to "Get up to speed" | In progress (in review) |
-| Bring over | One click to bring Reaper templates, FX chains, scripts, themes, toolbars and keymaps from a linked machine, grouped by app | In progress |
+| Bring over | One click to bring Reaper templates, FX chains, scripts, themes, toolbars and keymaps from a linked machine, grouped by app; whole folders from Compare, and scripts, ReaPack packages, JSFX and themes always with every file they need (#62) | In progress |
 | Ableton | Bring over Collections, User Library, templates and Options.txt; check racks and sets for missing plug-ins | In progress |
 | Safety | Snapshots before every write, with rollback | In progress |
 | Reaper | ReaPack restore and path remap between Windows and macOS | In progress |

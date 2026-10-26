@@ -1041,6 +1041,7 @@ impl RawItem {
             platform_portable: self.platform_portable,
             confidence: from_text::<Confidence>("items.confidence", &self.confidence)?,
             requires: Vec::new(),
+            needs_files: Vec::new(),
         })
     }
 }
