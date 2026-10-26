@@ -197,7 +197,14 @@ function Entries({ entries, onError }: { entries: VaultEntry[]; onError: (e: str
 
   return (
     <>
-      <FolderControls ids={groups.map(([v]) => v)} folders={folders} className="px-3 pt-2" />
+      {entries.length > 0 && (
+        <div className="flex items-center gap-3 pl-4 pr-3 pt-3">
+          <h2 className="flex-1 text-sm font-semibold">
+            In the vault <span className="font-normal tabular-nums text-dim">{entries.length}</span>
+          </h2>
+          <FolderControls ids={groups.map(([v]) => v)} folders={folders} className="" />
+        </div>
+      )}
       {groups.map(([vendor, rows]) => {
         const missing = rows.filter((e) => e.missing).length;
         return (

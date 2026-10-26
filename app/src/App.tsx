@@ -239,17 +239,15 @@ export default function App() {
         ) : tab === "compare" && view && canCompare ? (
           <Compare view={view} focus={focus} chosen={compareId} onChoose={setCompareId} onError={onError} />
         ) : (
-          <>
-            {setup?.offer && <SetupOffer onOpen={() => setTab("setup")} />}
-            <Rig
+          <Rig
               overview={overview}
+              setupOffer={setup?.offer && <SetupOffer onOpen={() => setTab("setup")} />}
               warnings={warnings}
               busy={busy}
               onRescan={() => scan(null)}
               onMakeGolden={golden}
               onReport={() => setReporting(true)}
             />
-          </>
         )}
       </div>
       {tour && overview !== null && !scanning && <Tour onClose={() => setTour(false)} />}

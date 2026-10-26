@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fixReaperFolders, reaperExtras, restoreReapack, type ReaperExtras as Extras } from "./api";
-import { Badge, Button, Folder, useFolders } from "./ui";
+import { Badge, Button, Card, Folder, useFolders } from "./ui";
 
 /**
  * Reaper extras (decision #52): the Primary Rig's ReaPack repositories and
@@ -50,19 +50,17 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
   ].filter(Boolean);
 
   return (
-    <section className="rounded-lg border border-line bg-panel px-3 py-2.5">
-      <header className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-xs font-semibold">Reaper setup</h2>
-          <p className="truncate text-[11px] text-dim">{parts.length ? parts.join(" · ") : "Matches the Primary Rig."}</p>
-        </div>
-        {parts.length > 0 && (
+    <Card
+      title="Reaper setup"
+      sub={parts.length ? parts.join(" · ") : "Matches the Primary Rig."}
+      actions={
+        parts.length > 0 && (
           <Button variant="quiet" onClick={() => setOpen((o) => !o)} className="shrink-0">
             {open ? "Hide" : "Show"}
           </Button>
-        )}
-      </header>
-
+        )
+      }
+    >
       {done && <p className="mt-1.5 text-[11px] text-ok">{done}</p>}
 
       {open && reapackCount > 0 && (
@@ -70,7 +68,7 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
           <div className="flex items-center gap-3">
             <h3 className="flex-1 text-[11px] font-medium text-dim">ReaPack</h3>
             {extras.reapack_installed && (
-              <Button onClick={() => run("reapack")} disabled={busy !== null} className="shrink-0 whitespace-nowrap">
+              <Button variant="link" onClick={() => run("reapack")} disabled={busy !== null} className="h-6 shrink-0 whitespace-nowrap px-2">
                 {busy === "reapack" ? "Restoring…" : `Restore ${reapackCount}`}
               </Button>
             )}
@@ -120,8 +118,7 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
             ))}
           </div>
           <p className="mt-1 text-[11px] text-dim">
-            Patch Pilot adds the repositories and marks the packages for ReaPack, which downloads them when you choose
-            Synchronize packages. Reaper must be closed.
+            Marked for ReaPack, which downloads them when you choose Synchronize packages. Reaper must be closed.
           </p>
         </div>
       )}
@@ -131,7 +128,7 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
           <div className="flex items-center gap-3">
             <h3 className="flex-1 text-[11px] font-medium text-dim">Folders</h3>
             {fixable.length > 0 && (
-              <Button onClick={() => run("folders")} disabled={busy !== null} className="shrink-0 whitespace-nowrap">
+              <Button variant="link" onClick={() => run("folders")} disabled={busy !== null} className="h-6 shrink-0 whitespace-nowrap px-2">
                 {busy === "folders" ? "Setting…" : `Set ${fixable.length}`}
               </Button>
             )}
@@ -152,11 +149,11 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
             ))}
           </ul>
           <p className="mt-1 text-[11px] text-dim">
-            Matched by the same folder names on this machine's drives. Reaper must be closed; you can undo it in History.
+            Matched by folder name on this machine's drives. Reaper must be closed; undo in History.
           </p>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 

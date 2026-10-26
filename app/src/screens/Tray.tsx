@@ -22,7 +22,7 @@ import { Button, Mark, scoreColor, timeAgo } from "../ui";
 // into the main window is visible (decision #37): a labelled Expand button,
 // clickable machine and need rows, and a double-click on any empty spot.
 
-const SHOWN = 5;
+const SHOWN = 3;
 const WORK = ["missing", "incomplete", "outdated"] as const;
 
 export function Tray() {
@@ -102,7 +102,7 @@ export function Tray() {
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-3 pb-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto px-3 pb-3">
         {error && <p className="text-xs text-bad">{error}</p>}
 
         {overview && !machine && <Hint text="Scan this machine to get started." />}
@@ -132,8 +132,23 @@ export function Tray() {
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">
               {suggesting.golden_source
-                ? `New since Primary Rig v${view?.golden_version}: ${groupSummary(suggesting.suggestion_groups)}`
+                ? `New since v${view?.golden_version}: ${groupSummary(suggesting.suggestion_groups)}`
                 : `For the Primary Rig${suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}: ${groupSummary(suggesting.suggestion_groups)}`}
+            </span>
+            <span className="text-dim" aria-hidden="true">
+              ›
+            </span>
+          </button>
+        )}
+
+        {updateCount > 0 && (
+          <button
+            onClick={() => openMainWindow()}
+            className="flex h-7 items-center gap-2.5 rounded-md px-3 text-left text-xs hover:bg-sel/50"
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">
+              {updateCount} plug-in update{updateCount === 1 ? "" : "s"} available on this machine
             </span>
             <span className="text-dim" aria-hidden="true">
               ›
@@ -166,16 +181,9 @@ export function Tray() {
           </section>
         )}
 
-        {updateCount > 0 && (
-          <button
-            onClick={() => openMainWindow()}
-            className="rounded-md px-3 py-1.5 text-left text-xs text-accent-text hover:bg-sel/50"
-          >
-            {updateCount} plug-in update{updateCount === 1 ? "" : "s"} available on this machine
-          </button>
+        {machine && !behind && (
+          <p className="mt-auto pt-2 text-center text-[11px] text-dim/70">Double-click to open the full window</p>
         )}
-
-        {machine && <p className="mt-auto pt-2 text-center text-[11px] text-dim/70">Double-click to open the full window</p>}
       </div>
 
       <footer className="flex h-12 shrink-0 items-center gap-1 border-t border-line px-2.5">
@@ -215,7 +223,7 @@ function MachineRow({ m, active, onOpen }: { m: MachineCard; active: boolean; on
       <button
         onClick={onOpen}
         title={`Open ${m.name} in the full window`}
-        className={`flex h-12 w-full items-center gap-3 rounded-md border px-3 text-left ${
+        className={`flex h-11 w-full items-center gap-3 rounded-md border px-3 text-left ${
           active ? "border-line bg-canvas" : "border-transparent hover:bg-sel/50"
         }`}
       >
@@ -249,10 +257,21 @@ const KIND_NOTE: Record<ComparisonRow["kind"], string> = {
   config: "config",
 };
 
+/** Reaper's files by what they are, from their product ID (`reaper-script/...`). */
+const REAPER_NOTE: Record<string, string> = {
+  "reaper-script": "script",
+  "reaper-theme": "theme",
+  "reaper-template": "template",
+  "reaper-config": "setting",
+};
+
 function NeedRow({ r, onOpen }: { r: ComparisonRow; onOpen: () => void }) {
   const missing = r.state === "missing";
+  const reaper = REAPER_NOTE[r.product_id.split("/")[0]];
+  // A Reaper file's name is its path; the file name says enough here.
+  const name = reaper ? r.name.slice(r.name.lastIndexOf("/") + 1) : r.name;
   const note = missing
-    ? KIND_NOTE[r.kind]
+    ? (reaper ?? KIND_NOTE[r.kind])
     : r.state === "incomplete" && r.missing_formats.length
       ? `no ${r.missing_formats.map((f) => FORMAT_LABEL[f]).join(", ")}`
       : r.state === "outdated" && r.machine_version && r.golden_version
@@ -264,7 +283,9 @@ function NeedRow({ r, onOpen }: { r: ComparisonRow; onOpen: () => void }) {
         <span className={`w-3 shrink-0 text-center text-[13px] font-semibold ${missing ? "text-bad" : "text-warn"}`} aria-hidden="true">
           {missing ? "✕" : "!"}
         </span>
-        <span className="min-w-0 flex-1 truncate">{r.name}</span>
+        <span className="min-w-0 flex-1 truncate" title={r.name}>
+          {name}
+        </span>
         <span className="shrink-0 text-[11px] text-dim">{note}</span>
       </button>
     </li>

@@ -435,8 +435,8 @@ function Row({
             Skip
           </Button>
           <Button
-            variant={focused ? "primary" : "quiet"}
-            className={focused ? "" : "px-2 text-accent-text!"}
+            variant={focused ? "primary" : "link"}
+            className={focused ? "" : "px-2"}
             onClick={onAdd}
             title="Copy into the vault (A)"
           >

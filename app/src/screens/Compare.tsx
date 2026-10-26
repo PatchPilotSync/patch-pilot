@@ -32,11 +32,8 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
-import { BigFiles } from "../BigFiles";
-import { BringOver } from "../BringOver";
 import { bringSummary, isReaperScript, Needs } from "../bring";
-import { ReaperExtras } from "../ReaperExtras";
-import { StepList, type Actions } from "./Setup";
+import { StepExtras, StepList, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
 import {
   Badge,
@@ -47,6 +44,7 @@ import {
   FolderTree,
   inputClass,
   isConflictCopy,
+  Notice,
   Pill,
   ScoreBar,
   scoreColor,
@@ -309,20 +307,23 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
         )}
       </section>
 
-      <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel">
-        {row && data ? (
-          <Detail
-            row={row}
-            machine={data.machine}
-            version={data.golden_version}
-            suggested={data.suggested.includes(row.product_id)}
-            suggest={suggest}
-            bring={bring}
-          />
-        ) : (
-          <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Primary Rig.</p>
-        )}
-      </aside>
+      {/* Up To Speed is a checklist with nothing to select, so it gets the room. */}
+      {!plan && (
+        <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel">
+          {row && data ? (
+            <Detail
+              row={row}
+              machine={data.machine}
+              version={data.golden_version}
+              suggested={data.suggested.includes(row.product_id)}
+              suggest={suggest}
+              bring={bring}
+            />
+          ) : (
+            <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Primary Rig.</p>
+          )}
+        </aside>
+      )}
     </div>
   );
 }
@@ -417,8 +418,8 @@ function Diff({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">{machine.name}</h1>
           <p className="truncate text-xs text-dim">
-            compared with Primary Rig v{data.golden_version}
-            {machine.golden_source ? ", a saved copy of this machine" : ""} ·{" "}
+            vs Primary Rig v{data.golden_version}
+            {machine.golden_source ? " (saved from this machine)" : ""} ·{" "}
             {machine.profile ? `${machine.profile.name} profile` : "whole rig"} · scanned {timeAgo(machine.scanned_at)}
           </p>
         </div>
@@ -449,56 +450,69 @@ function Diff({
         <p className="text-xs text-ok">At parity with the Primary Rig.</p>
       )}
 
-      {bring.scripts.files.length > 0 && (
-        <div className="-mx-2 flex h-7 items-center gap-2.5 rounded-[5px] px-2 text-xs">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">
-            {bring.scripts.files.length.toLocaleString()} Reaper script file
-            {bring.scripts.files.length === 1 ? "" : "s"}{" "}
-            {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
-            {bring.scripts.tooLarge > 0 && (
-              <span className="text-dim"> ({bring.scripts.tooLarge} too large to send)</span>
-            )}
-          </span>
-          <Button
-            disabled={bring.busy}
-            onClick={() => bring.bring(bring.scripts.files, bring.scripts.tooLarge)}
-            className="h-6 shrink-0 px-2.5"
-            title={`Every script and ReaPack package, each with the files it needs. ${bring.hint}`}
-          >
-            {bring.from ? "Copy all Reaper scripts here" : "Bring over all Reaper scripts"}
-          </Button>
-        </div>
-      )}
+      <div className="-mx-2 flex flex-col">
+        {bring.scripts.files.length > 0 && (
+          <Notice
+            text={
+              <>
+                {bring.scripts.files.length.toLocaleString()} Reaper script file
+                {bring.scripts.files.length === 1 ? "" : "s"}{" "}
+                {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
+                {bring.scripts.tooLarge > 0 && (
+                  <span className="text-dim"> ({bring.scripts.tooLarge} too large to send)</span>
+                )}
+              </>
+            }
+            actions={
+              <Button
+                variant="link"
+                disabled={bring.busy}
+                onClick={() => bring.bring(bring.scripts.files, bring.scripts.tooLarge)}
+                className="h-6 shrink-0 px-2"
+                title={`Every script and ReaPack package, each with the files it needs. ${bring.hint}`}
+              >
+                {bring.from ? "Copy all Reaper scripts here" : "Bring over all Reaper scripts"}
+              </Button>
+            }
+          />
+        )}
 
-      {bring.message && (
-        <p className="text-xs text-ok">
-          {bring.message.text}
-          {bring.message.warn && <span className="text-warn"> {bring.message.warn}</span>}
-        </p>
-      )}
+        {bring.message && (
+          <p className="px-2 py-1 text-xs text-ok">
+            {bring.message.text}
+            {bring.message.warn && <span className="text-warn"> {bring.message.warn}</span>}
+          </p>
+        )}
 
-      <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
-      <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
+        <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
+        <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
+      </div>
 
-      <div className="flex flex-wrap items-center gap-1 border-b border-line pb-2">
-        {STATE_ORDER.filter((s) => counts.get(s)).map((s) => (
+      {/* Filters by state, then the rest of the filters with the folders' controls, so neither row wraps. */}
+      <div className="-mx-1 flex flex-wrap items-center gap-0.5">
+        {STATE_ORDER.filter((s) => s !== "in_parity" && counts.get(s)).map((s) => (
           <Pill key={s} active={states.has(s)} onClick={() => toggle(s)}>
             {stateLabel(s, machine, data.golden_version)} <span className="tabular-nums opacity-70">{counts.get(s)}</span>
           </Pill>
         ))}
-        <span className="flex-1" />
-        {!states.size && (
-          <label className="mr-2 flex items-center gap-1.5 text-xs text-dim">
-            <input type="checkbox" checked={showParity} onChange={(e) => setShowParity(e.target.checked)} />
-            Show in parity
+      </div>
+      <div className="-mt-1.5 flex items-center gap-1.5 border-b border-line pb-2">
+        {!states.size && counts.get("in_parity") ? (
+          <label className="mr-1.5 flex shrink-0 items-center gap-1.5 text-xs text-dim">
+            <input
+              type="checkbox"
+              className="accent-accent"
+              checked={showParity}
+              onChange={(e) => setShowParity(e.target.checked)}
+            />
+            {STATE_LABEL.in_parity} <span className="tabular-nums opacity-70">{counts.get("in_parity") ?? 0}</span>
           </label>
-        )}
+        ) : null}
         <select
           value={vendor}
           onChange={(e) => setVendor(e.target.value)}
           aria-label="Vendor"
-          className={`h-6 max-w-36 ${inputClass}`}
+          className={`h-6 max-w-32 ${inputClass}`}
         >
           <option value="">All vendors</option>
           {vendors.map((v) => (
@@ -518,10 +532,11 @@ function Diff({
             </option>
           ))}
         </select>
+        <span className="flex-1" />
+        <FolderControls ids={shownStates.map((st) => st as string)} folders={folders} className="-mr-2 shrink-0" />
       </div>
 
-      <div className="-mx-2 flex flex-col">
-        <FolderControls ids={shownStates.map((st) => st as string)} folders={folders} className="px-2" />
+      <div className="-mx-2 -mt-1 flex flex-col">
         {shownStates.map((s) => {
           const all = rows.filter((r) => r.state === s);
           const subs = subGroups(all);
@@ -686,65 +701,49 @@ function TemplatesNotice({
   const anyOutside = apps.some((a) => a.plugins.some((n) => !n.row));
   const who = data.machine.is_this_machine ? "this machine doesn't" : `${data.machine.name} doesn't`;
   return (
-    <div className="text-xs">
-      <button
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="-mx-2 flex h-7 w-[calc(100%+1rem)] items-center gap-2.5 rounded-[5px] px-2 text-left hover:bg-sel/50"
-      >
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">
+    <Notice
+      tone="warn"
+      text={
+        <>
           {t} {apps.length === 1 ? `${apps[0].app} ` : ""}template{t === 1 ? "" : "s"} need{t === 1 ? "s" : ""}{" "}
           {p === 1 ? "a plug-in" : `${p} plug-ins`} {who} have
-        </span>
-        <span className="shrink-0 text-dim">{open ? "Hide" : "Show"}</span>
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          aria-hidden="true"
-          className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
-        >
-          <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.3" />
-        </svg>
-      </button>
-      {open && (
-        <div className="mt-1 flex flex-col gap-2.5 rounded-md border border-line bg-panel px-3 py-2.5">
-          <div className="flex items-start gap-2">
-            <p className="min-w-0 flex-1 text-dim">
-              These templates would open with empty plug-in slots until these plug-ins are installed.
-              {anyInGolden && " Up To Speed lists the ones in the Primary Rig."}
-              {anyOutside && " The rest don't count in the score: install them if you use those templates."}
-            </p>
-            {anyInGolden && (
-              <Button variant="quiet" onClick={onPlan} className="shrink-0 text-accent-text!">
-                Open Up To Speed
-              </Button>
-            )}
-          </div>
-          <div className="-mx-2">
-            {apps.map((a) => (
-              <Folder
-                key={a.app}
-                title={a.app}
-                count={a.plugins.length}
-                className="px-2"
-                // A lone app needs no extra click.
-                open={apps.length === 1 || folders.isOpen(a.app)}
-                onToggle={() => folders.toggle(a.app)}
-                badges={
-                  <span className="text-[11px] text-dim">
-                    {a.templates} template{a.templates === 1 ? "" : "s"}
-                  </span>
-                }
-              >
-                <AppGroup group={a} selected={selected} onSelect={onSelect} />
-              </Folder>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+        </>
+      }
+      open={open}
+      onToggle={() => setOpen(!open)}
+    >
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 text-dim">
+          They'd open with empty plug-in slots.
+          {anyOutside && " Only plug-ins in the Primary Rig count in the score."}
+        </p>
+        {anyInGolden && (
+          <Button variant="link" onClick={onPlan} className="h-6 shrink-0 px-2">
+            Open Up To Speed
+          </Button>
+        )}
+      </div>
+      <div className="-mx-2">
+        {apps.map((a) => (
+          <Folder
+            key={a.app}
+            title={a.app}
+            count={a.plugins.length}
+            className="px-2"
+            // A lone app needs no extra click.
+            open={apps.length === 1 || folders.isOpen(a.app)}
+            onToggle={() => folders.toggle(a.app)}
+            badges={
+              <span className="text-[11px] text-dim">
+                {a.templates} template{a.templates === 1 ? "" : "s"}
+              </span>
+            }
+          >
+            <AppGroup group={a} selected={selected} onSelect={onSelect} />
+          </Folder>
+        ))}
+      </div>
+    </Notice>
   );
 }
 
@@ -933,115 +932,89 @@ function SuggestionsNotice({
     </li>
   );
   return (
-    <div className="text-xs">
-      <button
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="-mx-2 flex h-7 w-[calc(100%+1rem)] items-center gap-2.5 rounded-[5px] px-2 text-left hover:bg-sel/50"
-      >
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">
+    <Notice
+      text={
+        source ? `New on ${where} since Primary Rig v${v}: ${what}` : `Could go into the Primary Rig from ${where}: ${what}`
+      }
+      open={open}
+      onToggle={() => setOpen(!open)}
+      toggle={["Review", "Hide"]}
+    >
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 text-dim">
           {source
-            ? `New on ${where} since Primary Rig v${v}: ${what}`
-            : `Could go into the Primary Rig from ${where}: ${what}`}
-        </span>
-        <span className="shrink-0 text-dim">{open ? "Hide" : "Review"}</span>
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          aria-hidden="true"
-          className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
-        >
-          <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.3" />
-        </svg>
-      </button>
-      {open && (
-        <div className="mt-1 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5">
-          {source && (
-            <div className="flex items-start gap-2">
-              <p className="min-w-0 flex-1 text-dim">
-                Primary Rig v{v} is a saved copy of {data.machine.name} from when it was made, and these were added or
-                found here since. Updating makes v{v + 1} from {data.machine.name}'s latest scan so they match again
-                (anything removed here leaves the Primary Rig too), and other machines are then asked to catch up.
-              </p>
-              <Button disabled={suggest.busy} onClick={suggest.update} className="shrink-0">
-                Update Primary Rig
-              </Button>
-            </div>
-          )}
-          <div className="flex items-start gap-2">
-            <p className="min-w-0 flex-1 text-dim">
-              {source
-                ? "Or one at a time: Add puts just that one in a new Primary Rig version, Ignore stops suggesting that version."
-                : `On ${data.machine.name} but not in the Primary Rig, or newer there. Adding one makes a new Primary Rig version with ${data.machine.name}'s copy, and other machines are then asked to install it. Ignore stops suggesting that version.`}
-            </p>
-            {n > 1 && (
-              <Button
-                variant="quiet"
-                disabled={suggest.busy}
-                onClick={() => suggest.add(rows.map((r) => r.product_id))}
-                className="shrink-0 text-accent-text!"
+            ? `Update makes v${v + 1} from ${data.machine.name}'s latest scan; Add takes one at a time. Ignore stops suggesting it.`
+            : `Add puts ${data.machine.name}'s copy in a new Primary Rig version for every machine. Ignore stops suggesting it.`}
+        </p>
+        {n > 1 && (
+          <Button
+            variant="link"
+            disabled={suggest.busy}
+            onClick={() => suggest.add(rows.map((r) => r.product_id))}
+            className="h-6 shrink-0 px-2"
+          >
+            Add all
+          </Button>
+        )}
+        {source && (
+          <Button disabled={suggest.busy} onClick={suggest.update} className="h-6 shrink-0 px-2.5">
+            Update Primary Rig
+          </Button>
+        )}
+      </div>
+      <ul className="-mx-2">
+        {order.map((g) => {
+          const units = [...(groups.get(g) ?? new Map<string, ComparisonRow[]>()).entries()];
+          const singles = units.filter(([, rs]) => rs.length === 1 && !isReapack(rs[0].product_id)).map(([, rs]) => rs[0]);
+          const multi = units.filter(([, rs]) => rs.length > 1 || isReapack(rs[0].product_id));
+          const sub = singles.length > FLAT_MAX ? subGroups(singles) : null;
+          const count = data.machine.suggestion_groups.find(([x]) => x === g)?.[1] ?? units.length;
+          return (
+            <li key={g}>
+              <Folder
+                title={SUGGESTION_GROUP[g][2]}
+                count={count}
+                className="rounded-[5px] px-2"
+                open={folders.isOpen(g)}
+                onToggle={() => folders.toggle(g)}
               >
-                Add all
-              </Button>
-            )}
-          </div>
-          <ul className="-mx-2">
-            {order.map((g) => {
-              const units = [...(groups.get(g) ?? new Map<string, ComparisonRow[]>()).entries()];
-              const singles = units.filter(([, rs]) => rs.length === 1 && !isReapack(rs[0].product_id)).map(([, rs]) => rs[0]);
-              const multi = units.filter(([, rs]) => rs.length > 1 || isReapack(rs[0].product_id));
-              const sub = singles.length > FLAT_MAX ? subGroups(singles) : null;
-              const count = data.machine.suggestion_groups.find(([x]) => x === g)?.[1] ?? units.length;
-              return (
-                <li key={g}>
-                  <Folder
-                    title={SUGGESTION_GROUP[g][2]}
-                    count={count}
-                    className="rounded-[5px] px-2"
-                    open={folders.isOpen(g)}
-                    onToggle={() => folders.toggle(g)}
-                  >
-                    <ul className="pl-4">
-                      {multi.map(([key, rs]) => unitRow(key, rs))}
-                      {sub
-                        ? sub.map(([vendor, rs]) => (
-                            <li key={vendor}>
-                              <Folder
-                                title={vendor}
-                                count={rs.length}
-                                className="rounded-[5px] px-2"
-                                open={folders.isOpen(`${g}/${vendor}`)}
-                                onToggle={() => folders.toggle(`${g}/${vendor}`)}
-                              >
-                                {vendor === REAPER_FILES ? (
-                                  <FolderTree
-                                    node={buildTree(rs, reaperDirs, `${g}/files`)}
-                                    folders={folders}
-                                    indent={22}
-                                    renderItems={(items, indent) => (
-                                      <ul style={{ paddingLeft: indent - 8 }}>
-                                        {items.map((r) => suggestionRow(r, r.name.split("/").pop()))}
-                                      </ul>
-                                    )}
-                                  />
-                                ) : (
-                                  <ul className="pl-4">{rs.map((r) => suggestionRow(r))}</ul>
+                <ul className="pl-4">
+                  {multi.map(([key, rs]) => unitRow(key, rs))}
+                  {sub
+                    ? sub.map(([vendor, rs]) => (
+                        <li key={vendor}>
+                          <Folder
+                            title={vendor}
+                            count={rs.length}
+                            className="rounded-[5px] px-2"
+                            open={folders.isOpen(`${g}/${vendor}`)}
+                            onToggle={() => folders.toggle(`${g}/${vendor}`)}
+                          >
+                            {vendor === REAPER_FILES ? (
+                              <FolderTree
+                                node={buildTree(rs, reaperDirs, `${g}/files`)}
+                                folders={folders}
+                                indent={22}
+                                renderItems={(items, indent) => (
+                                  <ul style={{ paddingLeft: indent - 8 }}>
+                                    {items.map((r) => suggestionRow(r, r.name.split("/").pop()))}
+                                  </ul>
                                 )}
-                              </Folder>
-                            </li>
-                          ))
-                        : singles.map((r) => suggestionRow(r))}
-                    </ul>
-                  </Folder>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-    </div>
+                              />
+                            ) : (
+                              <ul className="pl-4">{rs.map((r) => suggestionRow(r))}</ul>
+                            )}
+                          </Folder>
+                        </li>
+                      ))
+                    : singles.map((r) => suggestionRow(r))}
+                </ul>
+              </Folder>
+            </li>
+          );
+        })}
+      </ul>
+    </Notice>
   );
 }
 
@@ -1273,10 +1246,10 @@ function BringButton({ rows, bring }: { rows: ComparisonRow[]; bring: BringHere 
   const along = bring.needs.withNeeds(files.map(fileKey)).size - files.length;
   return (
     <Button
-      variant="quiet"
+      variant="link"
       disabled={bring.busy}
       onClick={() => bring.bring(files)}
-      className="h-6 shrink-0 px-2 text-accent-text!"
+      className="h-6 shrink-0 px-2"
       title={`${along > 0 ? `Also brings the ${along} file${along === 1 ? "" : "s"} they need. ` : ""}${bring.hint}`}
     >
       {bring.label(files.length)}
@@ -1330,7 +1303,8 @@ function PlanView({
     open: (app) => openVendorApp(app).catch((e) => onError(String(e))),
     run: (entry) => vaultRun(entry).catch((e) => onError(String(e))),
     onError,
-    bringOver: false,
+    // This machine's own checklist does the work inside its steps, as Set up does.
+    bringOver: here,
   };
   const tick = (key: string, done: boolean) => planTick(id, key, done).then(setProgress, (e) => onError(String(e)));
   const steps = progress?.steps ?? [];
@@ -1339,10 +1313,10 @@ function PlanView({
       <header className="flex items-center gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">Up To Speed: {name}</h1>
-          <p className="text-xs text-dim">
+          <p className="truncate text-xs text-dim">
             {here
-              ? "A checklist. Bring templates, scripts and themes over below and open the apps and installers from here. As you install things, Patch Pilot rescans and crosses them off."
-              : `A checklist. Steps are crossed off as ${name} finds them installed. Open Patch Pilot there to bring templates, scripts and themes over.`}
+              ? "Work down the list. Steps tick themselves off as Patch Pilot sees them done."
+              : `Steps tick themselves off as ${name} finds them done. Bring files over from Patch Pilot there.`}
           </p>
         </div>
         {progress && (
@@ -1351,17 +1325,15 @@ function PlanView({
           </span>
         )}
         <Button variant="quiet" onClick={onBack} className="shrink-0 whitespace-nowrap">
-          Back to diff
+          Back to Compare
         </Button>
       </header>
-      {here && <BringOver onError={onError} />}
-      {here && <BigFiles onError={onError} />}
-      {here && <ReaperExtras onError={onError} />}
       {progress && steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       {progress?.complete && steps.length > 0 && (
         <p className="text-xs font-medium text-ok">Every step is done.</p>
       )}
       <StepList steps={steps} scope={`plan.${id}`} onTick={tick} actions={actions} />
+      {here && progress && <StepExtras steps={steps} onError={onError} />}
     </div>
   );
 }

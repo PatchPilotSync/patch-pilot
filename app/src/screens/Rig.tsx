@@ -1,5 +1,5 @@
 import { BigFiles } from "../BigFiles";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   FORMAT_LABEL,
   openVendorApp,
@@ -12,12 +12,14 @@ import {
   type UpdateAlert,
   type VendorApp,
 } from "../api";
-import { Badge, Button, Folder, FolderControls, inputClass, Pill, timeAgo, useFolders } from "../ui";
+import { Badge, Button, Folder, FolderControls, inputClass, Label, Notice, Pill, timeAgo, useFolders } from "../ui";
 
 type Grouping = "vendor" | "format";
 
 interface Props {
   overview: Overview;
+  /** The "Set up this machine" line, shown with the other notices. */
+  setupOffer?: ReactNode;
   warnings: string[];
   busy: boolean;
   onRescan: () => void;
@@ -25,7 +27,7 @@ interface Props {
   onReport: () => void;
 }
 
-export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport }: Props) {
+export function Rig({ overview, setupOffer, warnings, busy, onRescan, onMakeGolden, onReport }: Props) {
   const { machine, inventory: inv, golden } = overview;
   const [grouping, setGrouping] = useState<Grouping>("vendor");
   const [query, setQuery] = useState("");
@@ -68,6 +70,8 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
       .filter((g) => g.rows.length > 0);
   }, [inv, grouping, query]);
   const folders = useFolders(`rig.${grouping}`);
+  const extra = useFolders("rig.extra");
+  const [warningsOpen, setWarningsOpen] = useState(false);
   const filtering = query.trim() !== "";
 
   if (!machine || !inv) return null;
@@ -93,26 +97,28 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
         </Button>
       </header>
 
-      <GoldenCard golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
-
-      {/* Errors here surface where the files are listed, on Up To Speed. */}
-      <BigFiles onError={() => {}} className="mx-4 mt-2" />
-
-      {warnings.length > 0 && (
-        <details className="border-b border-line px-4 py-2 text-xs">
-          <summary className="cursor-pointer text-warn">
-            {warnings.length} plug-in file{warnings.length === 1 ? "" : "s"} had no readable version info
-          </summary>
-          <p className="mt-1 text-dim">Still listed, identified by file name.</p>
-          <ul className="mt-1.5 max-h-40 overflow-auto font-mono text-[11px] text-dim">
-            {warnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-      {alerts.length > 0 && <Updates alerts={alerts} />}
+      {/* One line each, in one place: what this machine is to the Primary Rig, then anything to do. */}
+      <div className="flex flex-col border-b border-line px-2 py-1.5">
+        <GoldenLine golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
+        {setupOffer}
+        {/* Errors here surface where the files are listed, on Up To Speed. */}
+        <BigFiles onError={() => {}} compact />
+        {alerts.length > 0 && <Updates alerts={alerts} />}
+        {warnings.length > 0 && (
+          <Notice
+            tone="warn"
+            text={`${warnings.length} plug-in file${warnings.length === 1 ? "" : "s"} had no readable version info. Still listed, by file name.`}
+            open={warningsOpen}
+            onToggle={() => setWarningsOpen((o) => !o)}
+          >
+            <ul className="max-h-40 overflow-auto font-mono text-[11px] text-dim">
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </Notice>
+        )}
+      </div>
 
       <div className="flex items-end gap-3 pl-4 pr-3 pt-3">
         <div className="min-w-0 flex-1">
@@ -186,43 +192,54 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
         );
       })}
 
-      {inv.presets.length > 0 && (
-        <section>
-          <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">
-            Preset folders · compared with your other machines; linked machines can bring them over
-          </h3>
-          <ul>
-            {inv.presets.map((p) => (
-              <li key={p.name} className="flex h-7 items-center justify-between px-4 hover:bg-sel/60">
-                <span>{p.name}</span>
-                <span className="font-mono text-[11px] text-dim">{formatSize(p.size)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {inv.apps.length > 0 && (
-        <section>
-          <h3 className="px-4 pb-0.5 pt-4 text-[11px] text-dim">Vendor apps and licensing tools installed</h3>
-          <ul>
-            {inv.apps.map((a) => (
-              <li key={a.name} className="group flex h-7 items-center gap-3 px-4 hover:bg-sel/60">
-                <span className="flex-1">{a.name}</span>
-                {launchable.some((x) => x.name === a.name) && (
-                  <Button
-                    variant="quiet"
-                    className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    onClick={() => openVendorApp(launchable.find((x) => x.name === a.name)!.id).catch(() => {})}
-                  >
-                    Open
-                  </Button>
-                )}
-                <span className="font-mono text-[11px] text-dim">{a.version ?? ""}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {(inv.presets.length > 0 || inv.apps.length > 0) && (
+        <>
+          <Label className="px-4 pb-0.5 pt-4">Also on this machine</Label>
+          {inv.presets.length > 0 && (
+            <Folder
+              title="Preset folders"
+              count={inv.presets.length}
+              open={extra.isOpen("presets")}
+              onToggle={() => extra.toggle("presets")}
+              badges={<span className="text-[11px] text-dim">Linked machines can bring them over</span>}
+            >
+              <ul className="pb-1">
+                {inv.presets.map((p) => (
+                  <li key={p.name} className="flex h-7 items-center justify-between pl-8 pr-4 hover:bg-sel/60">
+                    <span>{p.name}</span>
+                    <span className="font-mono text-[11px] text-dim">{formatSize(p.size)}</span>
+                  </li>
+                ))}
+              </ul>
+            </Folder>
+          )}
+          {inv.apps.length > 0 && (
+            <Folder
+              title="Vendor apps and licensing tools"
+              count={inv.apps.length}
+              open={extra.isOpen("apps")}
+              onToggle={() => extra.toggle("apps")}
+            >
+              <ul className="pb-1">
+                {inv.apps.map((a) => (
+                  <li key={a.name} className="group flex h-7 items-center gap-3 pl-8 pr-4 hover:bg-sel/60">
+                    <span className="flex-1">{a.name}</span>
+                    {launchable.some((x) => x.name === a.name) && (
+                      <Button
+                        variant="quiet"
+                        className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        onClick={() => openVendorApp(launchable.find((x) => x.name === a.name)!.id).catch(() => {})}
+                      >
+                        Open
+                      </Button>
+                    )}
+                    <span className="font-mono text-[11px] text-dim">{a.version ?? ""}</span>
+                  </li>
+                ))}
+              </ul>
+            </Folder>
+          )}
+        </>
       )}
     </div>
   );
@@ -236,17 +253,16 @@ function formatSize(bytes: number | null): string {
 }
 
 function Updates({ alerts }: { alerts: UpdateAlert[] }) {
+  const [open, setOpen] = useState(false);
   return (
-    <details className="border-b border-line px-4 py-2 text-xs">
-      <summary className="cursor-pointer">
-        <span className="font-medium text-accent-text">
-          {alerts.length} plug-in update{alerts.length === 1 ? "" : "s"} available
-        </span>
-        <span className="text-dim"> · a newer version is on another machine, the Primary Rig or the catalog</span>
-      </summary>
-      <ul className="mt-1.5">
+    <Notice
+      text={`${alerts.length} plug-in update${alerts.length === 1 ? "" : "s"} available`}
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
+    >
+      <ul>
         {alerts.map((a) => (
-          <li key={a.id} className="flex h-7 items-center gap-3">
+          <li key={a.id} className="flex h-6 items-center gap-3">
             <span className="min-w-0 flex-1 truncate">
               {a.name}
               {a.vendor && <span className="ml-2 text-dim">{a.vendor}</span>}
@@ -258,7 +274,7 @@ function Updates({ alerts }: { alerts: UpdateAlert[] }) {
           </li>
         ))}
       </ul>
-    </details>
+    </Notice>
   );
 }
 
@@ -285,7 +301,7 @@ function ProductLine({ p, vendor, update }: { p: ProductRow; vendor: string | nu
   );
 }
 
-function GoldenCard({
+function GoldenLine({
   golden,
   busy,
   onMakeGolden,
@@ -296,26 +312,34 @@ function GoldenCard({
 }) {
   if (golden) {
     return (
-      <p className="flex items-center gap-2 border-b border-line px-4 py-2 text-xs text-dim">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ok" aria-hidden="true" />
-        <span>
-          <span className="font-medium text-fg">Primary Rig v{golden.version}</span>
-          {golden.from_this_machine
-            ? " was made from this machine. Your other machines are compared to it."
-            : " comes from another machine. Compare shows what this one is missing."}
-        </span>
-      </p>
+      <Notice
+        tone="ok"
+        text={
+          <>
+            <span className="font-medium">Primary Rig v{golden.version}</span>
+            <span className="text-dim">
+              {golden.from_this_machine
+                ? " was made from this machine. Your other machines are compared to it."
+                : " comes from another machine. Compare shows what this one is missing."}
+            </span>
+          </>
+        }
+      />
     );
   }
   return (
-    <section className="flex items-center gap-3 border-b border-line px-4 py-2 text-xs">
-      <span className="min-w-0 flex-1 text-dim">
-        <span className="font-medium text-fg">Make this your Primary Rig?</span> Your other machines will be
-        compared against this setup. You can change it later.
-      </span>
-      <Button onClick={onMakeGolden} disabled={busy}>
-        Make Primary
-      </Button>
-    </section>
+    <Notice
+      text={
+        <>
+          <span className="font-medium">Make this your Primary Rig?</span>
+          <span className="text-dim"> Your other machines will be compared against it. You can change it later.</span>
+        </>
+      }
+      actions={
+        <Button onClick={onMakeGolden} disabled={busy} className="h-6 shrink-0 px-2.5">
+          Make Primary
+        </Button>
+      }
+    />
   );
 }
