@@ -144,7 +144,7 @@ function Start({
             checked={fromBackup}
             onChange={() => setFromBackup(true)}
           />
-          <span className="font-medium">Restore from a backup</span>
+          <span className="font-medium">Sync with a backup</span>
           <span className="text-xs text-dim">Your files, from a cloud folder.</span>
         </label>
       </fieldset>

@@ -30,9 +30,9 @@ import { Button, Notice, timeAgo } from "./ui";
  * Sync and backup (decisions #67 and #70): one line on This machine. Once a
  * cloud folder is picked, new and changed templates, scripts and presets keep
  * themselves in sync with linked machines through it, and every change is
- * backed up there. Show opens the folder, the switches and Restore. On a
+ * backed up there. Show opens the folder, the switches and Sync with. On a
  * fresh machine that finds another machine's backup, the line offers to
- * restore it. `openAt` opens the line (the tray's Keep Files in Sync with no
+ * sync with it. `openAt` opens the line (the tray's Keep Files in Sync with no
  * folder picked yet).
  */
 export function BackupLine({
@@ -89,7 +89,7 @@ export function BackupLine({
   if (!view.settings.folder) {
     tone = "accent";
     text = fresh
-      ? "Keep your files in sync through a cloud folder, or restore them from a backup."
+      ? "Keep your files in sync through a cloud folder, or sync with another machine's backup."
       : "Keep templates, scripts and presets in sync between your machines through a cloud folder.";
   } else if (!view.dir) {
     tone = "warn";
@@ -99,7 +99,7 @@ export function BackupLine({
     text = `The last backup didn't finish: ${view.error}`;
   } else if (offerRestore) {
     tone = "accent";
-    text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Restore it here?`;
+    text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Sync with it?`;
   } else if (syncing) {
     [tone, text] = syncLine(sync, where);
   } else if (latest) {
@@ -135,7 +135,7 @@ export function BackupLine({
         }
         open={open}
         onToggle={() => setOpen((o) => !o)}
-        toggle={[view.settings.folder ? (offerRestore ? "Restore…" : "Show") : "Set up", "Hide"]}
+        toggle={[view.settings.folder ? (offerRestore ? "Sync with…" : "Show") : "Set up", "Hide"]}
       >
         <Details view={view} onView={setView} sync={sync} onSync={setSync} onError={onError} />
       </Notice>
@@ -264,7 +264,7 @@ function useBackupView(onError: (e: string) => void) {
   return [view, setView, load] as const;
 }
 
-/** Set up's "Restore from a backup": pick the folder, then what to restore. */
+/** Set up's "Sync with a backup": pick the folder, then what to bring over. */
 export function RestoreFromBackup({ onError }: { onError: (e: string) => void }) {
   const [view, setView] = useBackupView(onError);
   if (!view) return null;
@@ -517,9 +517,9 @@ export function Restore({
   return (
     <div className="flex flex-col gap-1 border-t border-line pt-1.5">
       <div className="flex items-center gap-1.5 text-[11px]">
-        <span className="shrink-0 font-medium">Restore</span>
+        <span className="shrink-0 font-medium">Sync with</span>
         <select
-          aria-label="Backup to restore"
+          aria-label="Backup to sync with"
           className="h-6 min-w-0 flex-1 rounded-[5px] border border-line bg-panel px-1.5 text-[11px]"
           value={pick}
           onChange={(e) => {
@@ -535,7 +535,7 @@ export function Restore({
         </select>
         {picked.length > 0 && (
           <Button onClick={restore} disabled={busy} className="h-6 shrink-0 whitespace-nowrap px-2.5">
-            {busy ? "Restoring…" : `Restore ${picked.length}`}
+            {busy ? "Syncing…" : `Sync ${plural(picked.length, "file")}`}
           </Button>
         )}
       </div>
@@ -586,10 +586,10 @@ const replacing = (fs: FileToBring[]) => fs.filter((f) => f.replaces).length;
 function restoreSummary(r: RestoreReport): string {
   let text =
     r.written > 0
-      ? `Restored ${plural(r.written, "file")}. You can undo this in History.`
+      ? `Brought over ${plural(r.written, "file")}. You can undo this in History.`
       : r.same > 0
         ? "This machine already had those files."
-        : "Nothing was restored.";
+        : "Nothing was brought over.";
   if (r.unavailable.length > 0)
     text += ` ${plural(r.unavailable.length, "file")} couldn't be read from the backup yet (still downloading?); try again shortly.`;
   if (r.held_back.length > 0)
