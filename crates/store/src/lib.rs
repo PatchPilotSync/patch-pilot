@@ -875,7 +875,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT i.kind, i.product_id, i.format, i.platform, i.arch, i.version, i.path_root,
                     i.path_rel, i.path_absolute, i.content_hash, i.size, i.mtime,
-                    i.platform_portable, i.confidence, i.id
+                    i.platform_portable, i.confidence, i.id, i.needs_files
              FROM snapshot_items s JOIN items i ON i.id = s.item_id
              WHERE s.snapshot_id = ?1 ORDER BY s.position",
         )?;
@@ -896,6 +896,7 @@ impl Store {
                 platform_portable: r.get(12)?,
                 confidence: r.get(13)?,
                 id: r.get(14)?,
+                needs_files: r.get(15)?,
             })
         })?;
         let raw = rows.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1041,6 +1042,18 @@ fn save_manifest_tx(
     if let Some((id, hash)) = &latest
         && *hash == manifest_hash
     {
+        // Rows saved before schema v5 didn't keep what each file needs.
+        for item in manifest.items.iter().filter(|i| !i.needs_files.is_empty()) {
+            tx.execute(
+                "UPDATE items SET needs_files = ?3
+                 WHERE machine_id = ?1 AND item_hash = ?2 AND needs_files IS NULL",
+                params![
+                    m.id,
+                    hash_json(item),
+                    serde_json::to_string(&item.needs_files).expect("paths serialize")
+                ],
+            )?;
+        }
         return Ok(SnapshotInfo {
             id: *id,
             parent_id: None,
@@ -1104,9 +1117,10 @@ fn insert_item(tx: &Transaction, machine_id: &str, item: &Item) -> Result<(i64, 
     };
     tx.execute(
         "INSERT INTO items (machine_id, item_hash, kind, product_id, format, platform, arch, version,
-             path_root, path_rel, path_absolute, content_hash, size, mtime, platform_portable, confidence)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-         ON CONFLICT (machine_id, item_hash) DO NOTHING",
+             path_root, path_rel, path_absolute, content_hash, size, mtime, platform_portable, confidence,
+             needs_files)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+         ON CONFLICT (machine_id, item_hash) DO UPDATE SET needs_files = excluded.needs_files",
         params![
             machine_id,
             hash,
@@ -1124,6 +1138,9 @@ fn insert_item(tx: &Transaction, machine_id: &str, item: &Item) -> Result<(i64, 
             item.mtime,
             item.platform_portable,
             to_text(&item.confidence),
+            // Rows from before schema v5 lack them, so they're set on conflict too.
+            (!item.needs_files.is_empty())
+                .then(|| serde_json::to_string(&item.needs_files).expect("paths serialize")),
         ],
     )?;
     let id: i64 = tx.query_row(
@@ -1156,6 +1173,7 @@ struct RawItem {
     mtime: Option<i64>,
     platform_portable: bool,
     confidence: String,
+    needs_files: Option<String>,
 }
 
 impl RawItem {
@@ -1196,7 +1214,13 @@ impl RawItem {
             platform_portable: self.platform_portable,
             confidence: from_text::<Confidence>("items.confidence", &self.confidence)?,
             requires: Vec::new(),
-            needs_files: Vec::new(),
+            needs_files: match self.needs_files {
+                Some(json) => serde_json::from_str(&json).map_err(|_| StoreError::BadValue {
+                    column: "items.needs_files",
+                    value: json,
+                })?,
+                None => Vec::new(),
+            },
         })
     }
 }

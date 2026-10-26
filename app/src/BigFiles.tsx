@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   onTransfersChanged,
@@ -169,20 +169,29 @@ export function BigFiles({
   );
 }
 
-function FolderPicker({
+/** Pick a cloud folder from those found here, or any folder. Shared with Backup. */
+export function FolderPicker({
   clouds,
   busy,
   missing,
   onChoose,
   onCancel,
+  preferred,
+  hint,
 }: {
   clouds: CloudFolder[];
   busy: boolean;
   missing: boolean;
   onChoose: (service: string | null, folder: string | null) => void;
   onCancel?: () => void;
+  /** The folder to offer first, if it's in the list. */
+  preferred?: string | null;
+  /** The line above the list. */
+  hint?: ReactNode;
 }) {
-  const [pick, setPick] = useState(clouds[0]?.path ?? "");
+  const [pick, setPick] = useState(
+    clouds.find((c) => c.path === preferred)?.path ?? clouds[0]?.path ?? "",
+  );
 
   async function chooseFolder() {
     const folder = await open({ directory: true }).catch(() => null);
@@ -193,8 +202,12 @@ function FolderPicker({
     <div className="flex flex-col gap-1.5 text-xs">
       {missing && <p className="text-warn">The folder picked before isn't there now (signed out, or not connected).</p>}
       <p className="text-dim">
-        Pick a cloud folder to carry them, the same service on each machine. They go in a{" "}
-        <span className="font-medium">Patch Pilot Transfers</span> folder there.
+        {hint ?? (
+          <>
+            Pick a cloud folder to carry them, the same service on each machine. They go in a{" "}
+            <span className="font-medium">Patch Pilot Transfers</span> folder there.
+          </>
+        )}
       </p>
       <span className="flex flex-wrap items-center gap-1.5">
         {clouds.length > 0 && (

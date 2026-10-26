@@ -116,7 +116,7 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 /**
- * A one-line status on a screen (decision #67): a dot (accent = something to
+ * A one-line status on a screen (decision #68): a dot (accent = something to
  * do, warn = needs a look, ok = all good), one line of text, and at its end
  * either buttons or a Show/Hide toggle that opens `children` below it.
  */
@@ -150,13 +150,18 @@ export function Notice({
         {onToggle ? (
           <button onClick={onToggle} aria-expanded={open} className="flex h-7 min-w-0 flex-1 items-center gap-2.5 text-left">
             {line}
-            <span className="shrink-0 text-dim">{open ? toggle[1] : toggle[0]}</span>
-            <Chevron open={open} />
           </button>
         ) : (
           <span className="flex h-7 min-w-0 flex-1 items-center gap-2.5">{line}</span>
         )}
         {actions}
+        {/* The toggle stays at the line's end, after any buttons, so every Show lines up. */}
+        {onToggle && (
+          <button onClick={onToggle} aria-expanded={open} tabIndex={-1} className="flex h-7 shrink-0 items-center gap-2.5">
+            <span className="text-dim">{open ? toggle[1] : toggle[0]}</span>
+            <Chevron open={open} />
+          </button>
+        )}
       </div>
       {open && children && (
         <div className="mx-2 mb-1 mt-0.5 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5">{children}</div>
