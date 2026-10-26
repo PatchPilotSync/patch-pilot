@@ -33,6 +33,8 @@ pub struct Watcher {
     watch: Mutex<Option<FolderWatch>>,
     /// Where vendor apps and licensing tools land, one level deep.
     apps: Mutex<Option<FolderWatch>>,
+    /// Reaper's and Live's settings files, by name (their folders are busy).
+    settings: Mutex<Option<FolderWatch>>,
 }
 
 /// True when this launch came from the login item.
@@ -47,6 +49,7 @@ pub fn start(app: &AppHandle) {
         rescan: tx.clone(),
         watch: Mutex::new(None),
         apps: Mutex::new(None),
+        settings: Mutex::new(None),
     });
     let handle = app.clone();
     let _ = thread::Builder::new()
@@ -76,6 +79,12 @@ fn rewatch(app: &AppHandle) {
         patchpilot_local::app_folders(),
         &state.rescan,
         patchpilot_local::watch_folders_flat,
+    );
+    restart(
+        &state.settings,
+        patchpilot_local::settings_files(),
+        &state.rescan,
+        patchpilot_local::watch_files,
     );
     if let Some(watching) = watching {
         set_tooltip(app, &watching);
@@ -123,6 +132,14 @@ fn set_tooltip(app: &AppHandle, watching: &[PathBuf]) {
     };
     if let Some(tray) = app.tray_by_id(crate::tray::ID) {
         let _ = tray.set_tooltip(Some(text));
+    }
+}
+
+/// Rescan soon, e.g. after files were placed here: settings files written
+/// while a folder wasn't watched would otherwise wait for the next change.
+pub fn rescan_soon(app: &AppHandle) {
+    if let Some(state) = app.try_state::<Watcher>() {
+        let _ = state.rescan.send(());
     }
 }
 

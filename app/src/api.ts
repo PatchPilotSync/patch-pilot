@@ -545,6 +545,8 @@ export interface SyncPlaced {
   new: number;
   /** Renamed or moved here, as they were on that machine. */
   renamed: number;
+  /** What the files written are ("Collection names"), each once. */
+  kinds: string[];
   restore_point: number | null;
 }
 
@@ -576,6 +578,13 @@ export interface SyncSource {
   linked: boolean;
 }
 
+/** The last look that brought anything over. */
+export interface SyncRecent {
+  at: number;
+  /** "1 Ableton file (Collection names) from Studio PC". */
+  what: string;
+}
+
 export interface SyncView {
   on: boolean;
   folder_ready: boolean;
@@ -583,6 +592,7 @@ export interface SyncView {
   linked: number;
   conflicts: SyncConflict[];
   last: SyncReport | null;
+  recent: SyncRecent | null;
   error: string | null;
 }
 

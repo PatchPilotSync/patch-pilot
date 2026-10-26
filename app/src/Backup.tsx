@@ -184,8 +184,14 @@ type Tone = "ok" | "accent" | "warn";
 function syncLine(sync: SyncView, where: string, github: string | null): [Tone, string] {
   const last = sync.last;
   if (sync.linked === 0) return ["accent", `Backed up to ${where}. Link another machine to keep files in sync with it.`];
-  if (last && last.waiting.length > 0)
+  if (last && last.waiting.length > 0) {
+    // "Ableton Live is open": its files and settings change only while it's closed.
+    const open = last.waiting.filter((w) => w.endsWith(" is open")).map((w) => w.slice(0, -" is open".length));
+    const other = last.waiting.filter((w) => !w.endsWith(" is open"));
+    if (other.length === 0)
+      return ["warn", `Changes from your other machine are waiting for you to close ${open.join(" and ")}.`];
     return ["warn", `Some changes are waiting: ${last.waiting.join("; ")}. Trying again shortly.`];
+  }
   const sources = (last?.sources ?? []).filter((s) => s.linked);
   if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
   if (sources.length === 0)
@@ -196,15 +202,11 @@ function syncLine(sync: SyncView, where: string, github: string | null): [Tone, 
   const downloading = sources.reduce((a, s) => a + s.downloading, 0);
   if (downloading > 0)
     return ["accent", `Bringing over ${plural(downloading, "file")} from ${names((s) => s.downloading > 0)} as ${where} downloads them…`];
-  const placed = sources.reduce((a, s) => a + s.placed, 0);
-  const renamed = sources.reduce((a, s) => a + s.renamed, 0);
-  if (placed > 0 || renamed > 0) {
-    const what = [placed > 0 && `brought over ${plural(placed, "file")}`, renamed > 0 && `renamed ${plural(renamed, "file")}`]
-      .filter(Boolean)
-      .join(" and ");
-    const from = names((s) => s.placed > 0 || s.renamed > 0);
-    return ["ok", `${what[0].toUpperCase()}${what.slice(1)} from ${from}. Undo in History.`];
-  }
+  // The last thing brought over stays in view for a while, even after later
+  // looks found nothing new.
+  const recent = sync.recent;
+  if (recent && Date.now() / 1000 - recent.at < 30 * 60)
+    return ["ok", `Synced ${recent.what} ${timeAgo(recent.at)}. Undo in History.`];
   return ["ok", `In sync with ${names(() => true)} through ${where}, checked ${timeAgo(last.looked_at)}.`];
 }
 
@@ -468,8 +470,8 @@ function Details({
       {last && (
         <p className="text-[11px] text-dim">
           {last.unchanged
-            ? `Nothing changed since the last backup (${plural(last.files, "file")}).`
-            : `Last backup copied ${plural(last.copied, "changed file")}${last.versioned ? ` and kept ${plural(last.versioned, "earlier copy", "earlier copies")}` : ""}.`}
+            ? `This machine's backup is current (${plural(last.files, "file")}).`
+            : `This machine's last backup copied ${plural(last.copied, "changed file")}${last.versioned ? ` and kept ${plural(last.versioned, "earlier copy", "earlier copies")}` : ""}.`}
         </p>
       )}
       {last && last.skipped.length > 0 && <Skipped files={last.skipped} onError={onError} />}

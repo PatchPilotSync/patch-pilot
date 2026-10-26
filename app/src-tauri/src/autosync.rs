@@ -43,9 +43,21 @@ struct SyncState {
     /// One look at a time.
     running: Mutex<()>,
     last: Mutex<Option<SyncReport>>,
+    /// The last look that brought anything over: later looks that find
+    /// nothing new don't hide it.
+    recent: Mutex<Option<Recent>>,
     error: Mutex<Option<String>>,
     retry_pending: AtomicBool,
     follow_up_pending: AtomicBool,
+}
+
+/// What the last look that brought anything over did. Mirrored in `src/api.ts`.
+#[derive(Debug, Clone, Serialize)]
+pub struct Recent {
+    /// Unix seconds.
+    pub at: i64,
+    /// "1 Ableton file (Collection names) from Studio PC".
+    pub what: String,
 }
 
 /// Mirrored in `src/api.ts`.
@@ -58,6 +70,7 @@ pub struct SyncView {
     pub linked: usize,
     pub conflicts: Vec<Conflict>,
     pub last: Option<SyncReport>,
+    pub recent: Option<Recent>,
     pub error: Option<String>,
 }
 
@@ -152,12 +165,21 @@ pub fn look(app: &AppHandle) {
             look(&handle);
         });
     }
+    if !report.placed.is_empty()
+        && let Ok(mut recent) = state.recent.lock()
+    {
+        *recent = Some(Recent {
+            at: report.looked_at,
+            what: placed_what(&report),
+        });
+    }
     if report.placed.is_empty() && report.new_conflicts == 0 {
         return;
     }
     notify(app, &report);
-    // The template and preset folders are watched: a rescan (and the
-    // backup that sends the files on) follows the writes on its own.
+    // Rescan now, so this machine's scan (and the backup that sends the
+    // files on) shows them, settings files included.
+    crate::background::rescan_soon(app);
     let _ = app.emit("data-changed", ());
 }
 
@@ -215,8 +237,13 @@ fn notify(app: &AppHandle, report: &SyncReport) {
         .show();
 }
 
-/// "3 Reaper files and 2 presets from MacBook. Undo in History."
+/// "3 Reaper files, 2 presets from MacBook. Undo in History."
 fn placed_summary(report: &SyncReport) -> String {
+    format!("{}. Undo in History.", placed_what(report))
+}
+
+/// "3 Reaper files, 1 Ableton file (Collection names) from MacBook".
+fn placed_what(report: &SyncReport) -> String {
     let mut from: Vec<&str> = report
         .placed
         .iter()
@@ -233,17 +260,19 @@ fn placed_summary(report: &SyncReport) -> String {
         format!("{n} {what}{}", if n == 1 { "" } else { "s" })
     };
     for p in &report.placed {
+        // Name what a file or two is: "(Collection names)", "(Key map)".
+        let kinds = if p.files > 0 && p.files <= 2 && !p.kinds.is_empty() && p.kinds.len() <= 2 {
+            format!(" ({})", p.kinds.join(", "))
+        } else {
+            String::new()
+        };
         parts.push(match (p.files, p.renamed) {
             (0, r) => format!("{} renamed", what(p, r)),
-            (n, 0) => what(p, n),
-            (n, r) => format!("{} ({r} renamed)", what(p, n)),
+            (n, 0) => format!("{}{kinds}", what(p, n)),
+            (n, r) => format!("{}{kinds} ({r} renamed)", what(p, n)),
         });
     }
-    format!(
-        "{} from {}. Undo in History.",
-        parts.join(", "),
-        from.join(", ")
-    )
+    format!("{} from {}", parts.join(", "), from.join(", "))
 }
 
 fn file_name(rel: &str) -> &str {
@@ -271,6 +300,7 @@ pub async fn sync_view(app: AppHandle) -> Result<SyncView, String> {
         linked,
         conflicts: autosync::load_state(&dir).conflicts,
         last: state.last.lock().ok().and_then(|l| l.clone()),
+        recent: state.recent.lock().ok().and_then(|r| r.clone()),
         error: state.error.lock().ok().and_then(|e| e.clone()),
     })
 }
@@ -363,6 +393,7 @@ mod tests {
             files,
             new: files,
             renamed,
+            kinds: Vec::new(),
             restore_point: None,
         };
         let r = SyncReport {
@@ -380,6 +411,16 @@ mod tests {
         assert_eq!(
             placed_summary(&r),
             "2 Reaper files (1 renamed), 1 Ableton file renamed from MacBook. Undo in History."
+        );
+        let mut names = placed("Ableton", 1, 0);
+        names.kinds = vec!["Collection names".into()];
+        let r = SyncReport {
+            placed: vec![names],
+            ..SyncReport::default()
+        };
+        assert_eq!(
+            placed_what(&r),
+            "1 Ableton file (Collection names) from MacBook"
         );
     }
 }
