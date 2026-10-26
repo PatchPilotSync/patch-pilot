@@ -69,6 +69,39 @@ fn reopening_is_idempotent_and_on_disk() {
     );
 }
 
+/// The app opens the store from several threads at launch; the first launch
+/// after an update must migrate once, not fail in the threads that lost the
+/// race ("index snapshot_items_item already exists", 0.4.7).
+#[test]
+fn opening_from_many_threads_at_once_migrates_once() {
+    for round in 0..20 {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("patchpilot.db");
+        if round % 2 == 1 {
+            // A database one schema version behind, as an update finds it.
+            Store::open(&path).unwrap();
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch("DROP INDEX snapshot_items_item")
+                .unwrap();
+            conn.pragma_update(None, "user_version", LATEST_VERSION - 1)
+                .unwrap();
+        }
+        let start = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (path, start) = (path.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    Store::open(&path).map(|s| s.schema_version().unwrap())
+                })
+            })
+            .collect();
+        for t in threads {
+            assert_eq!(t.join().unwrap().unwrap(), LATEST_VERSION, "round {round}");
+        }
+    }
+}
+
 #[test]
 fn refuses_a_newer_database() {
     let dir = tempfile::tempdir().unwrap();

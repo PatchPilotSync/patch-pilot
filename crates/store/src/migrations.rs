@@ -1,6 +1,6 @@
 //! Embedded schema migrations, tracked with `PRAGMA user_version`.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StoreError};
 
@@ -19,7 +19,8 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
 
 pub const LATEST_VERSION: u32 = MIGRATIONS[MIGRATIONS.len() - 1].0;
 
-/// Apply every migration newer than the database, each in its own transaction.
+/// Apply every migration newer than the database, each in its own transaction,
+/// once even when several connections open it at the same time.
 /// Refuses a database written by a newer build.
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
     let current: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -30,7 +31,15 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
         });
     }
     for &(version, sql) in MIGRATIONS.iter().filter(|(v, _)| *v > current) {
-        let tx = conn.transaction()?;
+        // The app opens the store from several threads at launch. Take the
+        // write lock before migrating and look again, so a migration another
+        // connection just applied isn't applied twice ("index ... already
+        // exists" in 0.4.7).
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now: u32 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if now >= version {
+            continue;
+        }
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", version)?;
         tx.commit()?;

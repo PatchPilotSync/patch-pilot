@@ -168,6 +168,28 @@ pub struct SnapshotSummary {
     pub removed: u64,
 }
 
+/// Switch a database to WAL. Switching takes a lock the busy timeout doesn't
+/// wait for, so when several threads open a new database at once the others
+/// get "database is locked": look first, and retry for a few seconds.
+fn use_wal(conn: &Connection) -> Result<()> {
+    let mut tries = 0;
+    loop {
+        let mode: String = conn.pragma_query_value(None, "journal_mode", |r| r.get(0))?;
+        if mode.eq_ignore_ascii_case("wal") {
+            return Ok(());
+        }
+        match conn.pragma_update(None, "journal_mode", "WAL") {
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::DatabaseBusy && tries < 50 =>
+            {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            other => return Ok(other?),
+        }
+    }
+}
+
 pub struct Store {
     conn: Connection,
 }
@@ -182,7 +204,7 @@ impl Store {
             })?;
         }
         let conn = Connection::open(path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
+        use_wal(&conn)?;
         Self::init(conn)
     }
 
