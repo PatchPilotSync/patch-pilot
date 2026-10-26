@@ -73,6 +73,10 @@ export function bringSummary(
     warn.push(
       `${files(r.unavailable.length)} not available yet (${short(r.unavailable)}): open Patch Pilot on ${from} so it can send ${r.unavailable.length === 1 ? "it" : "them"}.`,
     );
+  if (r.requested.length > 0)
+    warn.push(
+      `${files(r.requested.length)} too big for the link (${short(r.requested)}) will come through your cloud folder: Patch Pilot on ${from} sends ${r.requested.length === 1 ? "it" : "them"} when it next runs, and this machine puts ${r.requested.length === 1 ? "it" : "them"} in place.`,
+    );
   if (r.held_back.length > 0)
     warn.push(
       `${files(r.held_back.length)} left behind (${short(r.held_back)}) because a file ${r.held_back.length === 1 ? "it needs" : "they need"} didn't arrive; ${r.held_back.length === 1 ? "it" : "they"} wouldn't work without it.`,
@@ -85,6 +89,11 @@ function short(paths: string[]): string {
   const names = paths.map((p) => p.slice(p.lastIndexOf("/") + 1));
   return names.length <= 2 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
+
+/** Reaper's track and project templates and Ableton's templates ("all templates"). */
+export const isTemplate = (f: FileToBring) =>
+  (f.app === "Reaper" && (f.kind === "Track template" || f.kind === "Project template")) ||
+  (f.app === "Ableton" && f.kind === "Template");
 
 /** Reaper's scripts and the package files that come with them ("all Reaper scripts"). */
 export const isReaperScript = (f: FileToBring) =>

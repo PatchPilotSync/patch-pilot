@@ -23,6 +23,10 @@ pub struct BringView {
     pub has_source: bool,
     /// Sorted by app, then path.
     pub files: Vec<FileToBring>,
+    /// The cloud folder big files come through ("Dropbox"), when one is
+    /// picked here (decision #64): files too large for the link can then be
+    /// brought over too, and aren't marked incomplete for their size.
+    pub cloud: Option<String>,
 }
 
 /// Mirrored in `src/api.ts`.
@@ -36,8 +40,13 @@ pub struct BringResult {
     /// Files brought because a chosen file needs them.
     pub companions: usize,
     /// Paths no linked machine has uploaded yet (open Patch Pilot on the
-    /// machine they come from), or too large to travel.
+    /// machine they come from), or too large to travel with no cloud folder
+    /// picked for big files.
     pub unavailable: Vec<String>,
+    /// Paths too large for the link, asked for through the cloud folder
+    /// instead (decision #64): the machine that has them sends them, and
+    /// this one places them as they arrive.
+    pub requested: Vec<String>,
     /// Paths left behind because a file they need is unavailable: they
     /// wouldn't work without it.
     pub held_back: Vec<String>,
@@ -54,6 +63,7 @@ pub async fn files_to_bring(from: Option<String>) -> Result<BringView, String> {
             linked,
             has_source: false,
             files: Vec::new(),
+            cloud: None,
         });
     }
     let (source, files) = list(&this_machine()?, from.as_deref())?;
@@ -61,6 +71,7 @@ pub async fn files_to_bring(from: Option<String>) -> Result<BringView, String> {
         linked,
         has_source: source.is_some(),
         files,
+        cloud: crate::transfer::cloud_name(),
     })
 }
 
@@ -86,6 +97,7 @@ pub async fn bring_files(
     };
     let mut fetched: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let mut bad = BTreeSet::new();
+    let mut big = Vec::new();
     for f in &chosen {
         let bytes = if f.too_large {
             None
@@ -96,10 +108,22 @@ pub async fn bring_files(
             Some(bytes) => {
                 fetched.insert(f.key(), bytes);
             }
+            None if f.too_large => big.push((*f).clone()),
             None => {
                 bad.insert(f.key());
                 result.unavailable.push(f.rel.clone());
             }
+        }
+    }
+    // Too big for the link: ask for them through the cloud folder, so the
+    // files that need them can come now and work once they arrive.
+    let asked = crate::transfer::request_big(&this, &big)?;
+    for f in big {
+        if asked {
+            result.requested.push(f.rel);
+        } else {
+            bad.insert(f.key());
+            result.unavailable.push(f.rel);
         }
     }
     // A script whose library didn't come would only fail when it runs.
@@ -202,7 +226,20 @@ fn list(this: &str, from: Option<&str>) -> Result<(Option<Manifest>, Vec<FileToB
         return Ok((None, Vec::new()));
     };
     let files = bring::files_to_bring(&source, &profile, machine.as_ref());
-    let files = bring::drop_same_here(&source, machine.as_ref(), files);
+    let mut files = bring::drop_same_here(&source, machine.as_ref(), files);
+    if crate::transfer::cloud_name().is_some() {
+        // Big files come through the cloud folder; only those too big even
+        // for that can't arrive.
+        let bad: BTreeSet<String> = files
+            .iter()
+            .filter(|f| f.too_large && !patchpilot_local::transfer::can_hand_off(f))
+            .map(FileToBring::key)
+            .collect();
+        let blocked = bring::blocked(&files, &bad);
+        for f in &mut files {
+            f.incomplete = bad.contains(&f.key()) || blocked.contains(&f.key());
+        }
+    }
     Ok((Some(source), files))
 }
 

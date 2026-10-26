@@ -37,6 +37,8 @@ pub struct TransferView {
     pub sendable: Vec<Sendable>,
     /// Big files this machine needs (each sent from a machine that has it).
     pub needed: usize,
+    /// Big files this machine asked for that haven't arrived yet.
+    pub requested: usize,
     /// What the last look at the folder did here.
     pub last: ReceiveReport,
 }
@@ -75,8 +77,8 @@ fn rewatch(app: &AppHandle) {
     *slot = patchpilot_local::watch_folder_flat(dir, QUIET, move || receive_now(&handle)).ok();
 }
 
-/// Place what's arrived and clean up. Errors are kept quiet: the next
-/// change or scan tries again.
+/// Send what other machines asked for, place what's arrived and clean up.
+/// Errors are kept quiet: the next change or scan tries again.
 fn receive_now(app: &AppHandle) {
     let Ok(report) = receive() else {
         return;
@@ -102,7 +104,46 @@ fn receive() -> Result<ReceiveReport, String> {
     let this = this_machine()?;
     let blobs = app_dir()?.join("blobs");
     let mut store = open(&db)?;
+    transfer::send_requested(&store, &this, &dir)?;
     transfer::receive(&mut store, &blobs, &this, &dir, patchpilot_local::now())
+}
+
+/// The cloud folder big files go through here, as people call it
+/// ("Dropbox"), when one is picked and there.
+pub(crate) fn cloud_name() -> Option<String> {
+    let settings = settings().ok()?;
+    let folder = settings.folder.clone()?;
+    transfer_dir(&settings)?;
+    let name = transfer::this_machines_clouds()
+        .into_iter()
+        .find(|c| c.path == folder)
+        .map(|c| c.name);
+    Some(name.unwrap_or_else(|| {
+        folder.file_name().map_or_else(
+            || "your cloud folder".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        )
+    }))
+}
+
+/// Ask the other machines for `files` (too big for the link) through the
+/// cloud folder. False when no cloud folder is picked here.
+pub(crate) fn request_big(
+    this: &str,
+    files: &[patchpilot_local::bring::FileToBring],
+) -> Result<bool, String> {
+    if files.is_empty() {
+        return Ok(true);
+    }
+    let Some(dir) = transfer_dir(&settings()?) else {
+        return Ok(false);
+    };
+    let name = open(&db_path()?)?
+        .machine(this)
+        .map(|m| m.name)
+        .unwrap_or_else(|_| this.to_owned());
+    transfer::request(&dir, this, &name, files)?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -110,15 +151,17 @@ pub async fn transfer_view(app: AppHandle) -> Result<TransferView, String> {
     let settings = settings()?;
     let dir = transfer_dir(&settings);
     let db = db_path()?;
-    let (sendable, needed) = match (db.exists(), this_machine()) {
+    let (sendable, needed, requested) = match (db.exists(), this_machine()) {
         (true, Ok(this)) => {
             let store = open(&db)?;
             (
                 transfer::sendable(&store, &this, dir.as_deref())?,
                 transfer::needed_count(&store, &this)?,
+                dir.as_deref()
+                    .map_or(0, |d| transfer::requested_count(d, &this)),
             )
         }
-        _ => (Vec::new(), 0),
+        _ => (Vec::new(), 0, 0),
     };
     let last = app
         .state::<Mutex<ReceiveReport>>()
@@ -131,6 +174,7 @@ pub async fn transfer_view(app: AppHandle) -> Result<TransferView, String> {
         settings,
         sendable,
         needed,
+        requested,
         last,
     })
 }
