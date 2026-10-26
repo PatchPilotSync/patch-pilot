@@ -4,6 +4,17 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.5 - 2026-10-26
+
+### New
+
+- Bring over all your templates at once: "Bring over all templates" in Compare (or "Copy all templates here" when you look at another machine) and "All templates" on the Bring over card bring every Reaper track and project template and every Ableton template. The Bring over card also has "All presets".
+- Big files no longer need a Send click. When you bring over a file too big for the link and a cloud folder is picked on this machine, Patch Pilot asks for it through that folder: the machine that has it sends it by itself the next time Patch Pilot runs there, and this machine puts it in place when it arrives. Big files in the list show which service they'll come through, such as "Via Dropbox".
+
+### Improved
+
+- Cleaner, more consistent layout across every screen.
+
 ## 0.4.4 - 2026-10-26
 
 ### New
