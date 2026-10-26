@@ -4,7 +4,7 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
-## Unreleased
+## 0.4.6 - 2026-10-26
 
 ### New
 
