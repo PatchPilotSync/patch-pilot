@@ -451,6 +451,20 @@ fn machine_folder(dir: &Path, id: &str, name: &str) -> Result<PathBuf, String> {
     Ok(folder)
 }
 
+/// The name of the folder in `dir` that the machine `this` backs up into,
+/// if it has backed up there.
+pub fn own_folder(dir: &Path, this: &str) -> Option<String> {
+    subdirs(dir)
+        .into_iter()
+        .find(|f| latest(f).is_some_and(|b| b.machine_id == this))
+        .map(|f| {
+            f.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        })
+}
+
 pub(crate) fn subdirs(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|e| {
@@ -543,13 +557,13 @@ fn is_stamp(s: &str) -> bool {
 }
 
 /// `rel` (`/`-separated, from a backup's index) below `base`, never above it.
-fn below(base: &Path, rel: &str) -> PathBuf {
+pub(crate) fn below(base: &Path, rel: &str) -> PathBuf {
     rel.split('/')
         .filter(|p| !p.is_empty() && *p != "." && *p != "..")
         .fold(base.to_owned(), |p, part| p.join(part))
 }
 
-fn safe_rel(rel: &str) -> bool {
+pub(crate) fn safe_rel(rel: &str) -> bool {
     !rel.starts_with('/')
         && rel
             .split('/')
@@ -558,7 +572,7 @@ fn safe_rel(rel: &str) -> bool {
 
 /// Write via a dot-named file beside `path` and rename, so the sync app only
 /// ever uploads whole files.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("no parent folder")?;
     std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -577,7 +591,7 @@ fn move_into(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::rename(from, to).map_err(|e| format!("{}: {e}", from.display()))
 }
 
-fn remove_empty_parents(path: &Path, stop: &Path) {
+pub(crate) fn remove_empty_parents(path: &Path, stop: &Path) {
     let mut dir = path.parent();
     while let Some(d) = dir {
         if d == stop || !d.starts_with(stop) || std::fs::remove_dir(d).is_err() {

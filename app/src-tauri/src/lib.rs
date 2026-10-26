@@ -9,6 +9,7 @@ mod bring;
 mod catalog;
 mod compare;
 mod duplicates;
+mod github;
 mod history;
 mod reaper;
 mod report;
@@ -68,6 +69,7 @@ pub fn run() {
             transfer::setup(app);
             backup::setup(app);
             autosync::setup(app);
+            github::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -126,6 +128,13 @@ pub fn run() {
             autosync::set_keep_in_sync,
             autosync::settle_conflict,
             autosync::sync_look_now,
+            github::github_view,
+            github::github_sign_in,
+            github::github_cancel_sign_in,
+            github::github_use_token,
+            github::github_use_repo,
+            github::github_sign_out,
+            github::github_open,
             duplicates::find_duplicates,
             duplicates::clean_up_duplicates,
             catalog::updates,

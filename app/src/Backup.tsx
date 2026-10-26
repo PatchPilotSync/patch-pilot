@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   backUpNow,
+  githubOpen,
   backupRestoreList,
   backupView,
   fileKey,
@@ -23,6 +24,7 @@ import {
   type SyncView,
 } from "./api";
 import { FolderPicker } from "./BigFiles";
+import { GitHubSetup } from "./GitHub";
 import { groupByApp, summaryOf } from "./BringOver";
 import { Button, Notice, timeAgo } from "./ui";
 
@@ -286,6 +288,7 @@ function Details({
   onError: (e: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function act(p: Promise<BackupView>) {
@@ -314,6 +317,21 @@ function Details({
     );
   }
 
+  // Like picking a first folder: syncing goes on.
+  async function usedGitHub() {
+    const first = !view.settings.folder;
+    setAdvanced(false);
+    await act(
+      backupView().then(async (v) => {
+        if (first && sync && onSync && v.dir) {
+          onSync(await setKeepInSync(true));
+          return backupView();
+        }
+        return v;
+      }),
+    );
+  }
+
   async function toggleSync(on: boolean) {
     if (!onSync) return;
     setBusy(true);
@@ -327,9 +345,13 @@ function Details({
     }
   }
 
+  if (advanced) {
+    return <GitHubSetup onUsed={usedGitHub} onCancel={() => setAdvanced(false)} onError={onError} />;
+  }
+
   if (!view.dir || picking) {
     return (
-      <div>
+      <div className="flex flex-col gap-1">
         <FolderPicker
           clouds={view.clouds}
           busy={busy}
@@ -339,6 +361,9 @@ function Details({
           onCancel={view.dir ? () => setPicking(false) : undefined}
           hint={sync ? <SyncHint /> : <BackupHint />}
         />
+        <Button variant="link" className="-ml-3 h-6 self-start text-[11px]" onClick={() => setAdvanced(true)}>
+          {view.github ? `Advanced: GitHub (${view.github})…` : "Advanced: sync with GitHub instead…"}
+        </Button>
       </div>
     );
   }
@@ -372,11 +397,24 @@ function Details({
             Back up after every scan that finds a change
           </label>
         )}
-        <span className="min-w-0 flex-1 truncate" title={view.dir}>
-          {view.dir}
-        </span>
+        {view.github ? (
+          <span className="flex min-w-0 flex-1">
+            <Button
+              variant="link"
+              className="h-6 min-w-0 px-2"
+              title="Open the repo on GitHub"
+              onClick={() => githubOpen("repo").catch((e) => onError(String(e)))}
+            >
+              <span className="truncate">{view.github}</span>
+            </Button>
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate" title={view.dir}>
+            {view.dir}
+          </span>
+        )}
         <Button variant="quiet" className="h-6 px-2" onClick={() => setPicking(true)}>
-          Change folder
+          {view.github ? "Change" : "Change folder"}
         </Button>
       </div>
       {last && (
@@ -599,6 +637,7 @@ function restoreSummary(r: RestoreReport): string {
 
 /** "Dropbox", or the folder's name. */
 function placeName(view: BackupView): string {
+  if (view.github) return "GitHub";
   const cloud = view.clouds.find((c) => c.path === view.settings.folder);
   if (cloud) return cloud.name;
   const f = view.settings.folder ?? "";
