@@ -244,10 +244,9 @@ fn load_overview(store: &Store, this: Option<&str>) -> Result<Overview, String> 
 /// its last scan counts too.
 pub(crate) fn scanned_at(store: &Store, id: &str) -> Result<i64, String> {
     let snapshot = store
-        .snapshots(id)
+        .latest_snapshot(id)
         .map_err(err)?
-        .first()
-        .map_or(0, |s| s.created_at);
+        .map_or(0, |(_, at)| at);
     let checked = db_path().ok().and_then(|db| {
         let dir = patchpilot_local::app_dir(&db);
         let this = patchpilot_store::read_machine_id(dir).ok()??;

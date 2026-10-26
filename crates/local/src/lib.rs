@@ -191,7 +191,7 @@ pub fn scan_this_machine(
 
 /// Save a scan as the machine's next snapshot (`first_scan`, then `scan`).
 pub fn save_scan(store: &mut Store, manifest: &Manifest) -> Result<SnapshotInfo, StoreError> {
-    let first = store.snapshots(&manifest.machine.id)?.is_empty();
+    let first = store.latest_snapshot(&manifest.machine.id)?.is_none();
     let reason = if first {
         SnapshotReason::FirstScan
     } else {

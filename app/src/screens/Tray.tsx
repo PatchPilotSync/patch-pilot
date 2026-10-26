@@ -15,7 +15,7 @@ import {
   type MachinesView,
   type Overview,
 } from "../api";
-import { Button, Mark, scoreColor, timeAgo } from "../ui";
+import { Button, Loading, Mark, scoreColor, timeAgo } from "../ui";
 
 // The tray / menu bar popover (decision #35): the compact view of every
 // machine's parity. It loads when it is shown and never polls. Every route
@@ -104,6 +104,7 @@ export function Tray() {
 
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto px-3 pb-3">
         {error && <p className="text-xs text-bad">{error}</p>}
+        {!overview && !error && <Loading text="Loading your rig…" compact />}
 
         {overview && !machine && <Hint text="Scan this machine to get started." />}
         {machine && view?.golden_version === null && <Hint text="Make a Primary Rig to compare your machines." />}

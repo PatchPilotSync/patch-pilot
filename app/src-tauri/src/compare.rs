@@ -140,12 +140,10 @@ fn plan_view(store: &Store, dir: &Path, id: &str) -> Result<SetupProgress, Strin
         .latest_manifest(id)
         .map_err(err)?
         .ok_or("no saved scan of that machine")?;
-    let latest = store
-        .snapshots(id)
+    let (latest, _) = store
+        .latest_snapshot(id)
         .map_err(err)?
-        .first()
-        .ok_or("no saved scan of that machine")?
-        .id;
+        .ok_or("no saved scan of that machine")?;
     let profile_id = store.machine_profile(id).map_err(err)?.map(|p| p.id);
     let profile = store.target_for(id).map_err(err)?;
 

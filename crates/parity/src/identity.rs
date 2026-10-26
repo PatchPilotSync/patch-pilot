@@ -12,7 +12,7 @@
 //! they are taken; doing it again here covers scans and Primary Rig versions saved
 //! by older builds or against an older catalog.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use patchpilot_core::{Manifest, ProductId};
 
@@ -87,8 +87,9 @@ fn rename(m: &mut Manifest, renames: &BTreeMap<ProductId, ProductId>) {
     }
     // Drop duplicates created by the rename, keeping the entry that has a vendor.
     products.sort_by_key(|p| p.vendor.is_empty());
+    let mut seen = HashSet::new();
     for p in products {
-        if m.product(&p.canonical_id).is_none() {
+        if seen.insert(p.canonical_id.clone()) {
             m.products.push(p);
         }
     }

@@ -4,6 +4,14 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.7 - 2026-10-26
+
+### Improved
+
+- Much faster on big rigs. Opening Patch Pilot, Compare and the tray no longer stall, and background rescans no longer keep your CPU busy. The cause was how "last scanned" was looked up, which got slower with every plug-in, preset and saved scan.
+- No more blank window: while Patch Pilot loads you see the logo and what it's doing, in the main window and the tray.
+- Compare shows the last result at once when you come back to a machine and refreshes it in the background.
+
 ## 0.4.6 - 2026-10-26
 
 ### New

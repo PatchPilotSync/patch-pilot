@@ -80,3 +80,35 @@ body {
   outline: 2px solid var(--pp-accent);
   outline-offset: 1px;
 }
+
+/* The moving bar of <Loading> (and the boot screen in index.html). */
+.pp-loading-bar {
+  position: relative;
+}
+
+.pp-loading-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 9999px;
+  background: var(--pp-accent);
+  animation: pp-loading 1.2s ease-in-out infinite;
+}
+
+@keyframes pp-loading {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pp-loading-bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

@@ -225,17 +225,31 @@ impl Store {
         Ok(info)
     }
 
+    /// A machine's latest snapshot as `(id, created_at)`, without the item
+    /// counts [`Store::snapshots`] works out for every snapshot.
+    pub fn latest_snapshot(&self, machine_id: &str) -> Result<Option<(i64, i64)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, created_at FROM snapshots WHERE machine_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                [machine_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
     /// A machine's snapshots, newest first.
     pub fn snapshots(&self, machine_id: &str) -> Result<Vec<SnapshotSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT s.id, s.parent_id, s.created_at, s.reason,
                     (SELECT count(*) FROM snapshot_items WHERE snapshot_id = s.id),
                     (SELECT count(*) FROM snapshot_items c WHERE c.snapshot_id = s.id
-                        AND c.item_id NOT IN
-                            (SELECT item_id FROM snapshot_items WHERE snapshot_id = s.parent_id)),
+                        AND NOT EXISTS (SELECT 1 FROM snapshot_items o
+                            WHERE o.snapshot_id = s.parent_id AND o.item_id = c.item_id)),
                     (SELECT count(*) FROM snapshot_items p WHERE p.snapshot_id = s.parent_id
-                        AND p.item_id NOT IN
-                            (SELECT item_id FROM snapshot_items WHERE snapshot_id = s.id))
+                        AND NOT EXISTS (SELECT 1 FROM snapshot_items o
+                            WHERE o.snapshot_id = s.id AND o.item_id = p.item_id))
              FROM snapshots s WHERE s.machine_id = ?1 ORDER BY s.id DESC",
         )?;
         let rows = stmt.query_map([machine_id], |r| {

@@ -48,6 +48,7 @@ import {
   FolderTree,
   inputClass,
   isConflictCopy,
+  Loading,
   Notice,
   Pill,
   ScoreBar,
@@ -235,11 +236,22 @@ interface Props {
   onError: (e: string) => void;
 }
 
+/**
+ * The last comparison of each machine, shown straight away when it's picked
+ * again (or the window reopens) while a fresh one runs. Lives as long as the
+ * app, which stays in the tray.
+ */
+const lastComparison = new Map<string, MachineComparison>();
+
 export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   // A refresh can briefly list fewer machines (a sync landing); fall back for
   // the moment but keep the choice, so it comes back when the machine does.
   const selected = view.machines.some((m) => m.id === chosen) ? chosen : (view.machines[0]?.id ?? null);
-  const [loaded, setData] = useState<MachineComparison | null>(null);
+  const [loaded, setData] = useState<MachineComparison | null>(() =>
+    selected ? (lastComparison.get(selected) ?? null) : null,
+  );
+  // True while a fresh comparison runs behind the one shown.
+  const [refreshing, setRefreshing] = useState(false);
   // Never show one machine's comparison under another machine's name.
   const data = loaded?.machine.id === selected ? loaded : null;
   const [plan, setPlan] = useState(false);
@@ -288,7 +300,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   }, [wantPlan, data, selected]);
 
   useEffect(() => {
-    setData(null);
+    setData(selected ? (lastComparison.get(selected) ?? null) : null);
     setPlan(false);
     setRowId(null);
   }, [selected]);
@@ -299,10 +311,16 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   useEffect(() => {
     if (!selected || view.golden_version === null) return;
     let current = true;
-    compareMachine(selected).then(
-      (d) => current && setData(d),
-      (e) => current && onError(String(e)),
-    );
+    setRefreshing(true);
+    compareMachine(selected)
+      .then(
+        (d) => {
+          lastComparison.set(d.machine.id, d);
+          if (current) setData(d);
+        },
+        (e) => current && onError(String(e)),
+      )
+      .finally(() => current && setRefreshing(false));
     return () => {
       current = false;
     };
@@ -328,7 +346,11 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
         {view.golden_version === null ? (
           <Empty text="Make a Primary Rig first. Scan your main machine and choose Make Primary." />
         ) : !data ? (
-          <Empty text={selected ? "Comparing…" : "No machines yet."} />
+          selected ? (
+            <Loading text="Comparing with the Primary Rig…" compact />
+          ) : (
+            <Empty text="No machines yet." />
+          )
         ) : plan ? (
           <PlanView
             id={data.machine.id}
@@ -347,6 +369,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
             bring={bring}
             onPlan={() => setPlan(true)}
             onError={onError}
+            refreshing={refreshing}
           />
         )}
       </section>
@@ -409,6 +432,7 @@ function Diff({
   bring,
   onPlan,
   onError,
+  refreshing,
 }: {
   data: MachineComparison;
   selected: ComparisonRow | null;
@@ -417,6 +441,8 @@ function Diff({
   bring: BringHere;
   onPlan: () => void;
   onError: (e: string) => void;
+  /** The last comparison is shown while a fresh one runs. */
+  refreshing: boolean;
 }) {
   const { machine, comparison: c } = data;
   const [ignoring, setIgnoring] = useState(false);
@@ -478,6 +504,7 @@ function Diff({
             vs Primary Rig v{data.golden_version}
             {machine.golden_source ? " (saved from this machine)" : ""} ·{" "}
             {machine.profile ? `${machine.profile.name} profile` : "whole rig"} · scanned {timeAgo(machine.scanned_at)}
+            {refreshing && " · updating…"}
           </p>
         </div>
         {hasWork && <Button onClick={onPlan}>Get Up To Speed</Button>}
