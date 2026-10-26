@@ -7,10 +7,18 @@
 //!
 //! It is safe by design, because it changes files the user didn't touch:
 //!
-//! - Only files: settings (Reaper key maps and menus, Ableton's preferences)
-//!   and the Installer Vault's index stay with Bring over and Restore.
-//! - Never deletes: a file removed on one machine stays on the others, and a
-//!   file deleted here isn't put back unless another machine changes it.
+//! - Settings that travel (decision #77): Reaper's key map, menus and
+//!   toolbars, mouse modifiers and theme adjuster settings, and Live's
+//!   Collection names (only the names in `Library.cfg`) and `Options.txt`.
+//!   They are written only while their DAW is closed, and wait meanwhile.
+//!   Machine settings (audio device, MIDI ports, plug-in folders, logins)
+//!   are never read. The Installer Vault's index stays with Restore.
+//! - Never deletes, except a rename: a file removed on one machine stays on
+//!   the others, and a file deleted here isn't put back unless another
+//!   machine changes it. A file renamed or moved on another machine (its
+//!   copy gone from one path and the same copy at a new one) is renamed here
+//!   too, only while this machine's copy is still that same copy, and in
+//!   the same restore point as the new name, so History can undo it.
 //! - Never replaces an edit: a file here is replaced only when it is still
 //!   the copy last synced and the other machine's copy changed since it was
 //!   last seen. Otherwise the two copies are a conflict the user settles
@@ -23,12 +31,10 @@
 //!
 //! What was seen and synced is kept in app-data `autosync.json`.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use patchpilot_core::ContentHash;
-use patchpilot_parity::ableton::{ABLETON_PREFS, ABLETON_USER_LIBRARY};
-use patchpilot_parity::reaper::{REAPER_RESOURCES, resource_kind};
+use patchpilot_core::{ContentHash, Os};
 use patchpilot_store::Store;
 use serde::{Deserialize, Serialize};
 
@@ -100,6 +106,8 @@ pub struct Placed {
     pub files: usize,
     /// New here, rather than a newer copy of a file here.
     pub new: usize,
+    /// Files renamed or moved here because they were there.
+    pub renamed: usize,
     pub restore_point: Option<i64>,
 }
 
@@ -128,12 +136,14 @@ pub struct SourceSummary {
     pub machine_name: String,
     /// The backup's time, Unix seconds.
     pub made_at: i64,
-    /// Files in it that sync (not settings).
+    /// Files in it that sync (every one but the Installer Vault's index).
     pub files: usize,
     /// Of those, already the same here.
     pub same: usize,
     /// Brought here this time.
     pub placed: usize,
+    /// Renamed or moved here this time, as they were there.
+    pub renamed: usize,
     /// Waiting for the user to pick a copy.
     pub to_choose: usize,
     /// Not downloaded by the cloud app yet.
@@ -149,13 +159,10 @@ impl SyncReport {
 }
 
 /// True for files that keep themselves in sync: everything Bring over
-/// handles except settings, which stay a deliberate step.
-pub fn syncs(root: &str, rel: &str) -> bool {
-    match root {
-        REAPER_RESOURCES => resource_kind(rel).is_some_and(|k| !k.needs_reaper_closed()),
-        ABLETON_PREFS | VAULT_ROOT => false,
-        _ => true,
-    }
+/// handles (only the portable settings are among them), not the Installer
+/// Vault's index.
+pub fn syncs(root: &str) -> bool {
+    root != VAULT_ROOT
 }
 
 /// A file one linked machine's latest backup offers.
@@ -165,13 +172,98 @@ struct Offer<'a> {
     file: FileToBring,
 }
 
-/// The copy of `rel` below `dir` here, hashed as backups hash it; `None`
-/// when there's no file. Files that sync are kept as they are (only
-/// settings have a shared view), so that's the file's own hash.
-fn hash_here(dir: Option<&Path>, rel: &str) -> Option<ContentHash> {
-    let path = rel.split('/').fold(dir?.to_owned(), |p, part| p.join(part));
-    let bytes = std::fs::read(path).ok()?;
-    Some(patchpilot_sync::content_hash(&bytes))
+/// The copy of `rel` below `dir` (where `root` is) here, hashed as backups
+/// hash it (a settings file by its shareable part); `None` when there's no
+/// file.
+fn hash_here(dir: Option<&Path>, root: &str, rel: &str) -> Option<ContentHash> {
+    bring::shared_hash(dir?, root, rel)
+}
+
+/// How `rel` (lowercased) is spelled below `dir`, each part matched without
+/// case as NTFS and APFS do; `None` when there's no such file.
+fn spelled_here(dir: &Path, rel: &str) -> Option<String> {
+    let mut path = dir.to_owned();
+    let mut parts = Vec::new();
+    for want in rel.split('/') {
+        let name = if path.join(want).exists() {
+            want.to_owned()
+        } else {
+            std::fs::read_dir(&path)
+                .ok()?
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .find(|n| n.to_lowercase() == want)?
+        };
+        path.push(&name);
+        parts.push(name);
+    }
+    path.is_file().then(|| parts.join("/"))
+}
+
+/// A file a linked machine renamed or moved: its copy left `old` (a key,
+/// lowercased) and turned up at `to`, a path new there.
+struct Rename {
+    machine_id: String,
+    old: String,
+    root: String,
+    app: String,
+    to: String,
+    to_rel: String,
+    hash: ContentHash,
+}
+
+/// The renames in `b`, a linked machine's latest backup, from what was seen
+/// of it before. Keys it no longer has with no copy anywhere new were
+/// deleted there; they're returned second.
+fn renames_in(b: &Backup, state: &SyncState) -> (Vec<Rename>, Vec<String>) {
+    let Some(seen) = state.seen.get(&b.machine_id) else {
+        return (Vec::new(), Vec::new());
+    };
+    let held: HashSet<String> = b.files.iter().map(|f| f.key().to_lowercase()).collect();
+    let mut new_at: HashMap<&ContentHash, Vec<&BackedUpFile>> = HashMap::new();
+    for f in b.files.iter().filter(|f| syncs(&f.root)) {
+        if !seen.contains_key(&f.key().to_lowercase()) {
+            new_at.entry(&f.hash).or_default().push(f);
+        }
+    }
+    let mut renames = Vec::new();
+    let mut gone = Vec::new();
+    for (old, hash) in seen {
+        if held.contains(old) {
+            continue;
+        }
+        let name = old.rsplit('/').next().unwrap_or(old);
+        let candidates: Vec<&&BackedUpFile> = new_at
+            .get(hash)
+            .into_iter()
+            .flatten()
+            .filter(|f| old.starts_with(&format!("{}/", f.root.to_lowercase())))
+            .collect();
+        // Moved to another folder keeps its name; prefer that.
+        let to = candidates
+            .iter()
+            .find(|f| f.rel.rsplit('/').next().unwrap_or(&f.rel).to_lowercase() == name)
+            .or(candidates.first());
+        match to {
+            Some(f) => renames.push(Rename {
+                machine_id: b.machine_id.clone(),
+                old: old.clone(),
+                root: f.root.clone(),
+                app: f.app.clone(),
+                to: f.key().to_lowercase(),
+                to_rel: f.rel.clone(),
+                hash: hash.clone(),
+            }),
+            None => gone.push(old.clone()),
+        }
+    }
+    (renames, gone)
+}
+
+/// The OS paths here are spelled for (macOS's `/` where neither applies, as
+/// in tests on Linux).
+fn this_os() -> Os {
+    Os::current().unwrap_or(Os::Macos)
 }
 
 /// Place what's new or changed in linked machines' latest backups in `dir`
@@ -220,7 +312,7 @@ pub fn sync_in(
             machine_id: b.machine_id.clone(),
             machine_name: b.machine_name.clone(),
             made_at: b.made_at,
-            files: b.files.iter().filter(|f| syncs(&f.root, &f.rel)).count(),
+            files: b.files.iter().filter(|f| syncs(&f.root)).count(),
             linked: ok,
             ..SourceSummary::default()
         });
@@ -260,6 +352,36 @@ pub fn sync_in(
         state.seen.get(id).and_then(|s| s.get(key)) != Some(hash)
     };
 
+    // Renames and moves on linked machines. One whose old path here is gone
+    // or edited is done with: an edit is never removed, and the new path
+    // comes over like any new file. The rest wait for their new path here.
+    let mut renames: Vec<Rename> = Vec::new();
+    for b in &backups {
+        let (found, gone) = renames_in(b, state);
+        if let Some(seen) = state.seen.get_mut(&b.machine_id) {
+            for key in gone {
+                seen.remove(&key);
+            }
+        }
+        for r in found {
+            let old_rel = &r.old[r.root.len() + 1..];
+            let here = root_dir(&r.root)
+                .and_then(|d| Some((spelled_here(&d, old_rel)?, d)))
+                .and_then(|(rel, d)| hash_here(Some(&d), &r.root, &rel));
+            if here.as_ref() == Some(&r.hash) {
+                renames.push(r);
+            } else if let Some(seen) = state.seen.get_mut(&r.machine_id) {
+                seen.remove(&r.old);
+            }
+        }
+    }
+    // A pending rename's new path isn't marked seen until the old one is
+    // gone, so the rename is found again on the next look.
+    let pending: HashSet<(String, String)> = renames
+        .iter()
+        .map(|r| (r.machine_id.clone(), r.to.clone()))
+        .collect();
+
     // Every file a backup has that this machine lacks or has another copy
     // of (by its last scan), by key.
     let mut offers: BTreeMap<String, Vec<Offer>> = BTreeMap::new();
@@ -272,7 +394,7 @@ pub fn sync_in(
         let mut listed = BTreeSet::new();
         for mut file in bring::files_to_bring(&b.scan, &profile, Some(&machine)) {
             let key = file.key().to_lowercase();
-            let Some(&held) = held.get(&key).filter(|_| syncs(&file.root, &file.rel)) else {
+            let Some(&held) = held.get(&key).filter(|_| syncs(&file.root)) else {
                 continue;
             };
             listed.insert(key.clone());
@@ -287,12 +409,13 @@ pub fn sync_in(
         // copy, so a later change there is known to be one.
         for (key, f) in &held {
             if listed.contains(key)
-                || !syncs(&f.root, &f.rel)
+                || !syncs(&f.root)
                 || !unseen(state, &b.machine_id, key, &f.hash)
+                || pending.contains(&(b.machine_id.clone(), key.clone()))
             {
                 continue;
             }
-            if hash_here(root_dir(&f.root).as_deref(), &f.rel).as_ref() == Some(&f.hash) {
+            if hash_here(root_dir(&f.root).as_deref(), &f.root, &f.rel).as_ref() == Some(&f.hash) {
                 state
                     .seen
                     .entry(b.machine_id.clone())
@@ -315,7 +438,7 @@ pub fn sync_in(
         }
         let first = &unseen[0].file;
         let here_dir = root_dir(&first.root);
-        let here = hash_here(here_dir.as_deref(), &first.rel);
+        let here = hash_here(here_dir.as_deref(), &first.root, &first.rel);
         let synced = state.synced.get(&key).cloned();
         // The newest backup's copy wins among machines that changed it.
         let newest = unseen
@@ -416,47 +539,116 @@ pub fn sync_in(
         }
     }
 
-    let mut groups: BTreeMap<(String, String, String), Vec<&Offer>> = BTreeMap::new();
+    // One restore point per machine, root, app and DAW that must be closed,
+    // so templates still come while Reaper is open and its key map waits.
+    type GroupKey = (String, String, String, Option<&'static str>);
+    let daw_of = |root: &str, rel: &str| bring::needs_closed(root, rel).map(Daw::as_str);
+    let mut groups: BTreeMap<GroupKey, (Vec<&Offer>, Vec<&Rename>)> = BTreeMap::new();
+    let mut coming: HashMap<String, (GroupKey, &ContentHash)> = HashMap::new();
     for o in &chosen {
         let k = o.file.key();
         if missing.contains(&k) || held_back.contains(&k) {
             continue;
         }
-        groups
-            .entry((
-                o.backup.machine_id.clone(),
-                o.file.root.clone(),
-                o.file.app.clone(),
-            ))
-            .or_default()
-            .push(o);
+        let g = (
+            o.backup.machine_id.clone(),
+            o.file.root.clone(),
+            o.file.app.clone(),
+            daw_of(&o.file.root, &o.file.rel),
+        );
+        coming.insert(k.to_lowercase(), (g.clone(), &o.held.hash));
+        groups.entry(g).or_default().0.push(o);
+    }
+    // Each rename goes with its new path's copy, or on its own when that
+    // copy is here already; otherwise it waits for it.
+    for r in &renames {
+        let g = match coming.get(&r.to) {
+            Some((g, hash)) if **hash == r.hash => g.clone(),
+            Some(_) => continue,
+            None => {
+                let here = root_dir(&r.root);
+                if hash_here(here.as_deref(), &r.root, &r.to_rel).as_ref() != Some(&r.hash) {
+                    continue;
+                }
+                let old_rel = &r.old[r.root.len() + 1..];
+                (
+                    r.machine_id.clone(),
+                    r.root.clone(),
+                    r.app.clone(),
+                    daw_of(&r.root, old_rel),
+                )
+            }
+        };
+        groups.entry(g).or_default().1.push(r);
     }
     let mut waiting = BTreeSet::new();
-    for ((_, root, app), offers) in groups {
+    for ((machine_id, root, app, daw), (offers, moves)) in groups {
         let Some(here_dir) = root_dir(&root) else {
             waiting.insert(format!("{app}'s folder isn't on this machine yet"));
             continue;
         };
-        if root == ABLETON_USER_LIBRARY && daw_running(Daw::Ableton) {
-            waiting.insert(format!("{} is open", Daw::Ableton.display_name()));
+        if let Some(d) = daw.and_then(Daw::parse)
+            && daw_running(d)
+        {
+            waiting.insert(format!("{} is open", d.display_name()));
             continue;
         }
-        let from = &offers[0].backup;
+        let Some(from) = backups.iter().find(|b| b.machine_id == machine_id) else {
+            continue;
+        };
+        let remove: Vec<String> = moves
+            .iter()
+            .filter_map(|r| spelled_here(&here_dir, &r.old[r.root.len() + 1..]))
+            .collect();
         let new = offers
             .iter()
-            .filter(|o| hash_here(Some(&here_dir), &o.file.rel).is_none())
+            .filter(|o| hash_here(Some(&here_dir), &root, &o.file.rel).is_none())
+            .filter(|o| !moves.iter().any(|r| r.to == o.file.key().to_lowercase()))
             .count();
         let files: Vec<(String, Vec<u8>)> = offers
             .iter()
-            .filter_map(|o| Some((o.file.rel.clone(), bytes.get(&o.file.key())?.clone())))
+            .filter_map(|o| {
+                let bytes = bytes.get(&o.file.key())?.clone();
+                // Key maps arrive spelled portably: point them here.
+                let bytes = bring::adapt_for_here(
+                    &o.backup.scan,
+                    &root,
+                    &o.file.rel,
+                    &here_dir,
+                    this_os(),
+                    bytes,
+                );
+                Some((o.file.rel.clone(), bytes))
+            })
             .collect();
-        let label = format!(
-            "Kept in sync: {} {app} file{} from {}",
-            files.len(),
-            if files.len() == 1 { "" } else { "s" },
-            from.machine_name
-        );
-        match bring::write_files(store, blobs, this, &label, &root, &here_dir, &files, now) {
+        let name = |rel: &str| rel.rsplit('/').next().unwrap_or(rel).to_owned();
+        let only_the_move = |r: &Rename| match &files[..] {
+            [] => true,
+            [(rel, _)] => rel.to_lowercase() == r.to_rel.to_lowercase(),
+            _ => false,
+        };
+        let label = match &moves[..] {
+            [r] if only_the_move(r) => format!(
+                "Kept in sync: {} renamed to {}, as on {}",
+                name(&remove.first().cloned().unwrap_or_default()),
+                name(&r.to_rel),
+                from.machine_name
+            ),
+            _ => format!(
+                "Kept in sync: {} {app} file{} from {}{}",
+                files.len(),
+                if files.len() == 1 { "" } else { "s" },
+                from.machine_name,
+                if moves.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {} renamed", moves.len())
+                }
+            ),
+        };
+        match bring::write_changes(
+            store, blobs, this, &label, &root, &here_dir, &files, &remove, now,
+        ) {
             Ok(w) => {
                 for o in &offers {
                     let key = o.file.key().to_lowercase();
@@ -468,12 +660,23 @@ pub fn sync_in(
                     state.synced.insert(key.clone(), o.held.hash.clone());
                     state.conflicts.retain(|c| c.key() != key);
                 }
-                source(&mut report, &from.machine_id).placed += w.written;
+                for r in &moves {
+                    let seen = state.seen.entry(r.machine_id.clone()).or_default();
+                    seen.remove(&r.old);
+                    seen.insert(r.to.clone(), r.hash.clone());
+                    state.synced.remove(&r.old);
+                    state.synced.insert(r.to.clone(), r.hash.clone());
+                    state.conflicts.retain(|c| c.key() != r.old);
+                }
+                let src = source(&mut report, &from.machine_id);
+                src.placed += w.written;
+                src.renamed += w.removed;
                 report.placed.push(Placed {
                     machine_name: from.machine_name.clone(),
                     app,
                     files: w.written,
                     new,
+                    renamed: w.removed,
                     restore_point: w.restore_point,
                 });
             }
@@ -482,7 +685,7 @@ pub fn sync_in(
             }
         }
     }
-    report.placed.retain(|p| p.files > 0);
+    report.placed.retain(|p| p.files > 0 || p.renamed > 0);
     for src in &mut report.sources {
         let Some(b) = backups.iter().find(|b| b.machine_id == src.machine_id) else {
             continue;
@@ -491,7 +694,7 @@ pub fn sync_in(
         src.same = b
             .files
             .iter()
-            .filter(|f| syncs(&f.root, &f.rel))
+            .filter(|f| syncs(&f.root))
             .filter(|f| {
                 let key = f.key().to_lowercase();
                 seen.and_then(|s| s.get(&key)) == Some(&f.hash)
@@ -561,6 +764,7 @@ pub fn settle(
             })?;
         let bytes = backup::bytes_of(&b, held)
             .ok_or("That copy hasn't finished downloading yet. Try again shortly.")?;
+        let bytes = bring::adapt_for_here(&b.scan, root, rel, &here_dir, this_os(), bytes);
         let label = format!(
             "Kept in sync: used {}'s copy of {}",
             conflict.machine_name,
@@ -577,7 +781,7 @@ pub fn settle(
             now,
         )?;
         state.synced.insert(key.clone(), conflict.theirs.clone());
-    } else if let Some(h) = hash_here(Some(&here_dir), rel) {
+    } else if let Some(h) = hash_here(Some(&here_dir), root, rel) {
         // This copy is now the synced one: the next backup sends it out.
         state.synced.insert(key.clone(), h);
     }
@@ -599,6 +803,7 @@ mod tests {
     use patchpilot_core::{
         Arch, Confidence, Item, ItemKind, MachineInfo, Manifest, Os, PathMap, PortablePath,
     };
+    use patchpilot_parity::reaper::REAPER_RESOURCES;
     use patchpilot_store::SnapshotReason;
 
     const DRUMS: &str = "TrackTemplates/Drums.RTrackTemplate";
@@ -621,6 +826,22 @@ mod tests {
 
     /// Scan `id`'s Reaper folder `dir` as it is now, and save it.
     fn scan(store: &mut Store, id: &str, name: &str, dir: &Path, rels: &[&str], at: i64) {
+        scan_roots(store, id, name, &[(REAPER_RESOURCES, dir, rels)], at);
+    }
+
+    /// Scan `id`'s folders (logical root, folder, files below it) as they
+    /// are now, and save it.
+    fn scan_roots(
+        store: &mut Store,
+        id: &str,
+        name: &str,
+        roots: &[(&str, &Path, &[&str])],
+        at: i64,
+    ) {
+        let mut path_map = PathMap::new(Os::Macos);
+        for (root, dir, _) in roots {
+            path_map = path_map.with_root(*root, dir.to_string_lossy());
+        }
         let mut m = Manifest::new(
             MachineInfo {
                 id: id.into(),
@@ -628,31 +849,32 @@ mod tests {
                 os: Os::Macos,
                 os_version: None,
                 arch: Arch::Aarch64,
-                path_map: PathMap::new(Os::Macos)
-                    .with_root(REAPER_RESOURCES, dir.to_string_lossy()),
+                path_map,
             },
             at,
         );
-        m.items = rels
-            .iter()
-            .filter(|r| path(dir, r).is_file())
-            .map(|r| Item {
-                kind: ItemKind::DawAsset,
-                product_id: None,
-                format: None,
-                platform: Os::Macos,
-                arch: None,
-                version: None,
-                path: PortablePath::logical(REAPER_RESOURCES, *r),
-                content_hash: None,
-                size: std::fs::metadata(path(dir, r)).ok().map(|m| m.len()),
-                mtime: None,
-                platform_portable: true,
-                confidence: Confidence::High,
-                requires: Vec::new(),
-                needs_files: Vec::new(),
-            })
-            .collect();
+        for (root, dir, rels) in roots {
+            m.items.extend(
+                rels.iter()
+                    .filter(|r| path(dir, r).is_file())
+                    .map(|r| Item {
+                        kind: ItemKind::DawAsset,
+                        product_id: None,
+                        format: None,
+                        platform: Os::Macos,
+                        arch: None,
+                        version: None,
+                        path: PortablePath::logical(*root, *r),
+                        content_hash: None,
+                        size: std::fs::metadata(path(dir, r)).ok().map(|m| m.len()),
+                        mtime: None,
+                        platform_portable: true,
+                        confidence: Confidence::High,
+                        requires: Vec::new(),
+                        needs_files: Vec::new(),
+                    }),
+            );
+        }
         store.save_manifest(&m, SnapshotReason::Scan, at).unwrap();
     }
 
@@ -669,19 +891,19 @@ mod tests {
 
         put(&mac, DRUMS, "drums v1");
         put(&mac, VOCAL, "vocal");
-        put(&mac, KEYS, "[keys] mac");
+        put(&mac, KEYS, "[keys] same");
         put(&pc, DRUMS, "drums v1");
-        put(&pc, KEYS, "[keys] pc");
+        put(&pc, KEYS, "[keys] same");
         scan(&mut store, "mac", "MacBook", &mac, &all, 1);
         scan(&mut store, "pc", "Studio PC", &pc, &all, 1);
         back_up(&store, "mac", None, &dir, 1_000).unwrap();
 
-        // New file placed; the same one left; settings never synced.
+        // New file placed; the same ones left.
         let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
         assert_eq!(r.files_placed(), 1, "{r:?}");
         assert_eq!(r.placed[0].new, 1);
         assert_eq!(read(&pc, VOCAL).as_deref(), Some("vocal"));
-        assert_eq!(read(&pc, KEYS).as_deref(), Some("[keys] pc"));
+        assert_eq!(read(&pc, KEYS).as_deref(), Some("[keys] same"));
         assert_eq!(r.new_conflicts, 0);
         let points = store.restore_points("pc").unwrap();
         assert_eq!(points.len(), 1);
@@ -693,8 +915,7 @@ mod tests {
         let src = &again.sources[0];
         assert_eq!(
             (src.machine_name.as_str(), src.files, src.same, src.linked),
-            ("MacBook", 2, 2, true),
-            "settings aren't counted"
+            ("MacBook", 3, 3, true),
         );
 
         // Changed on the Mac: replaces the PC's untouched copy.
@@ -905,5 +1126,260 @@ mod tests {
         let r = sync_in(&mut store, &blobs, "mac", &dir, &mut state, 4).unwrap();
         assert_eq!((r.files_placed(), state.conflicts.len()), (1, 0), "{r:?}");
         assert_eq!(read(&mac, DRUMS).as_deref(), Some("drums new"));
+    }
+    #[test]
+    fn settings_travel_with_paths_for_here_and_wait_while_the_daw_is_open() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac REAPER");
+        let pc = tmp.path().join("PC REAPER");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        const MOUSE: &str = "reaper-mouse.ini";
+        let all = [KEYS, MOUSE, DRUMS];
+        let mut store = Store::open_in_memory().unwrap();
+        let mut state = SyncState::default();
+        let script = |dir: &Path| path(dir, "Scripts/Tools/a.lua").display().to_string();
+
+        let kb = |dir: &Path, key: u32| {
+            format!(
+                "KEY 1 {key} 40001 0\nSCR 4 0 RS1 \"Custom: a.lua\" \"{}\"\n",
+                script(dir)
+            )
+        };
+        put(&mac, KEYS, &kb(&mac, 65));
+        put(&mac, MOUSE, "[MM_CTX_ITEM]\nmm_0=1\n");
+        put(&pc, KEYS, &kb(&pc, 65));
+        put(&pc, MOUSE, "[MM_CTX_ITEM]\nmm_0=1\n");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 1);
+        scan(&mut store, "pc", "Studio PC", &pc, &all, 1);
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        // The same shortcuts with each machine's own paths are the same.
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (0, 0), "{r:?}");
+
+        // A new shortcut and mouse modifier on the Mac come to the PC, with
+        // the script path pointing into the PC's folder.
+        put(&mac, KEYS, &kb(&mac, 66));
+        put(&mac, MOUSE, "[MM_CTX_ITEM]\nmm_0=7\n");
+        put(&mac, DRUMS, "drums");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 3);
+        back_up(&store, "mac", None, &dir, 2_000).unwrap();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
+        // Templates never wait for Reaper.
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums"));
+        if daw_running(Daw::Reaper) {
+            assert!(r.waiting.contains(&"Reaper is open".to_owned()), "{r:?}");
+            assert_eq!(read(&pc, KEYS), Some(kb(&pc, 65)));
+            return;
+        }
+        assert!(r.waiting.is_empty(), "{r:?}");
+        assert_eq!(read(&pc, KEYS), Some(kb(&pc, 66)));
+        assert_eq!(read(&pc, MOUSE).as_deref(), Some("[MM_CTX_ITEM]\nmm_0=7\n"));
+        let points = store.restore_points("pc").unwrap();
+        assert!(
+            points.iter().any(|p| p.daw.as_deref() == Some("reaper")
+                && p.label == "Kept in sync: 2 Reaper files from MacBook"),
+            "{points:?}"
+        );
+        // Placed once: nothing more to do.
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 5).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (0, 0), "{r:?}");
+    }
+
+    #[test]
+    fn collection_names_renamed_on_one_machine_are_renamed_on_the_other() {
+        use patchpilot_parity::ableton::{ABLETON_PREFS, LIBRARY_CFG, set_collection_names};
+        if crate::apps::ableton_live_running() {
+            return;
+        }
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/parity/ableton/prefs-mac/Live 12.1.5/Library.cfg");
+        let cfg = std::fs::read_to_string(fixture).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac Live 12.1.5");
+        let pc = tmp.path().join("PC Live 12.4.2");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        put(&mac, LIBRARY_CFG, &cfg);
+        // The PC's own User Library path stays whatever the names do.
+        let pc_cfg = cfg.replace("/Users/alice", "D:/Dropbox");
+        put(&pc, LIBRARY_CFG, &pc_cfg);
+        let mut store = Store::open_in_memory().unwrap();
+        let rels: &[&str] = &[LIBRARY_CFG];
+        scan_roots(
+            &mut store,
+            "mac",
+            "MacBook",
+            &[(ABLETON_PREFS, &mac, rels)],
+            1,
+        );
+        scan_roots(
+            &mut store,
+            "pc",
+            "Studio PC",
+            &[(ABLETON_PREFS, &pc, rels)],
+            1,
+        );
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        let mut state = SyncState::default();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (0, 0), "{r:?}");
+
+        let renamed = set_collection_names(&cfg, "1\tKicks\n2\tSynths & Keys\n").unwrap();
+        put(&mac, LIBRARY_CFG, &renamed);
+        scan_roots(
+            &mut store,
+            "mac",
+            "MacBook",
+            &[(ABLETON_PREFS, &mac, rels)],
+            3,
+        );
+        back_up(&store, "mac", None, &dir, 2_000).unwrap();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (1, 0), "{r:?}");
+        let now = read(&pc, LIBRARY_CFG).unwrap();
+        assert!(now.contains(r#"Uri="color:colors=1" DisplayName="Kicks""#));
+        assert!(now.contains("D:/Dropbox/Music/Ableton/User Library"));
+        assert!(!now.contains("/Users/alice"));
+    }
+
+    #[test]
+    fn renamed_and_moved_files_are_renamed_here_and_undo_puts_them_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac REAPER");
+        let pc = tmp.path().join("PC REAPER");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        const BUS: &str = "TrackTemplates/Drums Bus.RTrackTemplate";
+        const NESTED: &str = "FXChains/Old/Vocal Bus.RfxChain";
+        const EDITED: &str = "FXChains/Keys.RfxChain";
+        const KEYS_NEW: &str = "FXChains/Keys Bus.RfxChain";
+        let all = [DRUMS, BUS, VOCAL, NESTED, EDITED, KEYS_NEW];
+        let mut store = Store::open_in_memory().unwrap();
+        let mut state = SyncState::default();
+        for m in [&mac, &pc] {
+            put(m, DRUMS, "drums");
+            put(m, NESTED, "vocal");
+            put(m, EDITED, "keys");
+        }
+        scan(&mut store, "mac", "MacBook", &mac, &all, 1);
+        scan(&mut store, "pc", "Studio PC", &pc, &all, 1);
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
+
+        // Renamed, moved up a folder, and renamed after an edit here.
+        std::fs::rename(path(&mac, DRUMS), path(&mac, BUS)).unwrap();
+        std::fs::rename(path(&mac, NESTED), path(&mac, VOCAL)).unwrap();
+        std::fs::rename(path(&mac, EDITED), path(&mac, KEYS_NEW)).unwrap();
+        put(&pc, EDITED, "keys edited on the pc");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 3);
+        back_up(&store, "mac", None, &dir, 2_000).unwrap();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
+        assert_eq!(r.new_conflicts, 0, "{r:?}");
+        assert_eq!(read(&pc, BUS).as_deref(), Some("drums"));
+        assert!(
+            read(&pc, DRUMS).is_none(),
+            "no second copy under the old name"
+        );
+        assert_eq!(read(&pc, VOCAL).as_deref(), Some("vocal"));
+        assert!(read(&pc, NESTED).is_none());
+        assert!(
+            !path(&pc, "FXChains/Old").exists(),
+            "emptied folder removed"
+        );
+        assert!(path(&pc, "FXChains").is_dir());
+        // An edit here is never removed; the new name comes over beside it.
+        assert_eq!(read(&pc, EDITED).as_deref(), Some("keys edited on the pc"));
+        assert_eq!(read(&pc, KEYS_NEW).as_deref(), Some("keys"));
+        assert_eq!(
+            r.placed.iter().map(|p| p.renamed).sum::<usize>(),
+            2,
+            "{r:?}"
+        );
+
+        // Nothing more to do, and the old names don't come back.
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 5).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (0, 0), "{r:?}");
+        assert!(read(&pc, DRUMS).is_none());
+
+        // Undo puts the old names back and takes the new ones away.
+        let point = store.restore_points("pc").unwrap()[0].clone();
+        assert!(
+            point
+                .label
+                .starts_with("Kept in sync: 3 Reaper files from MacBook, 2 renamed"),
+            "{}",
+            point.label
+        );
+        crate::restore::undo(&mut store, &blobs, point.id, 6).unwrap();
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums"));
+        assert_eq!(read(&pc, NESTED).as_deref(), Some("vocal"));
+        assert!(read(&pc, BUS).is_none());
+    }
+
+    #[test]
+    fn a_single_rename_says_so_and_waits_for_nothing_already_here() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac REAPER");
+        let pc = tmp.path().join("PC REAPER");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        const BUS: &str = "TrackTemplates/Drums Bus.RTrackTemplate";
+        let all = [DRUMS, BUS];
+        let mut store = Store::open_in_memory().unwrap();
+        let mut state = SyncState::default();
+        put(&mac, DRUMS, "drums");
+        put(&pc, DRUMS, "drums");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 1);
+        scan(&mut store, "pc", "Studio PC", &pc, &all, 1);
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
+
+        std::fs::rename(path(&mac, DRUMS), path(&mac, BUS)).unwrap();
+        // The PC already has the new name too (copied by hand).
+        put(&pc, BUS, "drums");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 3);
+        back_up(&store, "mac", None, &dir, 2_000).unwrap();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
+        assert_eq!(r.placed.len(), 1, "{r:?}");
+        assert_eq!((r.placed[0].files, r.placed[0].renamed), (0, 1));
+        assert!(read(&pc, DRUMS).is_none());
+        assert_eq!(
+            store.restore_points("pc").unwrap()[0].label,
+            "Kept in sync: Drums.RTrackTemplate renamed to Drums Bus.RTrackTemplate, as on MacBook"
+        );
+    }
+
+    #[test]
+    fn a_deleted_file_is_not_mistaken_for_a_rename_later() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac REAPER");
+        let pc = tmp.path().join("PC REAPER");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        const COPY: &str = "TrackTemplates/Drums copy.RTrackTemplate";
+        let all = [DRUMS, COPY];
+        let mut store = Store::open_in_memory().unwrap();
+        let mut state = SyncState::default();
+        put(&mac, DRUMS, "drums");
+        put(&pc, DRUMS, "drums");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 1);
+        scan(&mut store, "pc", "Studio PC", &pc, &all, 1);
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
+        // Deleted on the Mac: stays on the PC.
+        std::fs::remove_file(path(&mac, DRUMS)).unwrap();
+        scan(&mut store, "mac", "MacBook", &mac, &all, 3);
+        back_up(&store, "mac", None, &dir, 2_000).unwrap();
+        sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums"));
+        // Much later the same copy is saved under another name there: a new
+        // file, not a rename of the one the PC kept.
+        put(&mac, COPY, "drums");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 5);
+        back_up(&store, "mac", None, &dir, 3_000).unwrap();
+        sync_in(&mut store, &blobs, "pc", &dir, &mut state, 6).unwrap();
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums"));
+        assert_eq!(read(&pc, COPY).as_deref(), Some("drums"));
     }
 }

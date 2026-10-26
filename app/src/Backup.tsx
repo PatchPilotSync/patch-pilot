@@ -185,7 +185,7 @@ function syncLine(sync: SyncView, where: string, github: string | null): [Tone, 
   const last = sync.last;
   if (sync.linked === 0) return ["accent", `Backed up to ${where}. Link another machine to keep files in sync with it.`];
   if (last && last.waiting.length > 0)
-    return ["warn", `New files are waiting: ${last.waiting.join("; ")}. Trying again shortly.`];
+    return ["warn", `Some changes are waiting: ${last.waiting.join("; ")}. Trying again shortly.`];
   const sources = (last?.sources ?? []).filter((s) => s.linked);
   if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
   if (sources.length === 0)
@@ -197,8 +197,14 @@ function syncLine(sync: SyncView, where: string, github: string | null): [Tone, 
   if (downloading > 0)
     return ["accent", `Bringing over ${plural(downloading, "file")} from ${names((s) => s.downloading > 0)} as ${where} downloads them…`];
   const placed = sources.reduce((a, s) => a + s.placed, 0);
-  if (placed > 0)
-    return ["ok", `Brought over ${plural(placed, "file")} from ${names((s) => s.placed > 0)}. Undo in History.`];
+  const renamed = sources.reduce((a, s) => a + s.renamed, 0);
+  if (placed > 0 || renamed > 0) {
+    const what = [placed > 0 && `brought over ${plural(placed, "file")}`, renamed > 0 && `renamed ${plural(renamed, "file")}`]
+      .filter(Boolean)
+      .join(" and ");
+    const from = names((s) => s.placed > 0 || s.renamed > 0);
+    return ["ok", `${what[0].toUpperCase()}${what.slice(1)} from ${from}. Undo in History.`];
+  }
   return ["ok", `In sync with ${names(() => true)} through ${where}, checked ${timeAgo(last.looked_at)}.`];
 }
 
@@ -552,6 +558,7 @@ function SyncSummary({ sync }: { sync: SyncView }) {
                 `backed up ${timeAgo(s.made_at)}, ${plural(s.files, "file")}`,
                 `${s.same.toLocaleString()} the same here`,
                 s.placed > 0 && `${s.placed.toLocaleString()} brought over`,
+                s.renamed > 0 && `${s.renamed.toLocaleString()} renamed`,
                 s.to_choose > 0 && `${s.to_choose.toLocaleString()} to choose`,
                 s.downloading > 0 && `${s.downloading.toLocaleString()} downloading`,
               ]
@@ -561,8 +568,9 @@ function SyncSummary({ sync }: { sync: SyncView }) {
         </p>
       ))}
       <p>
-        When two machines first sync, the Primary Rig's copy of a file wins. After that, new and changed files travel
-        both ways. Deleted files and settings (key maps, Live's preferences) never sync on their own.
+        When two machines first sync, the Primary Rig's copy of a file wins. After that, new, changed and renamed files
+        travel both ways, and so do Reaper's shortcuts, menus and mouse modifiers and Live's Collection names (once the
+        app is closed). Deleted files and machine settings (audio device, MIDI, plug-in folders) never sync.
       </p>
       {sync.error && <p className="text-warn">{sync.error}</p>}
     </div>

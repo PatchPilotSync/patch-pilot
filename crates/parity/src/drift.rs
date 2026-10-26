@@ -55,6 +55,8 @@ impl SuggestionGroup {
             Self::Templates
         } else if under("reaper-theme/") {
             Self::Themes
+        } else if under("reaper-preset/") {
+            Self::Presets
         } else if under(crate::ableton::PRODUCT_PREFIX) {
             match r.kind {
                 ItemKind::Config => Self::Configs,

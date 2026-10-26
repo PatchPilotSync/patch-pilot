@@ -543,6 +543,8 @@ export interface SyncPlaced {
   files: number;
   /** New here, rather than a newer copy. */
   new: number;
+  /** Renamed or moved here, as they were on that machine. */
+  renamed: number;
   restore_point: number | null;
 }
 
@@ -562,10 +564,12 @@ export interface SyncSource {
   machine_id: string;
   machine_name: string;
   made_at: number;
-  /** Files in it that sync (not settings). */
+  /** Files in it that sync (every one but the Installer Vault's index). */
   files: number;
   same: number;
   placed: number;
+  /** Renamed or moved here this time, as they were there. */
+  renamed: number;
   to_choose: number;
   downloading: number;
   /** False for a machine not linked to this one: its backup is left alone. */
