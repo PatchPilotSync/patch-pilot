@@ -4,6 +4,16 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.9 - 2026-10-26
+
+### Improved
+
+- Keep Files in Sync now catches a machine up to your Primary Rig. When two machines sync for the first time and a file differs, the Primary Rig's copy wins (you can undo it in History) instead of asking about every file.
+- The Sync & backup line says what syncing is doing: how many files from each machine are already the same, brought over, still downloading, or waiting for you to choose. **Check now** looks in your cloud folder straight away.
+- More reliable pickup from Dropbox and OneDrive on Mac, which don't always report files they download: Patch Pilot looks again a few minutes after another machine scans, and keeps checking while files are still arriving.
+- "Restore" from a backup is now called **Sync with**, so it's clearer what it does.
+- "Files skipped" in a backup now explains itself: click it to see each file, where it is, why it was left out (too big, with its size, or couldn't be read) and what to do.
+
 ## 0.4.8 - 2026-10-26
 
 ### New
