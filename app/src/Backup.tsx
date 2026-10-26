@@ -12,27 +12,31 @@ import {
   setBackupFolder,
   setKeepInSync,
   settleConflict,
+  syncLookNow,
   syncView,
   type BackupSet,
   type BackupView,
   type FileToBring,
   type RestoreReport,
   type RestoreView,
+  type SkippedFile,
   type SyncConflict,
+  type SyncSource,
   type SyncView,
 } from "./api";
 import { FolderPicker } from "./BigFiles";
 import { GitHubSetup } from "./GitHub";
 import { groupByApp, summaryOf } from "./BringOver";
 import { Button, Notice, timeAgo } from "./ui";
+import { formatSize } from "./screens/VaultTriage";
 
 /**
  * Sync and backup (decisions #67 and #70): one line on This machine. Once a
  * cloud folder is picked, new and changed templates, scripts and presets keep
  * themselves in sync with linked machines through it, and every change is
- * backed up there. Show opens the folder, the switches and Restore. On a
+ * backed up there. Show opens the folder, the switches and Sync with. On a
  * fresh machine that finds another machine's backup, the line offers to
- * restore it. `openAt` opens the line (the tray's Keep Files in Sync with no
+ * sync with it. `openAt` opens the line (the tray's Keep Files in Sync with no
  * folder picked yet).
  */
 export function BackupLine({
@@ -73,12 +77,23 @@ export function BackupLine({
     }
   }
 
-  let tone: "ok" | "accent" | "warn" = "ok";
+  async function check() {
+    setBusy(true);
+    try {
+      setSync(await syncLookNow());
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  let tone: Tone = "ok";
   let text: ReactNode;
   if (!view.settings.folder) {
     tone = "accent";
     text = fresh
-      ? "Keep your files in sync through a cloud folder, or restore them from a backup."
+      ? "Keep your files in sync through a cloud folder, or sync with another machine's backup."
       : "Keep templates, scripts and presets in sync between your machines through a cloud folder.";
   } else if (!view.dir) {
     tone = "warn";
@@ -88,16 +103,9 @@ export function BackupLine({
     text = `The last backup didn't finish: ${view.error}`;
   } else if (offerRestore) {
     tone = "accent";
-    text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Restore it here?`;
+    text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Sync with it?`;
   } else if (syncing) {
-    const waiting = sync.last?.waiting ?? [];
-    if (waiting.length > 0) tone = "warn";
-    text =
-      sync.linked === 0
-        ? `Backed up to ${where}. Link another machine to keep files in sync with it.`
-        : waiting.length > 0
-          ? `New files are waiting: ${waiting.join("; ")}. Trying again shortly.`
-          : `In sync through ${where}${latest ? `, backed up ${timeAgo(latest.made_at)}` : ""}.`;
+    [tone, text] = syncLine(sync, where);
   } else if (latest) {
     text = `Backed up ${timeAgo(latest.made_at)} to ${where}${view.settings.auto ? ", after every change" : ""}. Syncing is off.`;
   } else {
@@ -115,24 +123,55 @@ export function BackupLine({
           </span>
         }
         actions={
-          // Backups run on their own while syncing; the button is for by-hand backups.
           view.dir &&
-          !syncing &&
-          !offerRestore && (
+          !offerRestore &&
+          (syncing ? (
+            // Looks on its own too; this is for "why hasn't it come over yet?".
+            <Button variant="link" onClick={check} disabled={busy} className="h-6 shrink-0 px-2">
+              {busy ? "Checking…" : "Check now"}
+            </Button>
+          ) : (
+            // Backups run on their own while syncing; the button is for by-hand backups.
             <Button variant="link" onClick={now} disabled={busy || view.running} className="h-6 shrink-0 px-2">
               {busy || view.running ? "Backing up…" : "Back up now"}
             </Button>
-          )
+          ))
         }
         open={open}
         onToggle={() => setOpen((o) => !o)}
-        toggle={[view.settings.folder ? (offerRestore ? "Restore…" : "Show") : "Set up", "Hide"]}
+        toggle={[view.settings.folder ? (offerRestore ? "Sync with…" : "Show") : "Set up", "Hide"]}
       >
         <Details view={view} onView={setView} sync={sync} onSync={setSync} onError={onError} />
       </Notice>
       <Conflicts sync={sync} onSync={setSync} onError={onError} />
     </>
   );
+}
+
+type Tone = "ok" | "accent" | "warn";
+
+/**
+ * The Sync & backup line while syncing: what the other machines' backups
+ * brought (or why nothing came yet), so a machine behind the Primary Rig
+ * can see it catching up.
+ */
+function syncLine(sync: SyncView, where: string): [Tone, string] {
+  const last = sync.last;
+  if (sync.linked === 0) return ["accent", `Backed up to ${where}. Link another machine to keep files in sync with it.`];
+  if (last && last.waiting.length > 0)
+    return ["warn", `New files are waiting: ${last.waiting.join("; ")}. Trying again shortly.`];
+  const sources = (last?.sources ?? []).filter((s) => s.linked);
+  if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
+  if (sources.length === 0)
+    return ["accent", `No other machine's files in ${where} yet. Turn on Keep Files in Sync on your other machine too.`];
+  const names = (f: (s: SyncSource) => boolean) => sources.filter(f).map((s) => s.machine_name).join(", ");
+  const downloading = sources.reduce((a, s) => a + s.downloading, 0);
+  if (downloading > 0)
+    return ["accent", `Bringing over ${plural(downloading, "file")} from ${names((s) => s.downloading > 0)} as ${where} downloads them…`];
+  const placed = sources.reduce((a, s) => a + s.placed, 0);
+  if (placed > 0)
+    return ["ok", `Brought over ${plural(placed, "file")} from ${names((s) => s.placed > 0)}. Undo in History.`];
+  return ["ok", `In sync with ${names(() => true)} through ${where}, checked ${timeAgo(last.looked_at)}.`];
 }
 
 /** Whether files are kept in sync, reloaded when that or the backup changes. */
@@ -229,7 +268,7 @@ function useBackupView(onError: (e: string) => void) {
   return [view, setView, load] as const;
 }
 
-/** Set up's "Restore from a backup": pick the folder, then what to restore. */
+/** Set up's "Sync with a backup": pick the folder, then what to bring over. */
 export function RestoreFromBackup({ onError }: { onError: (e: string) => void }) {
   const [view, setView] = useBackupView(onError);
   if (!view) return null;
@@ -385,16 +424,42 @@ function Details({
           {last.unchanged
             ? `Nothing changed since the last backup (${plural(last.files, "file")}).`
             : `Last backup copied ${plural(last.copied, "changed file")}${last.versioned ? ` and kept ${plural(last.versioned, "earlier copy", "earlier copies")}` : ""}.`}
-          {last.skipped.length > 0 && (
-            <span className="text-warn" title={last.skipped.join("\n")}>
-              {" "}
-              {plural(last.skipped.length, "file")} skipped (too big, or couldn't be read).
-            </span>
-          )}
         </p>
       )}
+      {last && last.skipped.length > 0 && <Skipped files={last.skipped} />}
       {sync?.on && <SyncSummary sync={sync} />}
       <Restore sets={view.sets} thisMachine={view.this_machine} onError={onError} />
+    </div>
+  );
+}
+
+/** "2 files left out", opening to say which, why, and what to do. */
+function Skipped({ files }: { files: SkippedFile[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="text-[11px]">
+      <Button variant="link" className="h-5 px-0 text-warn" onClick={() => setOpen(!open)}>
+        {plural(files.length, "file")} left out of the backup {open ? "▾" : "▸"}
+      </Button>
+      {open && (
+        <ul className="mt-1 space-y-1.5">
+          {files.map((f) => (
+            <li key={f.path} className="min-w-0">
+              <div className="truncate font-medium" title={f.path}>
+                {f.name}
+              </div>
+              <div className="truncate text-dim" title={f.path}>
+                {f.path}
+              </div>
+              <div className="text-dim">
+                {f.too_big !== null
+                  ? `Too big to back up (${formatSize(f.too_big)}), so it stays on this machine only. Copy it over yourself if another machine needs it.`
+                  : `Couldn't be read: ${f.error ?? "unknown error"}. Close any app that has it open, then Back up now.`}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -419,17 +484,33 @@ export function SyncHint() {
   );
 }
 
+/** Each other machine's latest backup, as this machine sees it. */
 function SyncSummary({ sync }: { sync: SyncView }) {
-  const placed = sync.last?.placed ?? [];
-  const n = placed.reduce((a, p) => a + p.files, 0);
+  const sources = sync.last?.sources ?? [];
   return (
-    <p className="text-[11px] text-dim">
-      {n > 0
-        ? `Last brought in ${plural(n, "file")} from ${[...new Set(placed.map((p) => p.machine_name))].join(", ")}; History can undo it.`
-        : "Files deleted on one machine stay on the others, and settings (key maps, Live's preferences) only come over when you bring them."}
-      {(sync.last?.downloading ?? 0) > 0 && ` ${plural(sync.last!.downloading, "file")} still downloading.`}
-      {sync.error && <span className="text-warn"> {sync.error}</span>}
-    </p>
+    <div className="flex flex-col gap-0.5 text-[11px] text-dim">
+      {sources.map((s) => (
+        <p key={s.machine_id} className="truncate">
+          <span className="font-medium text-fg">{s.machine_name}</span> ·{" "}
+          {s.linked
+            ? [
+                `backed up ${timeAgo(s.made_at)}, ${plural(s.files, "file")}`,
+                `${s.same.toLocaleString()} the same here`,
+                s.placed > 0 && `${s.placed.toLocaleString()} brought over`,
+                s.to_choose > 0 && `${s.to_choose.toLocaleString()} to choose`,
+                s.downloading > 0 && `${s.downloading.toLocaleString()} downloading`,
+              ]
+                .filter(Boolean)
+                .join(", ")
+            : "not linked to this machine, so left alone"}
+        </p>
+      ))}
+      <p>
+        When two machines first sync, the Primary Rig's copy of a file wins. After that, new and changed files travel
+        both ways. Deleted files and settings (key maps, Live's preferences) never sync on their own.
+      </p>
+      {sync.error && <p className="text-warn">{sync.error}</p>}
+    </div>
   );
 }
 
@@ -502,9 +583,9 @@ export function Restore({
   return (
     <div className="flex flex-col gap-1 border-t border-line pt-1.5">
       <div className="flex items-center gap-1.5 text-[11px]">
-        <span className="shrink-0 font-medium">Restore</span>
+        <span className="shrink-0 font-medium">Sync with</span>
         <select
-          aria-label="Backup to restore"
+          aria-label="Backup to sync with"
           className="h-6 min-w-0 flex-1 rounded-[5px] border border-line bg-panel px-1.5 text-[11px]"
           value={pick}
           onChange={(e) => {
@@ -520,7 +601,7 @@ export function Restore({
         </select>
         {picked.length > 0 && (
           <Button onClick={restore} disabled={busy} className="h-6 shrink-0 whitespace-nowrap px-2.5">
-            {busy ? "Restoring…" : `Restore ${picked.length}`}
+            {busy ? "Syncing…" : `Sync ${plural(picked.length, "file")}`}
           </Button>
         )}
       </div>
@@ -571,10 +652,10 @@ const replacing = (fs: FileToBring[]) => fs.filter((f) => f.replaces).length;
 function restoreSummary(r: RestoreReport): string {
   let text =
     r.written > 0
-      ? `Restored ${plural(r.written, "file")}. You can undo this in History.`
+      ? `Brought over ${plural(r.written, "file")}. You can undo this in History.`
       : r.same > 0
         ? "This machine already had those files."
-        : "Nothing was restored.";
+        : "Nothing was brought over.";
   if (r.unavailable.length > 0)
     text += ` ${plural(r.unavailable.length, "file")} couldn't be read from the backup yet (still downloading?); try again shortly.`;
   if (r.held_back.length > 0)

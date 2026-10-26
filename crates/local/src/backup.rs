@@ -175,11 +175,37 @@ pub struct BackupReport {
     /// Files in the backup.
     pub files: usize,
     /// Files that couldn't be read, or are too big to keep.
-    pub skipped: Vec<String>,
+    pub skipped: Vec<SkippedFile>,
     /// The backup now newest: a new one, or the last one if nothing changed.
     pub stamp: Option<String>,
     /// Nothing changed since the last backup, so none was made.
     pub unchanged: bool,
+}
+
+/// A file left out of a backup, and why. Mirrored in `app/src/api.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SkippedFile {
+    pub name: String,
+    /// Where it is on this machine.
+    pub path: String,
+    /// Its size, when it was left out for being over [`MAX_BACKUP_BYTES`].
+    pub too_big: Option<u64>,
+    /// Why it couldn't be read, otherwise.
+    pub error: Option<String>,
+}
+
+impl SkippedFile {
+    fn new(path: &Path, too_big: Option<u64>, error: Option<String>) -> Self {
+        SkippedFile {
+            name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            path: path.display().to_string(),
+            too_big,
+            error,
+        }
+    }
 }
 
 /// Back up this machine (`this`) into `dir` (`Patch Pilot Backup`), from its
@@ -310,7 +336,7 @@ type WithBytes = (BackedUpFile, Vec<u8>);
 
 /// The files to back up from `scan`, with their bytes; the scan narrowed to
 /// them; and the paths that couldn't be backed up.
-fn collect(scan: &Manifest) -> (Vec<WithBytes>, Manifest, Vec<String>) {
+fn collect(scan: &Manifest) -> (Vec<WithBytes>, Manifest, Vec<SkippedFile>) {
     let presets = preset_folder_names(scan);
     let mut out = Vec::new();
     let mut skipped = Vec::new();
@@ -332,20 +358,20 @@ fn collect(scan: &Manifest) -> (Vec<WithBytes>, Manifest, Vec<String>) {
         let Some(path) = scan.machine.path_map.resolve(&item.path).map(PathBuf::from) else {
             continue;
         };
-        if item.size.is_some_and(|s| s > MAX_BACKUP_BYTES) {
-            skipped.push(format!("{} (too big)", path.display()));
+        if let Some(size) = item.size.filter(|&s| s > MAX_BACKUP_BYTES) {
+            skipped.push(SkippedFile::new(&path, Some(size), None));
             continue;
         }
         let bytes = match std::fs::read(&path) {
             Ok(b) if b.len() as u64 <= MAX_BACKUP_BYTES => b,
-            Ok(_) => {
-                skipped.push(format!("{} (too big)", path.display()));
+            Ok(b) => {
+                skipped.push(SkippedFile::new(&path, Some(b.len() as u64), None));
                 continue;
             }
             // Gone since the scan: the next scan and backup catch up.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => {
-                skipped.push(format!("{}: {e}", path.display()));
+                skipped.push(SkippedFile::new(&path, None, Some(e.to_string())));
                 continue;
             }
         };
@@ -917,6 +943,35 @@ mod tests {
 
     const DRUMS: &str = "TrackTemplates/Drums.RTrackTemplate";
     const VOCAL: &str = "FXChains/Vocal Bus.RfxChain";
+
+    #[test]
+    fn says_which_files_were_too_big_and_how_big() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reaper = tmp.path().join("REAPER");
+        put(&reaper, DRUMS, "drums");
+        put(&reaper, VOCAL, "vocal");
+        let mut m = scan("pc", "Studio PC", &reaper, &[DRUMS, VOCAL]);
+        m.items[1].size = Some(MAX_BACKUP_BYTES + 1);
+        let mut store = Store::open_in_memory().unwrap();
+        store.save_manifest(&m, SnapshotReason::Scan, 1).unwrap();
+
+        let dir = tmp.path().join("Dropbox").join(FOLDER_NAME);
+        let r = back_up(&store, "pc", None, &dir, 1_761_446_918).unwrap();
+        assert_eq!(r.files, 1);
+        let [f] = r.skipped.as_slice() else {
+            panic!("{:?}", r.skipped)
+        };
+        assert_eq!(f.name, "Vocal Bus.RfxChain");
+        // The fixture's path map is macOS's, so separators differ on Windows.
+        assert_eq!(
+            PathBuf::from(&f.path).canonicalize().unwrap(),
+            below(&reaper, VOCAL).canonicalize().unwrap()
+        );
+        assert_eq!(
+            (f.too_big, f.error.as_deref()),
+            (Some(MAX_BACKUP_BYTES + 1), None)
+        );
+    }
 
     #[test]
     fn backs_up_only_changes_and_keeps_every_version() {
