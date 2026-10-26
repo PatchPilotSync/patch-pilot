@@ -7,6 +7,7 @@
 
 mod anonymize;
 pub mod apps;
+pub mod backup;
 pub mod bring;
 pub mod duplicates;
 pub mod golden;

@@ -248,6 +248,7 @@ export default function App() {
               onRescan={() => scan(null)}
               onMakeGolden={golden}
               onReport={() => setReporting(true)}
+              onError={onError}
             />
           </>
         )}

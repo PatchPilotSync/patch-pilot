@@ -1,3 +1,4 @@
+import { BackupLine } from "../Backup";
 import { BigFiles } from "../BigFiles";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -24,9 +25,10 @@ interface Props {
   onRescan: () => void;
   onMakeGolden: () => void;
   onReport: () => void;
+  onError: (e: string) => void;
 }
 
-export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport }: Props) {
+export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport, onError }: Props) {
   const { machine, inventory: inv, golden } = overview;
   const [grouping, setGrouping] = useState<Grouping>("vendor");
   const [query, setQuery] = useState("");
@@ -95,6 +97,7 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
       </header>
 
       <GoldenCard golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
+      <BackupLine onError={onError} fresh={!golden} />
 
       {/* Errors here surface where the files are listed, on Up To Speed. */}
       <BigFiles onError={() => {}} className="mx-4 mt-2" />

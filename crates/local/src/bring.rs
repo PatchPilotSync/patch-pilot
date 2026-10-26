@@ -142,7 +142,9 @@ fn shared_root(root: &str) -> Option<&'static SharedRoot> {
 
 /// The shared root, logical root, path and label of a path, if Bring over
 /// handles it.
-fn classify(path: &PortablePath) -> Option<(&'static SharedRoot, &str, &str, &'static str)> {
+pub(crate) fn classify(
+    path: &PortablePath,
+) -> Option<(&'static SharedRoot, &str, &str, &'static str)> {
     let PortablePath::Logical { root, rel } = path else {
         return None;
     };
@@ -485,6 +487,9 @@ fn default_reaper_dir() -> Option<PathBuf> {
     let home = crate::home_dir().unwrap_or_default();
     reaper_resource_dir(os, &appdata, &home).filter(|d| d.is_dir())
 }
+
+/// A file's `rel` below its root and its bytes, as [`write_files`] takes them.
+pub type Fetched = (String, Vec<u8>);
 
 /// What [`write_files`] did. Mirrored in `app/src/api.ts`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
