@@ -121,6 +121,14 @@ pub struct SyncPrefs {
     /// The [`SyncKind::id`]s turned off; everything else syncs.
     #[serde(default)]
     pub off: BTreeSet<String>,
+    /// On a Mac: leave Reaper's shortcuts on the keys they came with, even
+    /// those macOS keeps for itself (decision #81). Off by default, so they move.
+    #[serde(default)]
+    pub mac_shortcuts_off: bool,
+    /// Whether this Mac's `reaper-kb.ini` is now kept moved; it follows
+    /// `mac_shortcuts_off` once Reaper is closed ([`crate::mac_keys`]).
+    #[serde(default)]
+    pub mac_form: bool,
 }
 
 impl SyncPrefs {

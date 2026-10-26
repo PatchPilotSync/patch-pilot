@@ -610,6 +610,22 @@ export interface SyncKind {
 }
 export const syncPrefsView = () => invoke<SyncKind[]>("sync_prefs_view");
 export const setSyncKind = (id: string, on: boolean) => invoke<SyncKind[]>("set_sync_kind", { id, on });
+/** Reaper shortcuts on a Mac (decision #81): the setting and what it moves. */
+export interface MacKeysView {
+  on: boolean;
+  /** This machine is a Mac, so the setting applies here. */
+  here: boolean;
+  /** Waiting for Reaper to close to move them. */
+  waiting: boolean;
+  shortcuts: {
+    /** ["Cmd+H", "Control+H", count]. */
+    moved: [string, string, number][];
+    /** Keys a Mac keyboard doesn't have: ["Insert", count]. */
+    missing: [string, number][];
+  };
+}
+export const macKeysView = () => invoke<MacKeysView>("mac_keys_view");
+export const setMacKeys = (on: boolean) => invoke<MacKeysView>("set_mac_keys", { on });
 export const setKeepInSync = (on: boolean) => invoke<SyncView>("set_keep_in_sync", { on });
 export const settleConflict = (c: SyncConflict, theirs: boolean) =>
   invoke<SyncView>("settle_conflict", { root: c.root, rel: c.rel, machineId: c.machine_id, theirs });

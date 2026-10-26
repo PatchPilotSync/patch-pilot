@@ -12,7 +12,7 @@ places what's new, changed or renamed on its linked machines (decisions #70,
 | Reaper | Scripts (ReaScripts and the files they load), JSFX and data from ReaPack packages | no |
 | Reaper | Themes (`ColorThemes/`) and custom toolbar icons (`Data/toolbar_icons/`) | no |
 | Reaper | FX presets saved in Reaper's preset menu (`presets/*.ini`) | no |
-| Reaper | Shortcuts and custom actions (`reaper-kb.ini`; script paths point at each machine's own folder) | yes |
+| Reaper | Shortcuts and custom actions (`reaper-kb.ini`; script paths point at each machine's own folder; on a Mac, shortcuts macOS keeps for itself such as Cmd+H move to Control, decision #81) | yes |
 | Reaper | Menus and toolbars (`reaper-menu.ini`) | yes |
 | Reaper | Mouse modifiers (`reaper-mouse.ini`) | yes |
 | Reaper | Theme adjuster settings (`reaper-themeconfig.ini`) | yes |

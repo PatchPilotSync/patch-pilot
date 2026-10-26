@@ -264,7 +264,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Ignore | Ignore anything Bring over, Get Up To Speed or a suggestion asks for (a file, folder, package, app, step or category), on this machine or every machine; it leaves the score and every count, and "N ignored" brings it back (#65) | Shipped (v0.4.3) |
 | Ableton | Bring over Collections, User Library, templates and Options.txt; check racks and sets for missing plug-ins | In progress |
 | Safety | Snapshots before every write, with rollback | In progress |
-| Reaper | ReaPack restore and path remap between Windows and macOS | In progress |
+| Reaper | ReaPack restore and path remap between Windows and macOS; shortcuts macOS keeps for itself (Cmd+H, Cmd+Space…) move to Control on a Mac and back on a PC (#81) | In progress |
 | Installer Vault | Keep installers for each plug-in version; detect vendor apps and iLok (never sign in to them) | In progress |
 | Rig Report | Shareable report of a rig | In progress |
 | New machine | Guided setup of a new machine from the Primary Rig (migration workflow v1) | In progress |

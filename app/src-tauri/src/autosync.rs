@@ -197,8 +197,10 @@ fn sync_now(app: &AppHandle) -> Result<Option<SyncReport>, String> {
     let this = this_machine()?;
     let app_dir = app_dir()?;
     let mut store = open(&db)?;
+    // This Mac's shortcuts first, so what comes in lands in the form it keeps.
+    let keys_wait = crate::mac_keys::settle(&mut store).unwrap_or(false);
     let mut state = autosync::load_state(&app_dir);
-    let report = autosync::sync_in_with(
+    let mut report = autosync::sync_in_with(
         &mut store,
         &app_dir.join("blobs"),
         &this,
@@ -208,6 +210,10 @@ fn sync_now(app: &AppHandle) -> Result<Option<SyncReport>, String> {
         patchpilot_local::now(),
     )?;
     autosync::save_state(&app_dir, &state)?;
+    let open = "Reaper is open".to_owned();
+    if keys_wait && !report.waiting.contains(&open) {
+        report.waiting.push(open);
+    }
     Ok(Some(report))
 }
 
