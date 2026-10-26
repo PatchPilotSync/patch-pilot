@@ -115,7 +115,7 @@ pub fn look(app: &AppHandle) {
     let Ok(_one) = state.running.lock() else {
         return;
     };
-    let result = sync_now();
+    let result = sync_now(app);
     if let Ok(mut e) = state.error.lock() {
         *e = result.as_ref().err().cloned();
     }
@@ -146,10 +146,12 @@ pub fn look(app: &AppHandle) {
     let _ = app.emit("data-changed", ());
 }
 
-fn sync_now() -> Result<Option<SyncReport>, String> {
+fn sync_now(app: &AppHandle) -> Result<Option<SyncReport>, String> {
     let Some(dir) = sync_dir() else {
         return Ok(None);
     };
+    // With GitHub, bring the copy up to date first (decision #72).
+    crate::github::sync_now(app)?;
     let db = db_path()?;
     if !db.exists() {
         return Ok(None);

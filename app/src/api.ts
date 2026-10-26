@@ -422,6 +422,8 @@ export interface BackupView {
   settings: BackupSettings;
   /** The Patch Pilot Backup folder in use, if the folder picked is there. */
   dir: string | null;
+  /** "owner/name" while backups and syncing go through a GitHub repo (decision #72). */
+  github: string | null;
   /** The big-file folder, offered first when picking. */
   transfer_folder: string | null;
   /** This machine's backups first. */
@@ -452,6 +454,42 @@ export const backupRestoreList = (folder: string, stamp: string) =>
 export const restoreBackup = (folder: string, stamp: string, keys: string[]) =>
   invoke<RestoreReport>("restore_backup", { folder, stamp, keys });
 export const onBackupChanged = (f: () => void): Promise<UnlistenFn> => listen("backup-changed", f);
+
+// Advanced: sync with GitHub (decision #72); mirrors src-tauri/src/github.rs and patchpilot_local::github.
+
+export interface GitHubReport {
+  /** Files from other machines brought in, or taken out. */
+  pulled: number;
+  /** This machine's files sent. */
+  pushed: number;
+  too_big: string[];
+  unsafe_paths: string[];
+}
+
+export interface GitHubView {
+  /** Signing in opens GitHub with a code; otherwise it takes a pasted token. */
+  device_sign_in: boolean;
+  login: string | null;
+  /** "owner/name" of the repo picked. */
+  repo: string | null;
+  /** Backups and syncing go through the repo now. */
+  in_use: boolean;
+  synced_at: number | null;
+  /** A sign-in waiting for this code to be entered on GitHub. */
+  device: { user_code: string; verification_uri: string } | null;
+  error: string | null;
+  last: GitHubReport | null;
+  default_repo: string;
+}
+
+export const githubView = () => invoke<GitHubView>("github_view");
+export const githubSignIn = () => invoke<GitHubView>("github_sign_in");
+export const githubCancelSignIn = () => invoke<GitHubView>("github_cancel_sign_in");
+export const githubUseToken = (token: string) => invoke<GitHubView>("github_use_token", { token });
+export const githubUseRepo = (name: string) => invoke<GitHubView>("github_use_repo", { name });
+export const githubSignOut = () => invoke<GitHubView>("github_sign_out");
+export const githubOpen = (page: "device" | "token" | "repo") => invoke<void>("github_open", { page });
+export const onGitHubChanged = (f: () => void): Promise<UnlistenFn> => listen("github-changed", f);
 
 // Keep files in sync (decision #70); mirrors src-tauri/src/autosync.rs and patchpilot_local::autosync.
 
