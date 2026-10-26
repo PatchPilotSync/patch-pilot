@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use patchpilot_core::{ContentHash, Item, Manifest, Os, PortablePath, ProductId, TargetProfile};
 use patchpilot_parity::ableton::{
-    ABLETON_PREFS, ABLETON_USER_LIBRARY, merge_incoming, prefs_label, shared_view,
+    ABLETON_PREFS, ABLETON_USER_LIBRARY, LIBRARY_CFG, merge_incoming, prefs_label, shared_view,
     user_library_label,
 };
 use patchpilot_parity::apply_profile;
@@ -104,10 +104,24 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         kind: prefs_label,
         default_dir: || crate::standard_ableton_dirs()?.prefs,
         guard: || crate::apps::write_guard(ABLETON_PREFS),
-        // Library.cfg shares only its Collection names, merged into this
-        // machine's own file so its paths and Places stay.
-        view: |_, rel, bytes| shared_view(ABLETON_PREFS, rel, bytes),
-        merge: |rel, current, incoming| merge_incoming(ABLETON_PREFS, rel, current, incoming),
+        // Library.cfg shares only its Collection names and the Places in
+        // cloud folders, merged into this machine's own file so its paths and
+        // other Places stay (decision #79).
+        view: |_, rel, bytes| {
+            if rel.eq_ignore_ascii_case(LIBRARY_CFG) {
+                shared_view(ABLETON_PREFS, rel, bytes, &crate::place_clouds())
+            } else {
+                bytes
+            }
+        },
+        merge: |rel, current, incoming| {
+            let clouds = if rel.eq_ignore_ascii_case(LIBRARY_CFG) {
+                crate::place_clouds()
+            } else {
+                Vec::new()
+            };
+            merge_incoming(ABLETON_PREFS, rel, current, incoming, &clouds, this_os())
+        },
         daw: Some(Daw::Ableton),
         closed_daw: |_| None,
     },
@@ -480,6 +494,21 @@ pub fn shared_hash(dir: &Path, root: &str, rel: &str) -> Option<ContentHash> {
     Some(patchpilot_sync::content_hash(&bytes))
 }
 
+/// Whether writing `incoming` (another machine's shared copy of `rel` below
+/// `root`, at `dir` here) would change the file here, once merged as it would
+/// be: a settings file shares only part of itself, and the same part can
+/// look different from each machine (Places on drives only one has).
+pub fn would_change(dir: &Path, root: &str, rel: &str, incoming: Vec<u8>) -> bool {
+    let Some(shared) = shared_root(root) else {
+        return true;
+    };
+    let path = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
+    let Ok(current) = std::fs::read(path) else {
+        return true;
+    };
+    (shared.merge)(rel, Some(&current), incoming).is_ok_and(|merged| merged != current)
+}
+
 /// The DAW that must be closed before `rel` below `root` is written (CLAUDE.md
 /// rule 5), if any.
 pub fn needs_closed(root: &str, rel: &str) -> Option<Daw> {
@@ -777,8 +806,9 @@ mod tests {
         std::fs::create_dir_all(&prefs).unwrap();
         std::fs::copy(&fixture, prefs.join("Library.cfg")).unwrap();
 
-        // What this machine shares is the names, checked against the scan's hash.
-        let names = b"1\tFaves\n2\tSynths & Keys\n3\t\n4\t\n5\t\n6\t\n7\t\n";
+        // What this machine shares is the names, hidden sidebar items and the
+        // Places in shared folders (none here), checked against the scan's hash.
+        let names = b"1\tFaves\n2\tSynths & Keys\n3\t\n4\t\n5\t\n6\t\n7\t\nhidden\nplaces\n";
         let file = SharedFile {
             hash: patchpilot_sync::content_hash(names),
             path: prefs.join("Library.cfg"),

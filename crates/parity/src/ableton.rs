@@ -14,9 +14,11 @@
 //! settings with the audio device, MIDI ports, folder paths, plug-in folders
 //! and the Ableton login), samples, Packs, project `Backup/` folders.
 //! `Library.cfg` holds the Collection names next to machine paths (User
-//! Library, Places), so it is shared as its names only
-//! ([`collection_names_text`]) and received by rewriting just the
-//! `DisplayName` of each `<LabelInfo Uri="color:colors=N">`.
+//! Library, Places), so it is shared as its names and the Places inside a
+//! cloud folder or the User Library, relative to it ([`library_cfg_text`]),
+//! and received by rewriting just the `DisplayName` of each
+//! `<LabelInfo Uri="color:colors=N">` and the `<UserFolderInfoList>`
+//! (decision #79).
 //!
 //! Sets (`.als`) and racks (`.adg`) are gzipped XML; the plug-ins they use
 //! are read from their `<VstPluginInfo>`, `<Vst3PluginInfo>` and
@@ -34,6 +36,7 @@
 //! `~/Library/Preferences/Ableton/Live 12.1.5/`, Windows
 //! `%APPDATA%\Ableton\Live 12.1.5\Preferences\`. The newest one wins.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use std::io::Read;
@@ -223,24 +226,418 @@ fn escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// A folder each machine has under the same name, so Places inside it can
+/// travel (decision #79): a cloud folder ("Dropbox", "OneDrive (Contoso)")
+/// or the User Library.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaceRoot {
+    pub name: String,
+    pub path: String,
+}
+
+/// The name Places inside the User Library travel under.
+const USER_LIBRARY_PLACES: &str = "User Library";
+
+/// The line in the shared text after which Places follow, one
+/// `{Root}/path\t<name>` per line. Text from before Places travelled has
+/// none, and leaves Places alone.
+const PLACES_LINE: &str = "places";
+
+/// The line after the Collection names in the shared text after which come
+/// the `Uri`s of the browser sidebar's hidden items (`IsEnabled="false"`):
+/// Collections and categories hidden with the sidebar's Edit. Text without
+/// it leaves what's shown alone.
+const HIDDEN_LINE: &str = "hidden";
+
+/// A Place: a folder added to Live's browser sidebar, from a
+/// `<UserFolderInfo Path="..." DisplayName="..."/>` in `Library.cfg`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    pub path: String,
+    pub name: String,
+    /// The element's bytes in the cfg.
+    range: std::ops::Range<usize>,
+}
+
+/// Every Place in `cfg`, in the sidebar's order.
+pub fn places(cfg: &str) -> Vec<Place> {
+    let Some((_, Some(inner))) = places_list(cfg) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut from = inner.start;
+    while let Some(at) = cfg[from..inner.end].find("<UserFolderInfo ") {
+        let start = from + at;
+        let Some(len) = cfg[start..inner.end].find('>') else {
+            break;
+        };
+        let end = start + len + 1;
+        let elem = &cfg[start..end];
+        if let (Some((_, path)), Some((_, name))) = (attr(elem, "Path"), attr(elem, "DisplayName"))
+        {
+            out.push(Place {
+                path: unescape(&path),
+                name: unescape(&name),
+                range: start..end,
+            });
+        }
+        from = end;
+    }
+    out
+}
+
+/// The `<UserFolderInfoList>` element's bytes, and its insides unless it's
+/// written `<UserFolderInfoList />`.
+fn places_list(cfg: &str) -> Option<(std::ops::Range<usize>, Option<std::ops::Range<usize>>)> {
+    const OPEN: &str = "<UserFolderInfoList";
+    const CLOSE: &str = "</UserFolderInfoList>";
+    let start = cfg.find(OPEN)?;
+    if !cfg[start + OPEN.len()..].starts_with([' ', '/', '>']) {
+        return None;
+    }
+    let gt = start + cfg[start..].find('>')?;
+    if cfg[..gt].ends_with('/') {
+        return Some((start..gt + 1, None));
+    }
+    let close = gt + cfg[gt..].find(CLOSE)?;
+    Some((start..close + CLOSE.len(), Some(gt + 1..close)))
+}
+
+/// `/`-separated, without a trailing `/`.
+fn norm(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').to_owned()
+}
+
+/// The folders Places can travel under on this machine: its cloud folders
+/// and the User Library `cfg` names.
+fn place_roots(cfg: &str, clouds: &[PlaceRoot]) -> Vec<PlaceRoot> {
+    let mut roots = clouds.to_vec();
+    if let Some(lib) = user_library_from_cfg(cfg) {
+        roots.push(PlaceRoot {
+            name: USER_LIBRARY_PLACES.into(),
+            path: lib.to_string_lossy().into_owned(),
+        });
+    }
+    roots
+}
+
+/// `path` as it travels: `{Dropbox}/Samples/Breaks`, below the most specific
+/// root that holds it (case aside), or `None` for a folder only this machine
+/// has, such as one on another drive. A cloud folder goes before the User
+/// Library, which may be inside one on this machine and not on another.
+fn portable_place(path: &str, roots: &[PlaceRoot]) -> Option<String> {
+    let (library, clouds): (Vec<PlaceRoot>, Vec<PlaceRoot>) = roots
+        .iter()
+        .cloned()
+        .partition(|r| r.name == USER_LIBRARY_PLACES);
+    below_root(path, &clouds).or_else(|| below_root(path, &library))
+}
+
+fn below_root(path: &str, roots: &[PlaceRoot]) -> Option<String> {
+    let path = norm(path);
+    let lower = path.to_lowercase();
+    roots
+        .iter()
+        .filter_map(|r| {
+            let base = norm(&r.path);
+            let lower_base = base.to_lowercase();
+            if base.is_empty() || !lower.starts_with(&lower_base) {
+                return None;
+            }
+            let rest = path.get(base.len()..)?;
+            (rest.is_empty() || rest.starts_with('/'))
+                .then(|| (base.len(), format!("{{{}}}{rest}", r.name)))
+        })
+        .max_by_key(|(len, _)| *len)
+        .map(|(_, p)| p)
+}
+
+/// Where a travelling Place is on this machine, spelled with `\` when
+/// `backslash`; `None` when its root isn't here.
+fn local_place(portable: &str, roots: &[PlaceRoot], backslash: bool) -> Option<String> {
+    let (name, rest) = portable.strip_prefix('{')?.split_once('}')?;
+    if !(rest.is_empty() || rest.starts_with('/')) || rest.split('/').any(|p| p == "..") {
+        return None;
+    }
+    let root = roots.iter().find(|r| r.name == name)?;
+    let path = format!("{}{rest}", norm(&root.path));
+    Some(if backslash {
+        path.replace('/', "\\")
+    } else {
+        path
+    })
+}
+
+/// The travelling Places in shared text, as (`{Root}/path`, name); `None`
+/// for text from before Places travelled.
+fn parse_places_text(text: &str) -> Option<Vec<(String, String)>> {
+    let at = text.lines().position(|l| l == PLACES_LINE)?;
+    Some(
+        text.lines()
+            .skip(at + 1)
+            .filter_map(|l| l.split_once('\t'))
+            .map(|(p, n)| (p.to_owned(), n.to_owned()))
+            .collect(),
+    )
+}
+
+/// The hidden sidebar items' `Uri`s in shared text; `None` for text from
+/// before they travelled.
+fn parse_hidden_text(text: &str) -> Option<BTreeSet<String>> {
+    let at = text.lines().position(|l| l == HIDDEN_LINE)?;
+    Some(
+        text.lines()
+            .skip(at + 1)
+            .take_while(|l| *l != PLACES_LINE)
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// Every `<LabelInfo .../>` (Collections and the browser's categories): its
+/// bytes in `cfg`, `Uri` and whether it's shown.
+fn label_infos(cfg: &str) -> Vec<(std::ops::Range<usize>, String, bool)> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = cfg[from..].find("<LabelInfo ") {
+        let start = from + at;
+        let Some(len) = cfg[start..].find('>') else {
+            break;
+        };
+        let end = start + len + 1;
+        let elem = &cfg[start..end];
+        if let (Some((_, uri)), Some((_, on))) = (attr(elem, "Uri"), attr(elem, "IsEnabled")) {
+            out.push((start..end, unescape(&uri), on != "false"));
+        }
+        from = end;
+    }
+    out
+}
+
+/// What travels for `Library.cfg`: the Collection names, the sidebar items
+/// hidden with its Edit, then the Places inside a cloud folder or the User
+/// Library, with paths relative to it. Empty for a file without Collections.
+pub fn library_cfg_text(cfg: &str, clouds: &[PlaceRoot]) -> String {
+    let names = collection_names(cfg);
+    if names.is_empty() {
+        return String::new();
+    }
+    let roots = place_roots(cfg, clouds);
+    let mut text = collection_names_text(&names);
+    text.push_str(HIDDEN_LINE);
+    text.push('\n');
+    for (_, uri, shown) in label_infos(cfg) {
+        if !shown {
+            text.push_str(&uri.replace(['\n', '\r'], " "));
+            text.push('\n');
+        }
+    }
+    text.push_str(PLACES_LINE);
+    text.push('\n');
+    for p in places(cfg) {
+        if let Some(portable) = portable_place(&p.path, &roots) {
+            let name = p.name.replace(['\t', '\n', '\r'], " ");
+            text.push_str(&format!("{portable}\t{name}\n"));
+        }
+    }
+    text
+}
+
+/// `cfg` with the Collection names, what the sidebar shows and the Places
+/// from `text` (as written by [`library_cfg_text`]). Travelling Places take
+/// the incoming order and names, each pointed at the same folder here; one
+/// whose root this machine lacks is left out ([`places_not_here`] lists
+/// it). Places only this machine has (another drive) stay where they were.
+/// Nothing else changes.
+pub fn set_library_cfg(
+    cfg: &str,
+    text: &str,
+    clouds: &[PlaceRoot],
+    os: Os,
+) -> Result<String, String> {
+    let names: String = text
+        .lines()
+        .take_while(|l| *l != PLACES_LINE && *l != HIDDEN_LINE)
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let mut cfg = set_collection_names(cfg, &names)?;
+    if let Some(hidden) = parse_hidden_text(text) {
+        cfg = set_hidden(&cfg, &hidden);
+    }
+    match parse_places_text(text) {
+        Some(incoming) => Ok(set_places(&cfg, &incoming, clouds, os)),
+        None => Ok(cfg),
+    }
+}
+
+/// `cfg` with exactly the sidebar items in `hidden` hidden.
+fn set_hidden(cfg: &str, hidden: &BTreeSet<String>) -> String {
+    let mut out = cfg.to_owned();
+    // From the end, so earlier ranges stay put.
+    for (range, uri, shown) in label_infos(cfg).into_iter().rev() {
+        let want = !hidden.contains(&uri);
+        if want == shown {
+            continue;
+        }
+        if let Some((value, _)) = attr(&cfg[range.clone()], "IsEnabled") {
+            out.replace_range(
+                range.start + value.start..range.start + value.end,
+                if want { "true" } else { "false" },
+            );
+        }
+    }
+    out
+}
+
+fn set_places(cfg: &str, incoming: &[(String, String)], clouds: &[PlaceRoot], os: Os) -> String {
+    let Some((whole, _)) = places_list(cfg) else {
+        // Live writes the list with the rest; without it, leave Places be.
+        return cfg.to_owned();
+    };
+    let roots = place_roots(cfg, clouds);
+    let existing = places(cfg);
+    // Live 12 writes `\` on Windows; follow what the file already does.
+    let backslash = existing
+        .iter()
+        .find_map(|p| {
+            if p.path.contains('\\') {
+                Some(true)
+            } else {
+                p.path.contains('/').then_some(false)
+            }
+        })
+        .unwrap_or(os == Os::Windows);
+    let mut next_id = max_id(cfg) + 1;
+    let same = |a: &str, b: &str| norm(a).to_lowercase() == norm(b).to_lowercase();
+    let mut used = vec![None; existing.len()];
+    let mut shared: Vec<String> = Vec::new();
+    for (portable, name) in incoming {
+        let Some(path) = local_place(portable, &roots, backslash) else {
+            continue;
+        };
+        let found =
+            (0..existing.len()).find(|&i| used[i].is_none() && same(&existing[i].path, &path));
+        match found {
+            Some(i) => {
+                used[i] = Some(shared.len());
+                let p = &existing[i];
+                let mut elem = cfg[p.range.clone()].to_owned();
+                if p.name != *name
+                    && let Some((value, _)) = attr(&elem, "DisplayName")
+                {
+                    elem.replace_range(value, &escape(name));
+                }
+                shared.push(elem);
+            }
+            None => {
+                shared.push(format!(
+                    r#"<UserFolderInfo Id="{next_id}" Path="{}" DisplayName="{}" IconName="" />"#,
+                    escape(&path),
+                    escape(name)
+                ));
+                next_id += 1;
+            }
+        }
+    }
+    // This machine's own Places (outside the shared folders) stay, each
+    // after the Place it followed.
+    let mut after: Vec<Vec<String>> = vec![Vec::new(); shared.len() + 1];
+    for (j, p) in existing.iter().enumerate() {
+        if used[j].is_none() && portable_place(&p.path, &roots).is_none() {
+            let slot = (0..j).rev().find_map(|i| used[i]).map_or(0, |k| k + 1);
+            after[slot].push(cfg[p.range.clone()].to_owned());
+        }
+    }
+    let mut after = after.into_iter();
+    let mut elems: Vec<String> = after.next().unwrap_or_default();
+    for (elem, own) in shared.into_iter().zip(after) {
+        elems.push(elem);
+        elems.extend(own);
+    }
+    let before: Vec<&str> = existing.iter().map(|p| &cfg[p.range.clone()]).collect();
+    if elems == before {
+        return cfg.to_owned();
+    }
+    let nl = if cfg.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_start = cfg[..whole.start].rfind('\n').map_or(0, |n| n + 1);
+    let indent = &cfg[line_start..whole.start];
+    let indent = if indent.trim().is_empty() { indent } else { "" };
+    let inner_indent = match existing.first() {
+        Some(p) => {
+            let s = cfg[..p.range.start].rfind('\n').map_or(0, |n| n + 1);
+            let i = &cfg[s..p.range.start];
+            if i.trim().is_empty() {
+                i.to_owned()
+            } else {
+                format!("{indent}\t")
+            }
+        }
+        None => format!("{indent}\t"),
+    };
+    let list = if elems.is_empty() {
+        "<UserFolderInfoList />".to_owned()
+    } else {
+        let body: String = elems
+            .iter()
+            .map(|e| format!("{nl}{inner_indent}{e}"))
+            .collect();
+        format!("<UserFolderInfoList>{body}{nl}{indent}</UserFolderInfoList>")
+    };
+    let mut out = cfg.to_owned();
+    out.replace_range(whole, &list);
+    out
+}
+
+/// The biggest `Id="N"` in `cfg`, so a new Place's is unique.
+fn max_id(cfg: &str) -> u64 {
+    cfg.match_indices(" Id=\"")
+        .filter_map(|(at, m)| {
+            let v = &cfg[at + m.len()..];
+            v[..v.find('"')?].parse().ok()
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// The names of the travelling Places in shared `text` (another machine's)
+/// whose folder isn't on this machine: its root isn't here, or the folder
+/// inside it isn't there (yet). `cfg` is this machine's `Library.cfg`.
+pub fn places_not_here(text: &str, cfg: &str, clouds: &[PlaceRoot]) -> Vec<String> {
+    let roots = place_roots(cfg, clouds);
+    parse_places_text(text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(p, _)| local_place(p, &roots, false).is_none_or(|l| !Path::new(&l).is_dir()))
+        .map(|(_, name)| name)
+        .collect()
+}
+
 /// The bytes another machine gets for a shared Ableton file: the file
-/// itself, except `Library.cfg`, which shares only its Collection names.
-pub fn shared_view(root: &str, rel: &str, bytes: Vec<u8>) -> Vec<u8> {
+/// itself, except `Library.cfg`, which shares only its Collection names and
+/// the Places in `clouds` (this machine's cloud folders) or the User Library.
+pub fn shared_view(root: &str, rel: &str, bytes: Vec<u8>, clouds: &[PlaceRoot]) -> Vec<u8> {
     if root == ABLETON_PREFS && rel.eq_ignore_ascii_case(LIBRARY_CFG) {
-        collection_names_text(&collection_names(&String::from_utf8_lossy(&bytes))).into_bytes()
+        library_cfg_text(&String::from_utf8_lossy(&bytes), clouds).into_bytes()
     } else {
         bytes
     }
 }
 
+/// True for shared `Library.cfg` text from a version before Places travelled.
+pub fn is_names_only(text: &[u8]) -> bool {
+    parse_places_text(&String::from_utf8_lossy(text)).is_none()
+}
+
 /// What to write for a shared Ableton file given what's there now: the
 /// incoming bytes, except for `Library.cfg`, where only the Collection names
-/// are merged into this machine's own file.
+/// and Places are merged into this machine's own file.
 pub fn merge_incoming(
     root: &str,
     rel: &str,
     current: Option<&[u8]>,
     incoming: Vec<u8>,
+    clouds: &[PlaceRoot],
+    os: Os,
 ) -> Result<Vec<u8>, String> {
     if root == ABLETON_PREFS && rel.eq_ignore_ascii_case(LIBRARY_CFG) {
         let cfg = current.ok_or(
@@ -248,7 +645,7 @@ pub fn merge_incoming(
         )?;
         let cfg = std::str::from_utf8(cfg).map_err(|_| "Library.cfg isn't UTF-8")?;
         let text = std::str::from_utf8(&incoming).map_err(|_| "Collection names aren't UTF-8")?;
-        set_collection_names(cfg, text).map(String::into_bytes)
+        set_library_cfg(cfg, text, clouds, os).map(String::into_bytes)
     } else {
         Ok(incoming)
     }
@@ -494,11 +891,11 @@ pub fn user_library_label(rel: &str) -> Option<&'static str> {
 }
 
 /// "Setting" for the preferences files that are safe to share
-/// (`Options.txt`), "Collection names" for `Library.cfg` (only the names
-/// travel, see [`shared_view`]), `None` for everything else in that folder.
+/// (`Options.txt`), "Collection names and Places" for `Library.cfg` (only
+/// those travel, see [`shared_view`]), `None` for everything else there.
 pub fn prefs_label(rel: &str) -> Option<&'static str> {
     if rel.eq_ignore_ascii_case(LIBRARY_CFG) {
-        return Some("Collection names");
+        return Some("Collection names and Places");
     }
     PORTABLE_PREFS
         .iter()
@@ -537,6 +934,7 @@ pub fn is_ableton_item(item: &Item) -> bool {
 pub fn settings_items(
     user_library: Option<&Path>,
     prefs: Option<&Path>,
+    clouds: &[PlaceRoot],
     os: Os,
     product_of: impl Fn(&PluginRef) -> Option<ProductId>,
 ) -> (Vec<Product>, Vec<Item>) {
@@ -571,7 +969,7 @@ pub fn settings_items(
         let Some(rel) = rel_string(rel) else {
             continue;
         };
-        let bytes = shared_view(root, &rel, bytes);
+        let bytes = shared_view(root, &rel, bytes, clouds);
         if bytes.is_empty() {
             // A Library.cfg without Collections.
             continue;
@@ -609,7 +1007,7 @@ pub fn settings_items(
             canonical_id: id.clone(),
             vendor: VENDOR.into(),
             name: if collections {
-                "Collection names".to_owned()
+                "Collection names and Places".to_owned()
             } else {
                 rel
             },
@@ -759,7 +1157,10 @@ mod tests {
             assert_eq!(user_library_label(rel), None, "{rel}");
         }
         assert_eq!(prefs_label("Preferences.cfg"), None);
-        assert_eq!(prefs_label("Library.cfg"), Some("Collection names"));
+        assert_eq!(
+            prefs_label("Library.cfg"),
+            Some("Collection names and Places")
+        );
         assert_eq!(prefs_label("Log.txt"), None);
         assert_eq!(prefs_label("options.txt"), Some("Setting"));
     }

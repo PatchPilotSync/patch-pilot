@@ -560,6 +560,8 @@ export interface SyncReport {
   /** Each other machine's latest backup, as this machine sees it. */
   sources: SyncSource[];
   looked_at: number;
+  /** Live Places on linked machines whose folder isn't on this one (yet), by name. */
+  missing_places: string[];
 }
 
 export interface SyncSource {

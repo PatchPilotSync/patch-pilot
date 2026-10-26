@@ -371,16 +371,41 @@ pub fn add_ableton(manifest: &mut Manifest, dirs: &AbletonDirs) -> usize {
                 .insert(root.to_owned(), dir.to_string_lossy().into_owned());
         }
     }
-    let (products, items) = settings_items(user_library, prefs, manifest.machine.os, |r| {
-        Some(patchpilot_scanner::product_id(
-            r.vendor.as_deref(),
-            &patchpilot_scanner::normalize_name(&r.name).name,
-        ))
-    });
+    let clouds = place_clouds();
+    let (products, items) =
+        settings_items(user_library, prefs, &clouds, manifest.machine.os, |r| {
+            Some(patchpilot_scanner::product_id(
+                r.vendor.as_deref(),
+                &patchpilot_scanner::normalize_name(&r.name).name,
+            ))
+        });
     let n = items.len();
     manifest.products.extend(products);
     manifest.items.extend(items);
     n
+}
+
+/// This machine's cloud folders, which Ableton Places inside them travel
+/// under (decision #79).
+pub fn place_clouds() -> Vec<patchpilot_parity::ableton::PlaceRoot> {
+    #[cfg(test)]
+    if let Some(clouds) = TEST_CLOUDS.with(|c| c.borrow().clone()) {
+        return clouds;
+    }
+    transfer::this_machines_clouds()
+        .into_iter()
+        .map(|c| patchpilot_parity::ableton::PlaceRoot {
+            name: c.name,
+            path: c.path.to_string_lossy().into_owned(),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Stands in for this machine's cloud folders in tests.
+    pub(crate) static TEST_CLOUDS: std::cell::RefCell<Option<Vec<patchpilot_parity::ableton::PlaceRoot>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Known third-party preset folders that exist on this machine.
