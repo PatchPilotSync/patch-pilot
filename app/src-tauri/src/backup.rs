@@ -42,6 +42,10 @@ pub struct BackupView {
     pub dir: Option<String>,
     /// `owner/name` while the backup folder is a GitHub repo's copy.
     pub github: Option<String>,
+    /// How far a long GitHub sync has got, while one runs.
+    pub github_progress: Option<patchpilot_local::github::Progress>,
+    /// Why the last GitHub sync didn't finish; it tries again on its own.
+    pub github_error: Option<String>,
     /// The big-file folder, offered first when picking.
     pub transfer_folder: Option<String>,
     /// Every machine's backups there, this machine's first.
@@ -100,12 +104,7 @@ fn run(app: &AppHandle) -> Result<BackupReport, String> {
         }
         s.running = true;
     }
-    // With GitHub, the backup goes on to the repo (decision #73).
-    let result = back_up().and_then(|r| {
-        crate::github::sync_now(app)
-            .map(|_| r)
-            .map_err(|e| format!("it's saved here but hasn't reached GitHub. {e}"))
-    });
+    let result = back_up();
     if let Ok(mut s) = state.0.lock() {
         s.running = false;
         match &result {
@@ -117,6 +116,14 @@ fn run(app: &AppHandle) -> Result<BackupReport, String> {
         }
     }
     let _ = app.emit(BACKUP_CHANGED, ());
+    // With GitHub, the backup goes on to the repo (decision #73): a first
+    // upload can take a while, and the line shows how far it's got.
+    if result.is_ok() && crate::github::in_use() {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            let _ = crate::github::sync_now(&handle);
+        });
+    }
     result
 }
 
@@ -167,9 +174,16 @@ pub async fn backup_view(app: AppHandle) -> Result<BackupView, String> {
         .lock()
         .map(|s| (s.last.clone(), s.error.clone(), s.running))
         .unwrap_or_default();
+    let github = github_repo(&settings)?;
+    let (github_progress, github_error) = match github {
+        Some(_) => crate::github::status(&app),
+        None => (None, None),
+    };
     Ok(BackupView {
         clouds: transfer::this_machines_clouds(),
-        github: github_repo(&settings)?,
+        github,
+        github_progress,
+        github_error,
         transfer_folder: transfer::load_settings(&app_dir()?)
             .folder
             .map(|f| f.to_string_lossy().into_owned()),

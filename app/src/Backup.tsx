@@ -6,6 +6,7 @@ import {
   backupView,
   fileKey,
   onBackupChanged,
+  onGitHubProgress,
   onSyncChanged,
   restoreBackup,
   revealPath,
@@ -19,6 +20,7 @@ import {
   type BackupSet,
   type BackupView,
   type FileToBring,
+  type GitHubProgress,
   type RestoreReport,
   type RestoreView,
   type SkippedFile,
@@ -52,6 +54,7 @@ export function BackupLine({
 }) {
   const [view, setView, load] = useBackupView(onError);
   const [sync, setSync] = useSyncView(onError, view);
+  const progress = useGitHubProgress(view);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -100,6 +103,14 @@ export function BackupLine({
   } else if (!view.dir) {
     tone = "warn";
     text = "The cloud folder isn't there now (signed out, or not connected).";
+  } else if (view.github && progress) {
+    tone = "accent";
+    text = progress.uploading
+      ? `Uploading ${progress.done.toLocaleString()} of ${plural(progress.total, "file")} to GitHub…`
+      : `Downloading ${progress.done.toLocaleString()} of ${plural(progress.total, "file")} from GitHub…`;
+  } else if (view.github_error) {
+    tone = "warn";
+    text = view.github_error;
   } else if (view.error) {
     tone = "warn";
     text = `The last backup didn't finish: ${view.error}`;
@@ -107,7 +118,7 @@ export function BackupLine({
     tone = "accent";
     text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Sync with it?`;
   } else if (syncing) {
-    [tone, text] = syncLine(sync, where);
+    [tone, text] = syncLine(sync, where, view.github);
   } else if (latest) {
     text = `Backed up ${timeAgo(latest.made_at)} to ${where}${view.settings.auto ? ", after every change" : ""}. Syncing is off.`;
   } else {
@@ -126,18 +137,31 @@ export function BackupLine({
         }
         actions={
           view.dir &&
-          !offerRestore &&
-          (syncing ? (
-            // Looks on its own too; this is for "why hasn't it come over yet?".
-            <Button variant="link" onClick={check} disabled={busy} className="h-6 shrink-0 px-2">
-              {busy ? "Checking…" : "Check now"}
-            </Button>
-          ) : (
-            // Backups run on their own while syncing; the button is for by-hand backups.
-            <Button variant="link" onClick={now} disabled={busy || view.running} className="h-6 shrink-0 px-2">
-              {busy || view.running ? "Backing up…" : "Back up now"}
-            </Button>
-          ))
+          !offerRestore && (
+            <>
+              {view.github && (
+                <Button
+                  variant="quiet"
+                  className="h-6 shrink-0 px-2"
+                  title={`Open ${view.github} on GitHub`}
+                  onClick={() => githubOpen("repo").catch((e) => onError(String(e)))}
+                >
+                  View on GitHub
+                </Button>
+              )}
+              {progress ? null : syncing ? (
+                // Looks on its own too; this is for "why hasn't it come over yet?".
+                <Button variant="link" onClick={check} disabled={busy} className="h-6 shrink-0 px-2">
+                  {busy ? "Checking…" : view.github_error ? "Try now" : "Check now"}
+                </Button>
+              ) : (
+                // Backups run on their own while syncing; the button is for by-hand backups.
+                <Button variant="link" onClick={now} disabled={busy || view.running} className="h-6 shrink-0 px-2">
+                  {busy || view.running ? "Backing up…" : "Back up now"}
+                </Button>
+              )}
+            </>
+          )
         }
         open={open}
         onToggle={() => setOpen((o) => !o)}
@@ -157,7 +181,7 @@ type Tone = "ok" | "accent" | "warn";
  * brought (or why nothing came yet), so a machine behind the Primary Rig
  * can see it catching up.
  */
-function syncLine(sync: SyncView, where: string): [Tone, string] {
+function syncLine(sync: SyncView, where: string, github: string | null): [Tone, string] {
   const last = sync.last;
   if (sync.linked === 0) return ["accent", `Backed up to ${where}. Link another machine to keep files in sync with it.`];
   if (last && last.waiting.length > 0)
@@ -165,7 +189,9 @@ function syncLine(sync: SyncView, where: string): [Tone, string] {
   const sources = (last?.sources ?? []).filter((s) => s.linked);
   if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
   if (sources.length === 0)
-    return ["accent", `No other machine's files in ${where} yet. Turn on Keep Files in Sync on your other machine too.`];
+    return github
+      ? ["accent", `Next: on your other machine, Use GitHub… with ${github.split("/").pop()}.`]
+      : ["accent", `No other machine's files in ${where} yet. Turn on Keep Files in Sync on your other machine too.`];
   const names = (f: (s: SyncSource) => boolean) => sources.filter(f).map((s) => s.machine_name).join(", ");
   const downloading = sources.reduce((a, s) => a + s.downloading, 0);
   if (downloading > 0)
@@ -174,6 +200,20 @@ function syncLine(sync: SyncView, where: string): [Tone, string] {
   if (placed > 0)
     return ["ok", `Brought over ${plural(placed, "file")} from ${names((s) => s.placed > 0)}. Undo in History.`];
   return ["ok", `In sync with ${names(() => true)} through ${where}, checked ${timeAgo(last.looked_at)}.`];
+}
+
+/** How far a long GitHub sync has got, while one runs. */
+function useGitHubProgress(view: BackupView | null) {
+  const [progress, setProgress] = useState<GitHubProgress | null>(null);
+  const initial = view?.github_progress ?? null;
+  useEffect(() => setProgress(initial), [initial]);
+  useEffect(() => {
+    const unlisten = onGitHubProgress(setProgress);
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+  return progress;
 }
 
 /** Whether files are kept in sync, reloaded when that or the backup changes. */
@@ -321,13 +361,12 @@ function Details({
     );
   }
 
-  // Like picking a first folder: syncing goes on.
+  // Syncing is what GitHub is for: it goes on.
   async function usedGitHub() {
-    const first = !view.settings.folder;
     setAdvanced(false);
     await act(
       backupView().then(async (v) => {
-        if (first && sync && onSync && v.dir) {
+        if (sync && onSync && v.dir && !v.settings.keep_in_sync) {
           onSync(await setKeepInSync(true));
           return backupView();
         }
@@ -402,15 +441,8 @@ function Details({
           </label>
         )}
         {view.github ? (
-          <span className="flex min-w-0 flex-1">
-            <Button
-              variant="link"
-              className="h-6 min-w-0 px-2"
-              title="Open the repo on GitHub"
-              onClick={() => githubOpen("repo").catch((e) => onError(String(e)))}
-            >
-              <span className="truncate">{view.github}</span>
-            </Button>
+          <span className="min-w-0 flex-1 truncate" title={`Private repo on GitHub, copied to ${view.dir}`}>
+            GitHub repo {view.github}
           </span>
         ) : (
           <span className="min-w-48 flex-1 truncate" title={view.dir}>
@@ -436,7 +468,13 @@ function Details({
       )}
       {last && last.skipped.length > 0 && <Skipped files={last.skipped} onError={onError} />}
       {sync?.on && <SyncSummary sync={sync} />}
-      <Restore sets={view.sets} thisMachine={view.this_machine} onError={onError} />
+      {/* While syncing, this machine's own backups would only offer its own files back. */}
+      <Restore
+        sets={view.sets}
+        thisMachine={view.this_machine}
+        othersOnly={view.settings.keep_in_sync}
+        onError={onError}
+      />
     </div>
   );
 }
@@ -539,23 +577,28 @@ function SyncSummary({ sync }: { sync: SyncView }) {
 export function Restore({
   sets,
   thisMachine,
+  othersOnly = false,
   onError,
 }: {
   sets: BackupSet[];
   thisMachine: string | null;
+  /** Leave this machine's own backups out; nothing shows when there are no others. */
+  othersOnly?: boolean;
   onError: (e: string) => void;
 }) {
   const choices = useMemo(
     () =>
-      sets.flatMap((s) =>
-        s.backups.map((b, i) => ({
-          id: `${s.folder}\n${b.stamp}`,
-          set: s,
-          stamp: b.stamp,
-          label: `${s.machine_id === thisMachine ? "This machine" : s.machine_name} · ${when(b.made_at)}${i === 0 ? " (latest)" : ""} · ${plural(b.files, "file")}`,
-        })),
-      ),
-    [sets, thisMachine],
+      sets
+        .filter((s) => !othersOnly || s.machine_id !== thisMachine)
+        .flatMap((s) =>
+          s.backups.map((b, i) => ({
+            id: `${s.folder}\n${b.stamp}`,
+            set: s,
+            stamp: b.stamp,
+            label: `${s.machine_id === thisMachine ? "This machine" : s.machine_name} · ${when(b.made_at)}${i === 0 ? " (latest)" : ""} · ${plural(b.files, "file")}`,
+          })),
+        ),
+    [sets, thisMachine, othersOnly],
   );
   // Another machine's latest backup first on a machine with none of its own.
   const first = choices.find((c) => c.set.machine_id !== thisMachine) ?? choices[0];
@@ -577,6 +620,7 @@ export function Restore({
   }, [load]);
 
   if (choices.length === 0) {
+    if (othersOnly) return null;
     return <p className="text-[11px] text-dim">No backups in this folder yet, from this machine or any other.</p>;
   }
 
