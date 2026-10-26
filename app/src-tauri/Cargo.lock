@@ -2994,7 +2994,7 @@ dependencies = [
 
 [[package]]
 name = "patchpilot-app"
-version = "0.4.2"
+version = "0.4.4"
 dependencies = [
  "futures-util",
  "patchpilot-catalog",
@@ -3060,6 +3060,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "walkdir",
 ]
 
 [[package]]

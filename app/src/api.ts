@@ -237,7 +237,7 @@ export const ignoreSuggestions = (items: { product: string; version: string | nu
 export const unignoreSuggestions = (items: { product: string; version: string | null }[]) =>
   invoke<void>("unignore_suggestions", { items });
 
-// Ignore (decision #65): src-tauri/src/compare.rs and patchpilot_local::ignore.
+// Ignore (decision #66): src-tauri/src/compare.rs and patchpilot_local::ignore.
 
 /** What an ignore hides: a product, a path (`ROOT/rel`, `**` for a folder) or a vendor. */
 export type Matcher = { product: string } | { path_glob: string } | { vendor: string };
@@ -375,6 +375,81 @@ export const setTransferFolder = (service: string | null, folder: string | null)
   invoke<TransferView>("set_transfer_folder", { service, folder });
 export const sendBigFiles = () => invoke<number>("send_big_files");
 export const onTransfersChanged = (f: () => void): Promise<UnlistenFn> => listen("transfers-changed", f);
+
+// Back up everything (decision #67); mirrors src-tauri/src/backup.rs and patchpilot_local::backup.
+
+export interface BackupSettings {
+  /** A CloudFolder id, or "custom"; null until picked. */
+  service: string | null;
+  folder: string | null;
+  /** Back up after every scan that finds a change. */
+  auto: boolean;
+}
+
+export interface BackupInfo {
+  /** "2026-10-26 02.48.38" (UTC); names the backup. */
+  stamp: string;
+  made_at: number;
+  files: number;
+  bytes: number;
+}
+
+/** One machine's backups, newest first. */
+export interface BackupSet {
+  /** The machine's folder name in the backup. */
+  folder: string;
+  machine_id: string;
+  machine_name: string;
+  os: "windows" | "macos";
+  backups: BackupInfo[];
+}
+
+export interface BackupReport {
+  copied: number;
+  /** Earlier copies moved to Versions. */
+  versioned: number;
+  files: number;
+  skipped: string[];
+  stamp: string | null;
+  /** Nothing changed since the last backup. */
+  unchanged: boolean;
+}
+
+export interface BackupView {
+  clouds: CloudFolder[];
+  settings: BackupSettings;
+  /** The Patch Pilot Backup folder in use, if the folder picked is there. */
+  dir: string | null;
+  /** The big-file folder, offered first when picking. */
+  transfer_folder: string | null;
+  /** This machine's backups first. */
+  sets: BackupSet[];
+  this_machine: string | null;
+  last: BackupReport | null;
+  /** What went wrong with the last automatic backup. */
+  error: string | null;
+  running: boolean;
+}
+
+export interface RestoreView {
+  machine_name: string;
+  stamp: string;
+  files: FileToBring[];
+}
+
+/** Same fields as a bring-over's result. */
+export type RestoreReport = BringResult;
+
+export const backupView = () => invoke<BackupView>("backup_view");
+export const setBackupFolder = (service: string | null, folder: string | null) =>
+  invoke<BackupView>("set_backup_folder", { service, folder });
+export const setBackupAuto = (on: boolean) => invoke<BackupView>("set_backup_auto", { on });
+export const backUpNow = () => invoke<BackupReport>("back_up_now");
+export const backupRestoreList = (folder: string, stamp: string) =>
+  invoke<RestoreView>("backup_restore_list", { folder, stamp });
+export const restoreBackup = (folder: string, stamp: string, keys: string[]) =>
+  invoke<RestoreReport>("restore_backup", { folder, stamp, keys });
+export const onBackupChanged = (f: () => void): Promise<UnlistenFn> => listen("backup-changed", f);
 
 export const STATE_LABEL: Record<ParityState, string> = {
   missing: "Missing",
@@ -712,3 +787,46 @@ export const undoPreview = (id: number) => invoke<FilePreview[]>("undo_preview",
 export const undoChange = (id: number) => invoke<HistoryView>("undo_change", { id });
 export const goBackPlan = (snapshotId: number) => invoke<GoBackPlan>("go_back_plan", { snapshotId });
 export const goBack = (snapshotId: number) => invoke<HistoryView>("go_back", { snapshotId });
+
+// Duplicate presets (decision #66); mirrors patchpilot_local::duplicates.
+
+/** Where a copy lives, best place to keep first. */
+export type PlaceKind = "standard" | "daw" | "personal" | "loose";
+
+export interface DuplicateCopy {
+  path: string;
+  /** "Serum presets", "Reaper FX chains", "Downloads". */
+  place: string;
+  kind: PlaceKind;
+  mtime: number | null;
+}
+
+export interface DuplicateGroup {
+  hash: string;
+  name: string;
+  size: number;
+  /** The suggested copy to keep comes first. */
+  copies: DuplicateCopy[];
+}
+
+export interface Duplicates {
+  /** Largest waste first. */
+  groups: DuplicateGroup[];
+  /** Preset files looked at. */
+  files: number;
+  places: string[];
+}
+
+export interface CleanUp {
+  removed: number;
+  freed: number;
+  /** Copies left alone: changed since the search, or the kept copy is gone. */
+  skipped: string[];
+  restore_point: number | null;
+}
+
+/** Look for the same preset in several folders on this machine. */
+export const findDuplicates = () => invoke<Duplicates>("find_duplicates");
+/** Remove the extra copies as one restore point (History can undo it), then rescan. */
+export const cleanUpDuplicates = (choices: { keep: string; remove: string[] }[]) =>
+  invoke<CleanUp>("clean_up_duplicates", { choices });

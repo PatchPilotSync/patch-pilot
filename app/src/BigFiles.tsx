@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   onTransfersChanged,
@@ -8,7 +8,7 @@ import {
   type CloudFolder,
   type TransferView,
 } from "./api";
-import { Badge, Button } from "./ui";
+import { Badge, Button, Card, inputClass, Notice } from "./ui";
 
 /**
  * Big-file hand-off (decision #64): Bring over files too big for the link go
@@ -18,8 +18,18 @@ import { Badge, Button } from "./ui";
  * nothing unless some machine needs a big file, so the machine that has them
  * (often the Primary one) sees it on its own screen too.
  */
-export function BigFiles({ onError, className = "" }: { onError: (e: string) => void; className?: string }) {
+export function BigFiles({
+  onError,
+  className = "",
+  compact = false,
+}: {
+  onError: (e: string) => void;
+  className?: string;
+  /** One notice line that opens to the details, for This machine. */
+  compact?: boolean;
+}) {
   const [view, setView] = useState<TransferView | null>(null);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
@@ -65,29 +75,29 @@ export function BigFiles({ onError, className = "" }: { onError: (e: string) => 
     }
   }
 
-  return (
-    <section className={`rounded-lg border border-line bg-panel px-3 py-2.5 ${className}`}>
-      <header className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-xs font-semibold">Big files</h2>
-          <p className="text-[11px] text-dim">
-            {view.sendable.length > 0
-              ? `${count(view.sendable.length)} your other machines need ${view.sendable.length === 1 ? "is" : "are"} too big for the link.`
-              : `${count(view.needed)} this machine needs ${view.needed === 1 ? "is" : "are"} too big for the link.`}
-          </p>
-        </div>
-        {view.dir && !picking && (
-          <Button variant="quiet" onClick={() => setPicking(true)} className="shrink-0">
-            Change folder
-          </Button>
-        )}
-        {view.dir && !picking && toSend.length > 0 && (
-          <Button onClick={send} disabled={busy} className="shrink-0 whitespace-nowrap">
-            {busy ? "Sending…" : `Send ${toSend.length} via ${via}`}
-          </Button>
-        )}
-      </header>
+  const summary =
+    view.sendable.length > 0
+      ? `${count(view.sendable.length)} your other machines need ${view.sendable.length === 1 ? "is" : "are"} too big for the link`
+      : `${count(view.needed)} this machine needs ${view.needed === 1 ? "is" : "are"} too big for the link`;
+  const ready = view.dir && !picking;
+  const sendButton = ready && toSend.length > 0 && (
+    <Button
+      variant={compact ? "link" : "primary"}
+      onClick={send}
+      disabled={busy}
+      className={`shrink-0 whitespace-nowrap ${compact ? "h-6 px-2" : ""}`}
+    >
+      {busy ? "Sending…" : `Send ${toSend.length} via ${via}`}
+    </Button>
+  );
+  const changeButton = ready && (
+    <Button variant="quiet" onClick={() => setPicking(true)} className="shrink-0">
+      Change folder
+    </Button>
+  );
 
+  const body = (
+    <>
       {(!view.dir || picking) && (
         <FolderPicker
           clouds={view.clouds}
@@ -98,12 +108,12 @@ export function BigFiles({ onError, className = "" }: { onError: (e: string) => 
         />
       )}
 
-      {view.dir && !picking && (
+      {ready && (
         <>
           {view.sendable.length > 0 && (
-            <ul className="mt-2 flex flex-col">
+            <ul className="flex flex-col">
               {view.sendable.map((f) => (
-                <li key={`${f.root}/${f.rel}`} className="flex items-center gap-2 px-1 py-1 text-xs">
+                <li key={`${f.root}/${f.rel}`} className="flex items-center gap-2 py-1 text-xs">
                   <span className="min-w-0 flex-1 truncate" title={f.rel}>
                     {f.rel.slice(f.rel.lastIndexOf("/") + 1)}
                   </span>
@@ -115,38 +125,75 @@ export function BigFiles({ onError, className = "" }: { onError: (e: string) => 
               ))}
             </ul>
           )}
-          <p className="mt-1.5 text-[11px] text-dim">
+          <p className="text-[11px] text-dim">
             {sent !== null && sent > 0 && <span className="text-ok">Sent {count(sent)}. </span>}
             {view.last.placed > 0 && <span className="text-ok">Placed {count(view.last.placed)} here. </span>}
             {view.last.waiting > 0 && `${count(view.last.waiting)} still downloading to this machine. `}
             {view.requested > 0 &&
               `${count(view.requested)} asked for, waiting for the machine that has ${view.requested === 1 ? "it" : "them"} to send. `}
-            {view.needed > 0 &&
-              view.sendable.length === 0 &&
-              "Send them from the machine that has them, through the same service. "}
-            The machine that needs a file puts it in place by itself (you can undo it in History), and it's deleted from{" "}
-            {via} once every machine has it.
+            {view.needed > 0 && view.sendable.length === 0
+              ? `Send ${view.needed === 1 ? "it" : "them"} from the machine that has ${view.needed === 1 ? "it" : "them"}; it lands here by itself.`
+              : `Each machine places its files by itself, and they leave ${via} once every machine has them.`}
           </p>
         </>
       )}
-    </section>
+    </>
+  );
+
+  if (compact) {
+    return (
+      <Notice
+        text={ready ? `${summary}. They travel through ${via}.` : `${summary}. Pick a cloud folder to carry them.`}
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+        actions={sendButton}
+      >
+        {changeButton && <div className="-mb-1 -mt-1 flex justify-end">{changeButton}</div>}
+        {body}
+      </Notice>
+    );
+  }
+
+  return (
+    <Card
+      title="Big files"
+      sub={`${summary}.`}
+      className={className}
+      actions={
+        <>
+          {changeButton}
+          {sendButton}
+        </>
+      }
+    >
+      <div className="mt-2 flex flex-col gap-1.5">{body}</div>
+    </Card>
   );
 }
 
-function FolderPicker({
+/** Pick a cloud folder from those found here, or any folder. Shared with Backup. */
+export function FolderPicker({
   clouds,
   busy,
   missing,
   onChoose,
   onCancel,
+  preferred,
+  hint,
 }: {
   clouds: CloudFolder[];
   busy: boolean;
   missing: boolean;
   onChoose: (service: string | null, folder: string | null) => void;
   onCancel?: () => void;
+  /** The folder to offer first, if it's in the list. */
+  preferred?: string | null;
+  /** The line above the list. */
+  hint?: ReactNode;
 }) {
-  const [pick, setPick] = useState(clouds[0]?.path ?? "");
+  const [pick, setPick] = useState(
+    clouds.find((c) => c.path === preferred)?.path ?? clouds[0]?.path ?? "",
+  );
 
   async function chooseFolder() {
     const folder = await open({ directory: true }).catch(() => null);
@@ -154,17 +201,21 @@ function FolderPicker({
   }
 
   return (
-    <div className="mt-2 flex flex-col gap-1.5 text-xs">
+    <div className="flex flex-col gap-1.5 text-xs">
       {missing && <p className="text-warn">The folder picked before isn't there now (signed out, or not connected).</p>}
       <p className="text-dim">
-        Pick a cloud folder to carry them. Use the same service on each machine; Patch Pilot keeps them in a{" "}
-        <span className="font-medium">Patch Pilot Transfers</span> folder there.
+        {hint ?? (
+          <>
+            Pick a cloud folder to carry them, the same service on each machine. They go in a{" "}
+            <span className="font-medium">Patch Pilot Transfers</span> folder there.
+          </>
+        )}
       </p>
       <span className="flex flex-wrap items-center gap-1.5">
         {clouds.length > 0 && (
           <>
             <select
-              className="h-7 min-w-0 rounded-[5px] border border-line bg-panel px-1.5"
+              className={`${inputClass} min-w-0`}
               value={pick}
               onChange={(e) => setPick(e.target.value)}
             >
@@ -174,7 +225,9 @@ function FolderPicker({
                 </option>
               ))}
             </select>
+            {/* A link, so the step or panel around it keeps its one filled button. */}
             <Button
+              variant="link"
               disabled={busy || !pick}
               onClick={() => {
                 const c = clouds.find((x) => x.path === pick);
@@ -196,8 +249,8 @@ function FolderPicker({
       </span>
       {clouds.length === 0 && (
         <p className="text-dim">
-          No Dropbox, OneDrive, Google Drive, iCloud Drive, Box, pCloud, Sync.com or MEGA folder found here. Any folder
-          that syncs between your machines works, including a NAS share.
+          No Dropbox, OneDrive, Google Drive, iCloud Drive, Box, pCloud, Sync.com or MEGA folder here. Any folder that
+          syncs between your machines works, a NAS share too.
         </p>
       )}
     </div>
