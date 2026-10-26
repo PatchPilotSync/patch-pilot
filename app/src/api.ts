@@ -296,6 +296,8 @@ export interface BringView {
   /** There is a Primary Rig (or the machine asked for) to bring from. */
   has_source: boolean;
   files: FileToBring[];
+  /** The cloud folder big files come through ("Dropbox"), if one is picked here. */
+  cloud: string | null;
   /** Left out because the user ignored them here. */
   ignored: FileToBring[];
   /** The ignores behind `ignored`. */
@@ -311,6 +313,8 @@ export interface BringResult {
   /** Files that came because a chosen file needs them. */
   companions: number;
   unavailable: string[];
+  /** Too big for the link: asked for through the cloud folder instead. */
+  requested: string[];
   /** Left behind because a file they need didn't arrive. */
   held_back: string[];
 }
@@ -361,6 +365,8 @@ export interface TransferView {
   sendable: Sendable[];
   /** Big files this machine needs. */
   needed: number;
+  /** Big files this machine asked for that haven't arrived yet. */
+  requested: number;
   last: ReceiveReport;
 }
 

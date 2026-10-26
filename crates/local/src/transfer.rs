@@ -323,7 +323,12 @@ fn needed(store: &Store, except: &str) -> Result<Vec<(String, FileToBring)>, Str
 }
 
 fn handed_off(f: &FileToBring) -> bool {
-    f.too_large && f.size.is_some_and(|s| s <= MAX_TRANSFER_BYTES)
+    f.too_large && can_hand_off(f)
+}
+
+/// Small enough to go through the cloud folder.
+pub fn can_hand_off(f: &FileToBring) -> bool {
+    f.size.is_some_and(|s| s <= MAX_TRANSFER_BYTES)
 }
 
 /// The big files other linked machines need that this machine (`this`) has
@@ -405,10 +410,11 @@ pub struct ReceiveReport {
     pub cleaned: usize,
 }
 
-/// Place every file this machine (`this`) needs that's waiting in the
-/// transfer folder `dir`, through one restore point per folder, then delete
-/// the transfers no linked machine still needs. A file is placed only once
-/// it is all there: right size and, where known, right hash.
+/// Place every file this machine (`this`) needs, or asked for, that's
+/// waiting in the transfer folder `dir`, through one restore point per
+/// folder, then delete the transfers no linked machine still needs or asked
+/// for. A file is placed only once it is all there: right size and, where
+/// known, right hash.
 pub fn receive(
     store: &mut Store,
     blobs: &Path,
@@ -417,26 +423,30 @@ pub fn receive(
     now: i64,
 ) -> Result<ReceiveReport, String> {
     let mut report = ReceiveReport::default();
-    if store.golden(None).map_err(err)?.is_none() {
-        return Ok(report);
-    }
     let machine = store.latest_manifest(this).map_err(err)?;
     let mine = needed_here(store, this)?;
+    let asked = read_request(dir, this);
+    let mut want: BTreeMap<String, Wanted> = BTreeMap::new();
+    for w in mine
+        .iter()
+        .map(Wanted::from)
+        .chain(asked.files.iter().cloned())
+    {
+        want.entry(w.name()).or_insert(w);
+    }
 
     let mut placed = BTreeSet::new();
     let mut by_root: BTreeMap<String, Vec<(String, Vec<u8>)>> = BTreeMap::new();
-    for f in &mine {
-        let size = f.size.unwrap_or_default();
-        let name = transfer_name(&f.root, &f.rel, size);
-        match fetch(dir, &name, f) {
+    for (name, w) in &want {
+        match fetch(dir, name, w) {
             Fetch::Absent => {}
             Fetch::Waiting => report.waiting += 1,
             Fetch::Ready(bytes) => {
-                placed.insert(name);
+                placed.insert(name.clone());
                 by_root
-                    .entry(f.root.clone())
+                    .entry(w.root.clone())
                     .or_default()
-                    .push((f.rel.clone(), bytes));
+                    .push((w.rel.clone(), bytes));
             }
         }
     }
@@ -455,14 +465,181 @@ pub fn receive(
             bring::write_files(store, blobs, this, &label, &root, &target, &files, now)?.written;
     }
 
-    // Still wanted: by the other machines, and by this one unless just placed.
+    // This machine's request keeps only what hasn't arrived, by this route
+    // or another.
+    let asked_for = asked.files.len();
+    let pending: Vec<Wanted> = asked
+        .files
+        .into_iter()
+        .filter(|w| !placed.contains(&w.name()) && !is_here(machine.as_ref(), w))
+        .collect();
+    if pending.len() != asked_for {
+        write_request(dir, this, &asked.machine, &pending)?;
+    }
+
+    // Still wanted: by the other machines, by any machine's request, and by
+    // this one unless just placed.
     let mut wanted: BTreeSet<String> = needed(store, this)?
         .iter()
         .map(|(_, f)| name_of(f))
         .collect();
-    wanted.extend(mine.iter().map(name_of).filter(|n| !placed.contains(n)));
+    wanted.extend(want.keys().filter(|n| !placed.contains(*n)).cloned());
+    for r in read_requests(dir) {
+        if r.id != this {
+            wanted.extend(r.files.iter().map(Wanted::name));
+        }
+    }
     report.cleaned = clean(dir, &wanted);
     Ok(report)
+}
+
+/// True when this machine has the file at its place, at that size.
+fn is_here(machine: Option<&Manifest>, w: &Wanted) -> bool {
+    bring::root_dir(machine, &w.root)
+        .map(|d| w.rel.split('/').fold(d, |p, part| p.join(part)))
+        .and_then(|p| std::fs::metadata(p).ok())
+        .is_some_and(|m| m.len() == w.size)
+}
+
+/// A file a machine needs, by where it goes and its size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wanted {
+    pub root: String,
+    pub rel: String,
+    pub size: u64,
+    /// Its content hash, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<patchpilot_core::ContentHash>,
+}
+
+impl Wanted {
+    fn name(&self) -> String {
+        transfer_name(&self.root, &self.rel, self.size)
+    }
+}
+
+impl From<&FileToBring> for Wanted {
+    fn from(f: &FileToBring) -> Self {
+        let size = f.size.unwrap_or_default();
+        Self {
+            root: f.root.clone(),
+            rel: f.rel.clone(),
+            size,
+            hash: (f.hash != bring::size_only_hash(size)).then(|| f.hash.clone()),
+        }
+    }
+}
+
+/// What one machine asked the others to send: `request-<machine id>.json`
+/// in the transfer folder, written only by that machine, so two machines
+/// never write the same file.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Request {
+    #[serde(skip)]
+    pub id: String,
+    /// The machine's name, for people looking in the folder.
+    #[serde(default)]
+    pub machine: String,
+    #[serde(default)]
+    pub files: Vec<Wanted>,
+}
+
+const REQUEST_PREFIX: &str = "request-";
+
+fn request_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{REQUEST_PREFIX}{id}.json"))
+}
+
+fn read_request(dir: &Path, id: &str) -> Request {
+    let mut r: Request = std::fs::read(request_path(dir, id))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    r.id = id.to_owned();
+    r
+}
+
+/// Every machine's request in the folder.
+fn read_requests(dir: &Path) -> Vec<Request> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let id = name.strip_prefix(REQUEST_PREFIX)?.strip_suffix(".json")?;
+            (!id.is_empty() && !id.contains(' ')).then(|| read_request(dir, id))
+        })
+        .collect()
+}
+
+fn write_request(dir: &Path, id: &str, machine: &str, files: &[Wanted]) -> Result<(), String> {
+    let path = request_path(dir, id);
+    if files.is_empty() {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        };
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let r = Request {
+        id: id.to_owned(),
+        machine: machine.to_owned(),
+        files: files.to_vec(),
+    };
+    let json = serde_json::to_vec_pretty(&r).expect("request serializes");
+    let tmp = dir.join(format!(".{REQUEST_PREFIX}{id}.json"));
+    std::fs::write(&tmp, json).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Ask the other machines (`this` is named `name`) to send `files` through
+/// the transfer folder `dir`; whichever has them sends them when it next
+/// looks. Adds to what this machine asked for before. Files over
+/// [`MAX_TRANSFER_BYTES`] are left out. Returns how many were asked for.
+pub fn request(dir: &Path, this: &str, name: &str, files: &[FileToBring]) -> Result<usize, String> {
+    let mut r = read_request(dir, this);
+    let mut asked = 0;
+    for f in files.iter().filter(|f| handed_off(f)) {
+        let w = Wanted::from(f);
+        if !r.files.iter().any(|x| x.name() == w.name()) {
+            r.files.push(w);
+        }
+        asked += 1;
+    }
+    write_request(dir, this, name, &r.files)?;
+    Ok(asked)
+}
+
+/// Send what other machines asked for that this machine (`this`) has the
+/// same copy of. Returns how many were copied.
+pub fn send_requested(store: &Store, this: &str, dir: &Path) -> Result<usize, String> {
+    let Some(here) = store.latest_manifest(this).map_err(err)? else {
+        return Ok(0);
+    };
+    let mut files: BTreeMap<String, Sendable> = BTreeMap::new();
+    for r in read_requests(dir).into_iter().filter(|r| r.id != this) {
+        for w in r.files {
+            let Some(path) = local_copy(&here, &w.root, &w.rel, w.size) else {
+                continue;
+            };
+            files.entry(w.name()).or_insert(Sendable {
+                root: w.root,
+                rel: w.rel,
+                size: w.size,
+                machines: vec![r.machine.clone()],
+                sent: false,
+                path,
+            });
+        }
+    }
+    send(dir, &files.into_values().collect::<Vec<_>>())
+}
+
+/// How many files this machine asked for that haven't arrived.
+pub fn requested_count(dir: &Path, this: &str) -> usize {
+    read_request(dir, this).files.len()
 }
 
 /// The big files this machine needs that can be handed off.
@@ -504,7 +681,7 @@ enum Fetch {
 /// OneDrive, Google Drive and Dropbox online-only files download as they
 /// are read, and anything short or with the wrong hash waits for the next
 /// look (the folder watch fires when the sync app finishes).
-fn fetch(dir: &Path, name: &str, f: &FileToBring) -> Fetch {
+fn fetch(dir: &Path, name: &str, w: &Wanted) -> Fetch {
     let path = dir.join(name);
     if !path.is_file() {
         let stand_in = dir.join(format!(".{name}.icloud"));
@@ -514,12 +691,13 @@ fn fetch(dir: &Path, name: &str, f: &FileToBring) -> Fetch {
         request_download(&path);
         return Fetch::Waiting;
     }
-    let size = f.size.unwrap_or_default();
     let Ok(bytes) = std::fs::read(&path) else {
         return Fetch::Waiting;
     };
-    let hash_known = f.hash != bring::size_only_hash(size);
-    if bytes.len() as u64 != size || (hash_known && patchpilot_sync::content_hash(&bytes) != f.hash)
+    if bytes.len() as u64 != w.size
+        || w.hash
+            .as_ref()
+            .is_some_and(|h| patchpilot_sync::content_hash(&bytes) != *h)
     {
         return Fetch::Waiting;
     }
@@ -688,6 +866,54 @@ mod tests {
         assert!(!cloud.join(&name).exists());
         assert!(cloud.join("notes.txt").exists(), "only Patch Pilot's files");
         assert_eq!(store.restore_points("mac").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_request_is_sent_by_the_machine_that_has_it_and_cleared_on_arrival() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pc_dir = tmp.path().join("pc");
+        let mac_dir = tmp.path().join("mac");
+        let cloud = tmp.path().join(FOLDER_NAME);
+        std::fs::create_dir_all(pc_dir.join("Pro-Q 4")).unwrap();
+        let bytes = vec![3u8; BIG as usize];
+        std::fs::write(pc_dir.join("Pro-Q 4/Huge.ffp"), &bytes).unwrap();
+        let mut store = Store::open_in_memory().unwrap();
+        let pc = machine("pc", "Studio PC", Os::Macos, &pc_dir, true);
+        let mac = machine("mac", "MacBook", Os::Macos, &mac_dir, false);
+        for m in [&pc, &mac] {
+            store
+                .save_manifest(m, patchpilot_store::SnapshotReason::FirstScan, 1)
+                .unwrap();
+        }
+        store.save_golden(&pc, Some("pc"), None, 1).unwrap();
+        let files = bring::files_to_bring(&pc, &TargetProfile::default(), Some(&mac));
+
+        // The Mac asks; asking twice asks once.
+        assert_eq!(request(&cloud, "mac", "MacBook", &files).unwrap(), 1);
+        request(&cloud, "mac", "MacBook", &files).unwrap();
+        assert_eq!(requested_count(&cloud, "mac"), 1);
+        // Only the machine that has it sends it, and only once.
+        assert_eq!(send_requested(&store, "mac", &cloud).unwrap(), 0);
+        assert_eq!(send_requested(&store, "pc", &cloud).unwrap(), 1);
+        assert_eq!(send_requested(&store, "pc", &cloud).unwrap(), 0);
+        // The PC's own look leaves it for the Mac.
+        let blobs = tmp.path().join("blobs");
+        assert_eq!(
+            receive(&mut store, &blobs, "pc", &cloud, 2)
+                .unwrap()
+                .cleaned,
+            0
+        );
+
+        let r = receive(&mut store, &blobs, "mac", &cloud, 2).unwrap();
+        assert_eq!((r.placed, r.cleaned), (1, 1));
+        assert_eq!(
+            std::fs::read(mac_dir.join("Pro-Q 4/Huge.ffp")).unwrap(),
+            bytes
+        );
+        assert_eq!(requested_count(&cloud, "mac"), 0);
+        let left: Vec<_> = std::fs::read_dir(&cloud).unwrap().flatten().collect();
+        assert!(left.is_empty(), "{left:?}");
     }
 
     #[test]

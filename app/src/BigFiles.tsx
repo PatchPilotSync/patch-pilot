@@ -45,7 +45,7 @@ export function BigFiles({
     };
   }, [load]);
 
-  if (!view || (view.sendable.length === 0 && view.needed === 0)) return null;
+  if (!view || (view.sendable.length === 0 && view.needed === 0 && view.requested === 0)) return null;
 
   const current = view.clouds.find((c) => c.path === view.settings.folder);
   const via = view.settings.service === "custom" ? "your folder" : (current?.name ?? "your cloud folder");
@@ -129,6 +129,8 @@ export function BigFiles({
             {sent !== null && sent > 0 && <span className="text-ok">Sent {count(sent)}. </span>}
             {view.last.placed > 0 && <span className="text-ok">Placed {count(view.last.placed)} here. </span>}
             {view.last.waiting > 0 && `${count(view.last.waiting)} still downloading to this machine. `}
+            {view.requested > 0 &&
+              `${count(view.requested)} asked for, waiting for the machine that has ${view.requested === 1 ? "it" : "them"} to send. `}
             {view.needed > 0 && view.sendable.length === 0
               ? `Send ${view.needed === 1 ? "it" : "them"} from the machine that has ${view.needed === 1 ? "it" : "them"}; it lands here by itself.`
               : `Each machine places its files by itself, and they leave ${via} once every machine has them.`}

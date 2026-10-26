@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { bringFiles, fileKey, filesToBring, ignoreItems, type BringResult, type BringView, type FileToBring } from "./api";
-import { bringSummary, isReaperScript, Needs } from "./bring";
+import { bringSummary, isReaperScript, isTemplate, Needs } from "./bring";
 import { IgnoreButton, IgnoredToggle, pathRules } from "./Ignore";
 import { Badge, Button, buildTree, Card, Folder, FolderTree, isConflictCopy, treeItems, useFolders } from "./ui";
 
@@ -47,6 +47,11 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   // The catch-all: every Reaper script here, whatever is ticked.
   const scripts = files.filter(isReaperScript);
   const allScripts = scripts.filter((f) => canBring(f) && !isConflictCopy(f.rel));
+  // And every template (Reaper and Ableton).
+  const templates = files.filter(isTemplate);
+  const allTemplates = templates.filter((f) => canBring(f) && !isConflictCopy(f.rel));
+  const presets = files.filter(isPreset);
+  const allPresets = presets.filter((f) => canBring(f) && !isConflictCopy(f.rel));
 
   async function bring(which: FileToBring[] = chosen, skipped = 0) {
     setBusy(true);
@@ -131,6 +136,28 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
               title="Every Reaper script, ReaPack package and the files they need, whatever is ticked"
             >
               All {allScripts.length} scripts
+            </Button>
+          )}
+          {view.linked && allTemplates.length > 0 && allTemplates.length < files.length && (
+            <Button
+              variant="link"
+              onClick={() => bring(allTemplates, templates.filter((f) => f.incomplete).length)}
+              disabled={busy}
+              className="shrink-0 whitespace-nowrap"
+              title="Every Reaper track and project template and Ableton template, whatever is ticked"
+            >
+              All {allTemplates.length} templates
+            </Button>
+          )}
+          {view.linked && allPresets.length > 0 && allPresets.length < files.length && (
+            <Button
+              variant="link"
+              onClick={() => bring(allPresets, presets.filter((f) => f.incomplete).length)}
+              disabled={busy}
+              className="shrink-0 whitespace-nowrap"
+              title="Every plug-in preset, whatever is ticked"
+            >
+              All {allPresets.length} presets
             </Button>
           )}
           {view.linked && chosen.length > 0 && (
@@ -221,6 +248,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                                 key={fileKey(f)}
                                 f={f}
                                 linked={view.linked}
+                                cloud={view.cloud}
                                 checked={isChosen(f)}
                                 companions={needs.withNeeds([fileKey(f)]).size - 1}
                                 onToggle={() => setChosen([f], !isChosen(f))}
@@ -276,6 +304,7 @@ export function FolderTick({
 function FileLine({
   f,
   linked,
+  cloud,
   checked,
   companions,
   onToggle,
@@ -283,6 +312,7 @@ function FileLine({
 }: {
   f: FileToBring;
   linked: boolean;
+  cloud: string | null;
   checked: boolean;
   /** Other files it brings along. */
   companions: number;
@@ -315,12 +345,18 @@ function FileLine({
             <Badge tone="amber">conflict copy</Badge>
           </span>
         )}
-        {f.too_large ? (
-          <span title="Over 1.9 MB: the link between your machines carries files up to about 2 MB, so this one stays behind.">
+        {f.too_large && !f.incomplete ? (
+          <span
+            title={`Over 1.9 MB, too big for the link: it comes through ${cloud}, as soon as Patch Pilot on the machine that has it sends it.`}
+          >
+            <Badge>Via {cloud}</Badge>
+          </span>
+        ) : f.too_large ? (
+          <span title="Over the 2 MB the link can carry. Pick a cloud folder under Big files to bring it over through Dropbox, OneDrive or similar.">
             <Badge>Too large to send</Badge>
           </span>
         ) : f.incomplete ? (
-          <span title="A file it needs is over the 2 MB the link can carry, so it would arrive without it.">
+          <span title="A file it needs is too large for the link, so it would arrive without it. Pick a cloud folder under Big files to bring it over.">
             <Badge>Needs a file too large to send</Badge>
           </span>
         ) : (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   addToGolden,
   bringFiles,
@@ -36,7 +36,7 @@ import {
   type VendorApp,
 } from "../api";
 import { IgnoreButton, IgnoredToggle, pathRules, productRules, useIgnores } from "../Ignore";
-import { bringSummary, isReaperScript, Needs } from "../bring";
+import { bringSummary, isReaperScript, isTemplate, Needs } from "../bring";
 import { StepExtras, StepList, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
 import {
@@ -529,6 +529,32 @@ function Diff({
                 title={`Every script and ReaPack package, each with the files it needs. ${bring.hint}`}
               >
                 {bring.from ? "Copy all Reaper scripts here" : "Bring over all Reaper scripts"}
+              </Button>
+            }
+          />
+        )}
+
+        {bring.templates.files.length > 0 && (
+          <Notice
+            text={
+              <>
+                {bring.templates.files.length.toLocaleString()} template
+                {bring.templates.files.length === 1 ? "" : "s"}{" "}
+                {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
+                {bring.templates.tooLarge > 0 && (
+                  <span className="text-dim"> ({bring.templates.tooLarge} too large to send)</span>
+                )}
+              </>
+            }
+            actions={
+              <Button
+                variant="link"
+                disabled={bring.busy}
+                onClick={() => bring.bring(bring.templates.files, bring.templates.tooLarge)}
+                className="h-6 shrink-0 px-2"
+                title={`Every Reaper track and project template and Ableton template. ${bring.hint}`}
+              >
+                {bring.from ? "Copy all templates here" : "Bring over all templates"}
               </Button>
             }
           />
@@ -1309,6 +1335,8 @@ interface BringHere {
   message: { text: string; warn: string | null } | null;
   /** Every Reaper script (and package file) that can come, and how many can't (too large). */
   scripts: { files: FileToBring[]; tooLarge: number };
+  /** The same for every template. */
+  templates: { files: FileToBring[]; tooLarge: number };
 }
 
 /**
@@ -1344,13 +1372,18 @@ function useBringHere(machine: MachineCard | null, refresh: unknown, onError: (e
     [view],
   );
   const needs = useMemo(() => new Needs(view?.files ?? []), [view]);
-  const scripts = useMemo(() => {
-    const all = view?.linked ? view.files.filter(isReaperScript) : [];
-    return {
-      files: all.filter((f) => !f.incomplete && !isConflictCopy(f.rel)),
-      tooLarge: all.filter((f) => f.incomplete).length,
-    };
-  }, [view]);
+  const catchAll = useCallback(
+    (which: (f: FileToBring) => boolean) => {
+      const all = view?.linked ? view.files.filter(which) : [];
+      return {
+        files: all.filter((f) => !f.incomplete && !isConflictCopy(f.rel)),
+        tooLarge: all.filter((f) => f.incomplete).length,
+      };
+    },
+    [view],
+  );
+  const scripts = useMemo(() => catchAll(isReaperScript), [catchAll]);
+  const templates = useMemo(() => catchAll(isTemplate), [catchAll]);
   const source = from ? (machine?.name ?? "that machine") : "the Primary machine";
   return {
     file: (p) => byProduct.get(p),
@@ -1371,6 +1404,7 @@ function useBringHere(machine: MachineCard | null, refresh: unknown, onError: (e
     },
     message,
     scripts,
+    templates,
   };
 }
 
