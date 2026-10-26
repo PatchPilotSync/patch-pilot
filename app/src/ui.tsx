@@ -156,7 +156,7 @@ export function Folder({
   return (
     <section>
       <div
-        className={`flex h-7 w-full items-center gap-1.5 hover:bg-sel/60 ${className}`}
+        className={`group flex h-7 w-full items-center gap-1.5 hover:bg-sel/60 ${className}`}
         style={indent === undefined ? undefined : { paddingLeft: indent }}
       >
         <button

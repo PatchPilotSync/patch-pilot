@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Manifest, ManifestError, TargetProfile};
+use crate::{Manifest, ManifestError, Matcher, TargetProfile};
 
 /// Version of the exchange bundle format this build reads and writes.
 pub const BUNDLE_VERSION: u32 = 1;
@@ -31,6 +31,10 @@ pub struct Bundle {
     /// linked machine stops offering them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ignored: Vec<IgnoredSuggestion>,
+    /// What the user chose not to bring over or install on a machine, and
+    /// what they took back, so every linked machine counts the same.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignores: Vec<IgnoreEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -61,8 +65,47 @@ pub struct IgnoredSuggestion {
     pub product_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    /// Unix seconds UTC.
+    /// Unix seconds UTC: when it was ignored, or un-ignored if `undone`.
     pub ignored_at: i64,
+    /// Un-ignored: offered again. Kept so the change reaches linked machines.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub undone: bool,
+}
+
+/// Something the user chose to stop being asked about on a machine ("Ignore"
+/// in Bring over, Get Up To Speed or Compare): a file, a folder, a step's
+/// products. It leaves the machine's target like a profile's exclusion, so it
+/// drops out of the parity score, the plan and every count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct IgnoreEntry {
+    /// The machine it applies to; `None` for every linked machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+    /// What the user saw, e.g. "ReaTeam Scripts" or "Serum".
+    pub label: String,
+    /// Matches what it hides; anything one of them matches is left out.
+    pub rules: Vec<Matcher>,
+    /// Unix seconds UTC: when it was ignored, or un-ignored if `undone`.
+    pub at: i64,
+    /// Un-ignored. Kept so the change reaches linked machines.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub undone: bool,
+}
+
+impl IgnoreEntry {
+    /// Identifies the entry for its machine: the same rules are one entry.
+    pub fn key(&self) -> String {
+        ignore_key(&self.rules)
+    }
+}
+
+/// [`IgnoreEntry::key`] for these rules.
+pub fn ignore_key(rules: &[Matcher]) -> String {
+    serde_json::to_string(rules).expect("matchers serialize")
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 impl Bundle {
@@ -75,6 +118,7 @@ impl Bundle {
             golden: Vec::new(),
             profiles: Vec::new(),
             ignored: Vec::new(),
+            ignores: Vec::new(),
         }
     }
 

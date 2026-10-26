@@ -6,7 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use patchpilot_core::{Bundle, Os};
+use patchpilot_core::{Bundle, Matcher, Os};
+use patchpilot_local::ignore::IgnoreView;
 use patchpilot_local::up_to_speed::{PlanStart, load_up_to_speed, save_up_to_speed};
 use patchpilot_parity::{
     Comparison, ComparisonRow, Packages, Plan, SetupProgress, SuggestionGroup, SuggestionUnit,
@@ -59,6 +60,10 @@ pub struct MachineComparison {
     /// What each of `suggested` counts as, by product ID: a script with the
     /// rest of its folder, all of ReaPack as one.
     pub suggestion_units: BTreeMap<String, SuggestionUnit>,
+    /// Rows that would be suggested but were ignored, to offer again.
+    pub suggested_ignored: Vec<String>,
+    /// What the user ignored on this machine, left out of `comparison`.
+    pub ignores: Vec<IgnoreView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -92,7 +97,7 @@ pub async fn plan_machine(id: String) -> Result<Plan, String> {
         .latest_manifest(&id)
         .map_err(err)?
         .ok_or("no saved scan of that machine")?;
-    let profile = store.machine_profile(&id).map_err(err)?.unwrap_or_default();
+    let profile = store.target_for(&id).map_err(err)?;
     let (mut g, mut m) = (golden.manifest, scan);
     patchpilot_parity::align_products(&mut g, &mut m);
     Ok(up_to_speed(&g, &profile, &m))
@@ -141,9 +146,8 @@ fn plan_view(store: &Store, dir: &Path, id: &str) -> Result<SetupProgress, Strin
         .first()
         .ok_or("no saved scan of that machine")?
         .id;
-    let profile = store.machine_profile(id).map_err(err)?;
-    let profile_id = profile.as_ref().map(|p| p.id.clone());
-    let profile = profile.unwrap_or_default();
+    let profile_id = store.machine_profile(id).map_err(err)?.map(|p| p.id);
+    let profile = store.target_for(id).map_err(err)?;
 
     let mut state = load_up_to_speed(dir)?;
     let kept = match state.machines.get(id) {
@@ -253,6 +257,77 @@ pub async fn update_golden_from(app: AppHandle, machine: String) -> Result<u32, 
     Ok(v.version)
 }
 
+/// "Ignore" in Compare, Get Up To Speed or Bring over: leave what `rules`
+/// match out of `machine`'s target (this machine's when `None`, or every
+/// machine's), so it stops being asked for and counted. Syncs to linked
+/// machines.
+#[tauri::command]
+pub async fn ignore_items(
+    app: AppHandle,
+    machine: Option<String>,
+    label: String,
+    rules: Vec<Matcher>,
+    every_machine: bool,
+) -> Result<(), String> {
+    let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    patchpilot_local::ignore::ignore(
+        &mut store,
+        &machine_or_this(machine)?,
+        &label,
+        rules,
+        every_machine,
+        patchpilot_local::now(),
+    )?;
+    changed_here(&app, &store);
+    Ok(())
+}
+
+/// Take back an ignore (by its key) on `machine` (this one when `None`):
+/// it is asked for again.
+#[tauri::command]
+pub async fn unignore(app: AppHandle, machine: Option<String>, key: String) -> Result<(), String> {
+    let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    let machine = machine_or_this(machine)?;
+    patchpilot_local::ignore::unignore(&mut store, &machine, &key, patchpilot_local::now())?;
+    changed_here(&app, &store);
+    Ok(())
+}
+
+/// The ignores in force on `machine` (this one when `None`), newest first.
+#[tauri::command]
+pub async fn ignore_list(machine: Option<String>) -> Result<Vec<IgnoreView>, String> {
+    let Some(store) = existing_store()? else {
+        return Ok(Vec::new());
+    };
+    let golden = store.golden(None).map_err(err)?;
+    patchpilot_local::ignore::views(
+        &store,
+        &machine_or_this(machine)?,
+        golden.as_ref().map(|g| &g.manifest),
+    )
+}
+
+fn machine_or_this(machine: Option<String>) -> Result<String, String> {
+    match machine {
+        Some(m) => Ok(m),
+        None => this_machine()?.ok_or_else(|| "scan this machine first".to_owned()),
+    }
+}
+
+/// Offer ignored suggestions for the Primary Rig again, on every linked machine.
+#[tauri::command]
+pub async fn unignore_suggestions(app: AppHandle, items: Vec<IgnoreItem>) -> Result<(), String> {
+    let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    let now = patchpilot_local::now();
+    for i in &items {
+        store
+            .set_suggestion_ignored(&i.product, i.version.as_deref(), false, now)
+            .map_err(err)?;
+    }
+    changed_here(&app, &store);
+    Ok(())
+}
+
 /// One suggestion to ignore: a product and the machine's version of it.
 #[derive(Debug, serde::Deserialize)]
 pub struct IgnoreItem {
@@ -295,7 +370,11 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
         let (score, suggestion_groups) =
             match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
                 (Some(g), Some(scan)) => {
-                    let c = compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan);
+                    let c = compare(
+                        &g.manifest,
+                        &store.target_for(&info.id).map_err(err)?,
+                        &scan,
+                    );
                     (
                         Some(c.score),
                         suggestion_groups(&c, &ignored, &Packages::of(&scan)),
@@ -341,11 +420,7 @@ pub(crate) fn comparison(
         .map_err(err)?
         .ok_or_else(|| format!("no saved scan of {}", info.name))?;
     let profile = store.machine_profile(id).map_err(err)?;
-    let comparison = compare(
-        &golden.manifest,
-        &profile.clone().unwrap_or_default(),
-        &scan,
-    );
+    let comparison = compare(&golden.manifest, &store.target_for(id).map_err(err)?, &scan);
     let ignored = patchpilot_local::golden::ignored_keys(store)?;
     let suggested = suggested(&comparison, &ignored);
     let packages = Packages::of(&scan);
@@ -358,6 +433,11 @@ pub(crate) fn comparison(
             )
         })
         .collect();
+    let suggested_ignored = patchpilot_parity::suggestions(&comparison)
+        .filter(|r| !suggested.contains(&r.product_id.0))
+        .map(|r| r.product_id.0.clone())
+        .collect();
+    let ignores = patchpilot_local::ignore::views(store, id, Some(&golden.manifest))?;
     Ok(MachineComparison {
         machine: MachineCard {
             scanned_at: scanned_at(store, id)?,
@@ -378,6 +458,8 @@ pub(crate) fn comparison(
         comparison,
         suggested,
         suggestion_units,
+        suggested_ignored,
+        ignores,
     })
 }
 

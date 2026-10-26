@@ -199,6 +199,10 @@ export interface MachineComparison {
   suggested: string[];
   /** What each of `suggested` counts as, by product ID. */
   suggestion_units: Record<string, SuggestionUnit>;
+  /** Product IDs of rows that would be suggested but were ignored. */
+  suggested_ignored: string[];
+  /** What the user ignored on this machine, left out of the comparison. */
+  ignores: IgnoreView[];
 }
 
 export type Phase = "foundation" | "vendor_handoff" | "manual";
@@ -229,6 +233,35 @@ export const updateGoldenFrom = (machine: string) => invoke<number>("update_gold
 /** Stop suggesting this version of the product, on every linked machine. */
 export const ignoreSuggestions = (items: { product: string; version: string | null }[]) =>
   invoke<void>("ignore_suggestions", { items });
+/** Suggest these versions again, on every linked machine. */
+export const unignoreSuggestions = (items: { product: string; version: string | null }[]) =>
+  invoke<void>("unignore_suggestions", { items });
+
+// Ignore (decision #65): src-tauri/src/compare.rs and patchpilot_local::ignore.
+
+/** What an ignore hides: a product, a path (`ROOT/rel`, `**` for a folder) or a vendor. */
+export type Matcher = { product: string } | { path_glob: string } | { vendor: string };
+
+export interface IgnoreView {
+  key: string;
+  label: string;
+  /** Applies on every linked machine, not just this one. */
+  every_machine: boolean;
+  /** Primary Rig products it leaves out. */
+  hidden: number;
+  /** Files it keeps out of Bring over (Bring over's list only). */
+  files: number;
+}
+
+/**
+ * Stop asking for what `rules` match on a machine (this one when null), or on every
+ * linked machine: it drops out of the score, Get Up To Speed and Bring over.
+ */
+export const ignoreItems = (machine: string | null, label: string, rules: Matcher[], everyMachine = false) =>
+  invoke<void>("ignore_items", { machine, label, rules, everyMachine });
+/** Ask for it again. */
+export const unignore = (machine: string | null, key: string) => invoke<void>("unignore", { machine, key });
+export const ignoreList = (machine: string | null) => invoke<IgnoreView[]>("ignore_list", { machine });
 
 /** ReaPack repositories and packages (patchpilot_parity::reapack), which can number in the thousands. */
 export const isReapack = (productId: string) =>
@@ -265,6 +298,10 @@ export interface BringView {
   files: FileToBring[];
   /** The cloud folder big files come through ("Dropbox"), if one is picked here. */
   cloud: string | null;
+  /** Left out because the user ignored them here. */
+  ignored: FileToBring[];
+  /** The ignores behind `ignored`. */
+  ignores: IgnoreView[];
 }
 
 export interface BringResult {
