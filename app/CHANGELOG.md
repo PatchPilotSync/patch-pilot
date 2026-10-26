@@ -4,6 +4,14 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.3 - 2026-10-26
+
+### New
+
+- Ignore anything you don't want on a machine. Hover over a file, a folder, a script package, a whole app's files, a missing or outdated plug-in in Compare, a Get Up To Speed step, or a suggestion for the Primary Rig, and click Ignore. It stops being asked for and leaves every count: the parity score, Get Up To Speed, Bring over, the tray and alerts.
+- "N ignored" under each list shows what you ignored. Un-ignore brings it back, and you can choose whether an ignore applies to this machine only or to every linked machine. Ignored suggestions can be suggested again.
+- Files too big for the link (up to 64 MB) can travel through a cloud folder you already use, such as Dropbox, OneDrive, Google Drive or iCloud Drive, or any folder you pick. The machine that needs a file places it by itself once it has fully arrived, and the copy in the cloud folder is removed once no linked machine needs it.
+
 ## 0.4.2 - 2026-10-26
 
 ### Improved
