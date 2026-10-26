@@ -223,7 +223,9 @@ export function FolderPicker({
                 </option>
               ))}
             </select>
+            {/* A link, so the step or panel around it keeps its one filled button. */}
             <Button
+              variant="link"
               disabled={busy || !pick}
               onClick={() => {
                 const c = clouds.find((x) => x.path === pick);

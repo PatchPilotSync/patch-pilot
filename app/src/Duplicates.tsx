@@ -65,7 +65,7 @@ export function Duplicates() {
   return (
     <section>
       {/* A row like the folders around it on This machine, with its buttons at the end. */}
-      <div className="flex h-7 items-center gap-1.5 pl-4 pr-3 hover:bg-sel/60">
+      <div className="flex h-7 items-center gap-1.5 pl-4 pr-2 hover:bg-sel/60">
         <span className="w-2.5 shrink-0" aria-hidden="true" />
         <span className="shrink-0 font-medium">Duplicate presets</span>
         <span className="ml-1.5 min-w-0 flex-1 truncate text-[11px] text-dim">
