@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use patchpilot_core::{
-    BUNDLE_VERSION, Bundle, BundleMachine, Manifest, ManifestError, Matcher, PluginFormat,
-    PortablePath, ProfileRule, RuleAction, TargetProfile,
+    BUNDLE_VERSION, Bundle, BundleMachine, IgnoreEntry, Manifest, ManifestError, Matcher,
+    PluginFormat, PortablePath, ProfileRule, RuleAction, TargetProfile,
 };
 use patchpilot_store::{
     GoldenImport, ImportReport, LATEST_VERSION, SnapshotReason, Store, StoreError,
@@ -449,6 +449,7 @@ fn bundle_moves_machines_golden_and_profiles_between_stores() {
             profiles_added: vec!["laptop".into()],
             profiles_conflicting: vec![],
             ignored_added: 0,
+            ignores_changed: 0,
         }
     );
     assert_eq!(
@@ -619,4 +620,95 @@ fn ignored_suggestions_are_kept_once_and_travel_in_bundles() {
         0
     );
     assert_eq!(mac.ignored_suggestions().unwrap(), ignored);
+}
+
+#[test]
+fn suggestions_can_be_offered_again_everywhere() {
+    let mut pc = Store::open_in_memory().unwrap();
+    pc.ignore_suggestion("acme/delay", Some("1.0"), 5).unwrap();
+    let mut mac = Store::open_in_memory().unwrap();
+    mac.import_bundle(&pc.export_bundle(&[], None, 6).unwrap(), None, 6)
+        .unwrap();
+    assert_eq!(mac.ignored_suggestions().unwrap().len(), 1);
+
+    assert!(
+        pc.set_suggestion_ignored("acme/delay", Some("1.0"), false, 7)
+            .unwrap()
+    );
+    assert!(pc.ignored_suggestions().unwrap().is_empty());
+    let report = mac
+        .import_bundle(&pc.export_bundle(&[], None, 8).unwrap(), None, 8)
+        .unwrap();
+    assert_eq!(report.ignored_added, 1);
+    assert!(mac.ignored_suggestions().unwrap().is_empty());
+    // An older decision doesn't undo a newer one.
+    assert!(
+        !mac.set_suggestion_ignored("acme/delay", Some("1.0"), true, 6)
+            .unwrap()
+    );
+}
+
+#[test]
+fn ignores_apply_per_machine_and_sync_with_the_latest_winning() {
+    let studio = fixture_manifest();
+    let mut pc = Store::open_in_memory().unwrap();
+    pc.save_manifest(&studio, SnapshotReason::Scan, 1).unwrap();
+    let id = studio.machine.id.clone();
+    let rules = vec![Matcher::PathGlob(
+        "REAPER_RESOURCES/Scripts/ReaTeam/**".into(),
+    )];
+    let entry = IgnoreEntry {
+        machine_id: Some(id.clone()),
+        label: "ReaTeam".into(),
+        rules: rules.clone(),
+        at: 5,
+        undone: false,
+    };
+    assert!(pc.set_ignore(&entry).unwrap());
+    assert!(!pc.set_ignore(&entry).unwrap());
+    let target = pc.target_for(&id).unwrap();
+    assert_eq!(
+        target.rules.last().unwrap(),
+        &ProfileRule {
+            action: RuleAction::Exclude,
+            matcher: rules[0].clone(),
+        }
+    );
+    // A machine this store doesn't know is skipped.
+    assert!(
+        !pc.set_ignore(&IgnoreEntry {
+            machine_id: Some("nobody".into()),
+            ..entry.clone()
+        })
+        .unwrap()
+    );
+
+    let mut mac = Store::open_in_memory().unwrap();
+    let report = mac
+        .import_bundle(
+            &pc.export_bundle(std::slice::from_ref(&id), None, 6)
+                .unwrap(),
+            None,
+            6,
+        )
+        .unwrap();
+    assert_eq!(report.ignores_changed, 1);
+    assert_eq!(mac.ignores_for(&id).unwrap().len(), 1);
+
+    pc.set_ignore(&IgnoreEntry {
+        at: 7,
+        undone: true,
+        ..entry.clone()
+    })
+    .unwrap();
+    assert!(pc.ignores_for(&id).unwrap().is_empty());
+    assert!(pc.target_for(&id).unwrap().rules.is_empty());
+    mac.import_bundle(
+        &pc.export_bundle(std::slice::from_ref(&id), None, 8)
+            .unwrap(),
+        None,
+        8,
+    )
+    .unwrap();
+    assert!(mac.ignores_for(&id).unwrap().is_empty());
 }

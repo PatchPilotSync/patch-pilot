@@ -50,6 +50,9 @@ pub struct ComparisonRow {
     pub works_with: Vec<String>,
     /// Those of `works_with` the machine has no copy of.
     pub works_with_missing: Vec<String>,
+    /// The Primary Rig has it, but the machine's profile or an Ignore leaves
+    /// it out, so it is not a suggestion for the Primary Rig.
+    pub left_out: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -127,6 +130,8 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
                 machine_items: sides(&machine),
                 works_with,
                 works_with_missing,
+                left_out: target.product(&d.product_id).is_none()
+                    && golden.product(&d.product_id).is_some(),
             }
         })
         .collect();
