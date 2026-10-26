@@ -620,3 +620,31 @@ fn ignored_suggestions_are_kept_once_and_travel_in_bundles() {
     );
     assert_eq!(mac.ignored_suggestions().unwrap(), ignored);
 }
+
+#[test]
+fn keeps_the_files_each_file_needs() {
+    let mut m = fixture_manifest();
+    let i = m
+        .items
+        .iter()
+        .position(|i| matches!(i.path, PortablePath::Logical { .. }))
+        .unwrap();
+    m.items[i].needs_files = vec!["Scripts/lib.lua".into(), "Scripts/gfx.lua".into()];
+    let mut store = Store::open_in_memory().unwrap();
+    // A row saved before schema v5 had no needs: the next save fills them in.
+    store
+        .save_manifest(&m, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    store
+        .connection()
+        .execute("UPDATE items SET needs_files = NULL", [])
+        .unwrap();
+    store.save_manifest(&m, SnapshotReason::Scan, 2).unwrap();
+    let back = store.latest_manifest(&m.machine.id).unwrap().unwrap();
+    let item = back
+        .items
+        .iter()
+        .find(|x| x.path == m.items[i].path)
+        .unwrap();
+    assert_eq!(item.needs_files, m.items[i].needs_files);
+}

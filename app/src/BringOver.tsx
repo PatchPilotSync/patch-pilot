@@ -284,7 +284,7 @@ function groupByKind(files: FileToBring[]): [string, FileToBring[]][] {
   return [...m.entries()];
 }
 
-function groupByApp(files: FileToBring[]): [string, FileToBring[]][] {
+export function groupByApp(files: FileToBring[]): [string, FileToBring[]][] {
   const m = new Map<string, FileToBring[]>();
   for (const f of files) m.set(f.app, [...(m.get(f.app) ?? []), f]);
   return [...m.entries()];
@@ -299,7 +299,7 @@ function dirsOf(f: FileToBring): string[] {
 }
 
 /** "3 FX chains, 12 scripts"; for presets "14 presets". */
-function summaryOf(files: FileToBring[]): string {
+export function summaryOf(files: FileToBring[]): string {
   if (files.every(isPreset)) return `${files.length} preset${files.length === 1 ? "" : "s"}`;
   const counts = new Map<string, number>();
   for (const f of files) counts.set(f.kind, (counts.get(f.kind) ?? 0) + 1);

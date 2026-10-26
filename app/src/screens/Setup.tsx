@@ -17,6 +17,7 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
+import { RestoreFromBackup } from "../Backup";
 import { BigFiles } from "../BigFiles";
 import { BringOver } from "../BringOver";
 import { AppButton } from "./Compare";
@@ -60,7 +61,7 @@ export function Setup({ onRescan, onError, onChange }: Props) {
   }, [view, onError]);
 
   if (!view) return null;
-  if (!view.active) return <Start view={view} onStart={(id) => run(setupStart(id))} />;
+  if (!view.active) return <Start view={view} onStart={(id) => run(setupStart(id))} onError={onError} />;
   if (report !== null && view.active.finished_at)
     return (
       <Report
@@ -83,7 +84,16 @@ export function Setup({ onRescan, onError, onChange }: Props) {
   );
 }
 
-function Start({ view, onStart }: { view: SetupView; onStart: (profile: string | null) => void }) {
+function Start({
+  view,
+  onStart,
+  onError,
+}: {
+  view: SetupView;
+  onStart: (profile: string | null) => void;
+  onError: (e: string) => void;
+}) {
+  const [fromBackup, setFromBackup] = useState(false);
   // Studio clone has no rules, so it stands for "everything on the Primary Rig".
   const [profile, setProfile] = useState<string | null>(
     view.profile_id ?? view.profiles.find((p) => p.id === "studio-clone")?.id ?? null,
@@ -113,17 +123,37 @@ function Start({ view, onStart }: { view: SetupView; onStart: (profile: string |
               type="radio"
               name="profile"
               className="accent-accent"
-              checked={profile === p.id}
-              onChange={() => setProfile(p.id)}
+              checked={!fromBackup && profile === p.id}
+              onChange={() => {
+                setProfile(p.id);
+                setFromBackup(false);
+              }}
             />
             <span className="font-medium">{p.name}</span>
             {p.id && hint[p.id] && <span className="text-xs text-dim">{hint[p.id]}</span>}
           </label>
         ))}
+        <label className="flex items-baseline gap-2 rounded-md px-2 py-1.5 hover:bg-sel/50">
+          <input
+            type="radio"
+            name="profile"
+            className="accent-accent"
+            checked={fromBackup}
+            onChange={() => setFromBackup(true)}
+          />
+          <span className="font-medium">Restore from a backup</span>
+          <span className="text-xs text-dim">Your files, from a cloud folder.</span>
+        </label>
       </fieldset>
-      <div>
-        <Button onClick={() => onStart(profile)}>Start setup</Button>
-      </div>
+      {fromBackup ? (
+        <div className="text-xs">
+          <RestoreFromBackup onError={onError} />
+        </div>
+      ) : (
+        <div>
+          <Button onClick={() => onStart(profile)}>Start setup</Button>
+        </div>
+      )}
     </div>
   );
 }

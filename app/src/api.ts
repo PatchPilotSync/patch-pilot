@@ -333,6 +333,81 @@ export const setTransferFolder = (service: string | null, folder: string | null)
 export const sendBigFiles = () => invoke<number>("send_big_files");
 export const onTransfersChanged = (f: () => void): Promise<UnlistenFn> => listen("transfers-changed", f);
 
+// Back up everything (decision #65); mirrors src-tauri/src/backup.rs and patchpilot_local::backup.
+
+export interface BackupSettings {
+  /** A CloudFolder id, or "custom"; null until picked. */
+  service: string | null;
+  folder: string | null;
+  /** Back up after every scan that finds a change. */
+  auto: boolean;
+}
+
+export interface BackupInfo {
+  /** "2026-10-26 02.48.38" (UTC); names the backup. */
+  stamp: string;
+  made_at: number;
+  files: number;
+  bytes: number;
+}
+
+/** One machine's backups, newest first. */
+export interface BackupSet {
+  /** The machine's folder name in the backup. */
+  folder: string;
+  machine_id: string;
+  machine_name: string;
+  os: "windows" | "macos";
+  backups: BackupInfo[];
+}
+
+export interface BackupReport {
+  copied: number;
+  /** Earlier copies moved to Versions. */
+  versioned: number;
+  files: number;
+  skipped: string[];
+  stamp: string | null;
+  /** Nothing changed since the last backup. */
+  unchanged: boolean;
+}
+
+export interface BackupView {
+  clouds: CloudFolder[];
+  settings: BackupSettings;
+  /** The Patch Pilot Backup folder in use, if the folder picked is there. */
+  dir: string | null;
+  /** The big-file folder, offered first when picking. */
+  transfer_folder: string | null;
+  /** This machine's backups first. */
+  sets: BackupSet[];
+  this_machine: string | null;
+  last: BackupReport | null;
+  /** What went wrong with the last automatic backup. */
+  error: string | null;
+  running: boolean;
+}
+
+export interface RestoreView {
+  machine_name: string;
+  stamp: string;
+  files: FileToBring[];
+}
+
+/** Same fields as a bring-over's result. */
+export type RestoreReport = BringResult;
+
+export const backupView = () => invoke<BackupView>("backup_view");
+export const setBackupFolder = (service: string | null, folder: string | null) =>
+  invoke<BackupView>("set_backup_folder", { service, folder });
+export const setBackupAuto = (on: boolean) => invoke<BackupView>("set_backup_auto", { on });
+export const backUpNow = () => invoke<BackupReport>("back_up_now");
+export const backupRestoreList = (folder: string, stamp: string) =>
+  invoke<RestoreView>("backup_restore_list", { folder, stamp });
+export const restoreBackup = (folder: string, stamp: string, keys: string[]) =>
+  invoke<RestoreReport>("restore_backup", { folder, stamp, keys });
+export const onBackupChanged = (f: () => void): Promise<UnlistenFn> => listen("backup-changed", f);
+
 export const STATE_LABEL: Record<ParityState, string> = {
   missing: "Missing",
   incomplete: "Incomplete",

@@ -3,6 +3,7 @@
 
 mod alerts;
 mod background;
+mod backup;
 mod bring;
 mod catalog;
 mod compare;
@@ -63,6 +64,7 @@ pub fn run() {
             catalog::setup(app);
             vault::setup(app);
             transfer::setup(app);
+            backup::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -107,6 +109,12 @@ pub fn run() {
             transfer::transfer_view,
             transfer::set_transfer_folder,
             transfer::send_big_files,
+            backup::backup_view,
+            backup::set_backup_folder,
+            backup::set_backup_auto,
+            backup::back_up_now,
+            backup::backup_restore_list,
+            backup::restore_backup,
             catalog::updates,
             report::rig_report_preview,
             report::save_rig_report,
