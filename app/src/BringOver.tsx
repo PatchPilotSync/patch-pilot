@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { bringFiles, fileKey, filesToBring, type BringResult, type BringView, type FileToBring } from "./api";
-import { bringSummary, Needs } from "./bring";
+import { bringSummary, isReaperScript, Needs } from "./bring";
 import { Badge, Button, buildTree, Folder, FolderTree, isConflictCopy, treeItems, useFolders } from "./ui";
 
 /**
@@ -15,6 +15,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BringResult | null>(null);
+  const [leftOut, setLeftOut] = useState(0);
 
   const files = useMemo(() => view?.files ?? [], [view]);
   const needs = useMemo(() => new Needs(files), [files]);
@@ -40,10 +41,15 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   if (!view || !view.has_source) return null;
   if (files.length === 0 && !result && !view.linked) return null;
 
-  async function bring() {
+  // The catch-all: every Reaper script here, whatever is ticked.
+  const scripts = files.filter(isReaperScript);
+  const allScripts = scripts.filter((f) => canBring(f) && !isConflictCopy(f.rel));
+
+  async function bring(which: FileToBring[] = chosen, skipped = 0) {
     setBusy(true);
     try {
-      setResult(await bringFiles(chosen.map(fileKey)));
+      setResult(await bringFiles(which.map(fileKey)));
+      setLeftOut(skipped);
       load();
     } catch (e) {
       onError(String(e));
@@ -63,7 +69,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
     });
 
   const upToDate = files.length === 0;
-  const summary = result && bringSummary(result, "the Primary machine");
+  const summary = result && bringSummary(result, "the Primary machine", leftOut);
 
   return (
     <section className="rounded-lg border border-line bg-panel px-3 py-2.5">
@@ -89,8 +95,19 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
             {open ? "Hide files" : "Show files"}
           </Button>
         )}
+        {view.linked && allScripts.length > 0 && allScripts.length < files.length && (
+          <Button
+            variant="quiet"
+            onClick={() => bring(allScripts, scripts.filter((f) => f.incomplete).length)}
+            disabled={busy}
+            className="shrink-0 whitespace-nowrap text-accent-text!"
+            title="Every Reaper script, ReaPack package and the files they need, whatever is ticked"
+          >
+            All {allScripts.length} scripts
+          </Button>
+        )}
         {view.linked && chosen.length > 0 && (
-          <Button onClick={bring} disabled={busy} className="shrink-0 whitespace-nowrap">
+          <Button onClick={() => bring()} disabled={busy} className="shrink-0 whitespace-nowrap">
             {busy ? "Bringing over…" : `Bring over ${chosen.length}`}
           </Button>
         )}
