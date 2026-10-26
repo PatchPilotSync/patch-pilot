@@ -1,0 +1,42 @@
+# What keeps in sync between machines
+
+With **Keep Files in Sync** on, each machine backs up after every change and
+places what's new, changed or renamed on its linked machines (decisions #70,
+#74, #77). Every placement is a restore point that History can undo.
+
+## Syncs on its own
+
+| App | What | When the app must be closed |
+| --- | --- | --- |
+| Reaper | Track templates, project templates, FX chains | no |
+| Reaper | Scripts (ReaScripts and the files they load), JSFX and data from ReaPack packages | no |
+| Reaper | Themes (`ColorThemes/`) and custom toolbar icons (`Data/toolbar_icons/`) | no |
+| Reaper | FX presets saved in Reaper's preset menu (`presets/*.ini`) | no |
+| Reaper | Shortcuts and custom actions (`reaper-kb.ini`; script paths point at each machine's own folder) | yes |
+| Reaper | Menus and toolbars (`reaper-menu.ini`) | yes |
+| Reaper | Mouse modifiers (`reaper-mouse.ini`) | yes |
+| Reaper | Theme adjuster settings (`reaper-themeconfig.ini`) | yes |
+| Ableton Live | Templates (including `Default.als`), default presets, racks, presets, Max for Live devices, clips, grooves, tunings | yes |
+| Ableton Live | Collection names (only the names in `Library.cfg`; each machine keeps its own User Library path and Places) | yes |
+| Ableton Live | What's tagged into Collections (the `.xmp` files in the User Library's `Ableton Folder Info`) | yes |
+| Ableton Live | Control surface scripts in the User Library (`Remote Scripts/`) and `Options.txt` | yes |
+| Plug-ins | Preset folders of the vendors Patch Pilot knows | no |
+
+Renaming or moving any of these files renames or moves it on the other
+machines too, as long as their copy wasn't edited there.
+
+## Never syncs on its own
+
+| What | Why |
+| --- | --- |
+| Deleted files | A delete on one machine never removes the file elsewhere. |
+| Plug-ins, apps, sample libraries | They need their installers and licences (Get Up To Speed and the Installer Vault help). |
+| Reaper `reaper.ini` | It mixes preferences with the audio device, MIDI ports and folder paths of that machine. |
+| Reaper screensets (`reaper-screensets.ini`) | Window positions depend on each machine's screens. |
+| Reaper FX browser folders and tags (`reaper-fxfolders.ini`, `reaper-fxtags.ini`) | They name plug-ins by file, and Mac and PC files differ. |
+| Reaper `reaper-extstate.ini` | Scripts keep window positions and machine paths there. |
+| Reaper folder settings, ReaPack repositories | Set up from Get Up To Speed's Reaper setup card instead. |
+| Live `Preferences.cfg` | Binary, and holds the audio device, MIDI, plug-in folders and login. |
+| Collection tags on samples outside the User Library | Live keeps them beside the samples, in folders Patch Pilot doesn't sync. |
+| Plug-ins tagged into Collections | The tag travels, but Live only shows it once the plug-in is installed; Windows and Mac plug-in names can differ. |
+| Installer Vault index | Restored on purpose from the backup, not synced. |

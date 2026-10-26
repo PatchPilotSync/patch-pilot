@@ -273,7 +273,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Presets | Find presets in the top 30 vendors' preset locations; bring them over to linked machines (files up to 1.9 MB) | In progress |
 | Presets | Find the same preset saved in several folders and clean up the extra copies, undoable from History (#66) | Shipped (v0.4.3) |
 | Backup | Back up every tracked template, script, theme, setting, preset and the Installer Vault index to a cloud folder, incrementally with every earlier version kept; restore onto any machine, also a fresh one from Set up | Shipped (v0.4.4) |
-| Sync | Keep files in sync: new and changed templates, scripts and presets reach every linked machine on their own through the cloud folder picked in the tour; never deletes or overwrites an edit, conflicts ask, every placement undoable, tray switch (#70) | On main |
+| Sync | Keep files in sync: new, changed and renamed templates, scripts and presets reach every linked machine on their own through the cloud folder picked in the tour; never deletes (a rename removes the old name, undoable) or overwrites an edit, conflicts ask, every placement undoable, tray switch (#70). Portable settings travel too: Reaper key map, menus/toolbars, mouse modifiers, theme adjuster, toolbar icons, FX presets; Live Collection names, Options.txt, tunings, control surface scripts (#77; list in docs/what-syncs.md) | On main |
 
 ### Not started
 

@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use patchpilot_local::FolderWatch;
-use patchpilot_local::autosync::{self, Conflict, SyncReport};
+use patchpilot_local::autosync::{self, Conflict, Placed, SyncReport};
 use patchpilot_local::backup::{self, backup_dir};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
@@ -224,17 +224,20 @@ fn placed_summary(report: &SyncReport) -> String {
         .collect();
     from.dedup();
     let mut parts: Vec<String> = Vec::new();
-    for p in &report.placed {
+    let what = |p: &Placed, n: usize| {
         let what = if p.app == "Presets" {
             "preset".to_owned()
         } else {
             format!("{} file", p.app)
         };
-        parts.push(format!(
-            "{} {what}{}",
-            p.files,
-            if p.files == 1 { "" } else { "s" }
-        ));
+        format!("{n} {what}{}", if n == 1 { "" } else { "s" })
+    };
+    for p in &report.placed {
+        parts.push(match (p.files, p.renamed) {
+            (0, r) => format!("{} renamed", what(p, r)),
+            (n, 0) => what(p, n),
+            (n, r) => format!("{} ({r} renamed)", what(p, n)),
+        });
     }
     format!(
         "{} from {}. Undo in History.",
@@ -352,24 +355,31 @@ pub async fn settle_conflict(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patchpilot_local::autosync::Placed;
-
     #[test]
     fn summarises_what_was_placed() {
-        let placed = |app: &str, files| Placed {
+        let placed = |app: &str, files, renamed| Placed {
             machine_name: "MacBook".into(),
             app: app.into(),
             files,
             new: files,
+            renamed,
             restore_point: None,
         };
         let r = SyncReport {
-            placed: vec![placed("Reaper", 3), placed("Presets", 1)],
+            placed: vec![placed("Reaper", 3, 0), placed("Presets", 1, 0)],
             ..SyncReport::default()
         };
         assert_eq!(
             placed_summary(&r),
             "3 Reaper files, 1 preset from MacBook. Undo in History."
+        );
+        let r = SyncReport {
+            placed: vec![placed("Reaper", 2, 1), placed("Ableton", 0, 1)],
+            ..SyncReport::default()
+        };
+        assert_eq!(
+            placed_summary(&r),
+            "2 Reaper files (1 renamed), 1 Ableton file renamed from MacBook. Undo in History."
         );
     }
 }

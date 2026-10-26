@@ -467,6 +467,26 @@ fn same_here(source: &Manifest, f: &FileToBring, dir: &Path) -> bool {
     hash(theirs.as_bytes()) == f.hash
 }
 
+/// The hash of the copy of `rel` below `dir` (where `root` is here) as
+/// others get it: the file itself, or for a settings file only its shareable
+/// part, as scans and backups hash it. `None` when there's no file.
+pub fn shared_hash(dir: &Path, root: &str, rel: &str) -> Option<ContentHash> {
+    let path = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
+    let bytes = std::fs::read(path).ok()?;
+    let bytes = match shared_root(root) {
+        Some(shared) => (shared.view)(dir, rel, bytes),
+        None => bytes,
+    };
+    Some(patchpilot_sync::content_hash(&bytes))
+}
+
+/// The DAW that must be closed before `rel` below `root` is written (CLAUDE.md
+/// rule 5), if any.
+pub fn needs_closed(root: &str, rel: &str) -> Option<Daw> {
+    let shared = shared_root(root)?;
+    shared.daw.or((shared.closed_daw)(rel))
+}
+
 /// Where `root` is on this machine: as its last scan mapped it, else the
 /// root's default place.
 pub fn root_dir(machine: Option<&Manifest>, root: &str) -> Option<PathBuf> {
@@ -499,6 +519,9 @@ pub struct WriteReport {
     pub same: usize,
     /// Files that were replaced; their old bytes are in the restore point.
     pub backed_up: usize,
+    /// Files removed (the old name of a file renamed on another machine);
+    /// their bytes are in the restore point.
+    pub removed: usize,
     /// The restore point History can undo, if anything was written.
     pub restore_point: Option<i64>,
 }
@@ -550,6 +573,24 @@ pub fn write_files(
     files: &[(String, Vec<u8>)],
     now: i64,
 ) -> Result<WriteReport, String> {
+    write_changes(store, blobs, machine_id, label, root, dir, files, &[], now)
+}
+
+/// [`write_files`], also removing the files at `remove` (`rel`s below `root`)
+/// in the same restore point, so undoing it puts them back. Folders left
+/// empty by a removal are removed too, except the root's own top folders.
+#[allow(clippy::too_many_arguments)]
+pub fn write_changes(
+    store: &mut Store,
+    blobs: &Path,
+    machine_id: &str,
+    label: &str,
+    root: &str,
+    dir: &Path,
+    files: &[(String, Vec<u8>)],
+    remove: &[String],
+    now: i64,
+) -> Result<WriteReport, String> {
     let shared = shared_root(root).ok_or_else(|| format!("{root}: not a shared folder"))?;
     (shared.guard)()?;
     let mut changes = Vec::new();
@@ -581,6 +622,22 @@ pub fn write_files(
             contents: Some(bytes),
         });
     }
+    let mut removed = Vec::new();
+    for rel in remove {
+        if (shared.kind)(rel).is_none() {
+            return Err(format!("{rel}: not a file {} can remove", shared.app));
+        }
+        let target = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
+        if !target.is_file() {
+            continue;
+        }
+        daw = daw.or((shared.closed_daw)(rel));
+        removed.push((rel.clone(), target.clone()));
+        changes.push(FileChange {
+            path: target,
+            contents: None,
+        });
+    }
     let req = ChangeSet {
         machine_id: machine_id.to_owned(),
         label: label.to_owned(),
@@ -592,10 +649,20 @@ pub fn write_files(
         now,
     };
     let point = apply_changes(store, blobs, &req).map_err(|e| e.to_string())?;
+    for (rel, target) in &removed {
+        // Keep the root's own folders (`TrackTemplates`, `Presets`).
+        let top = dir.join(rel.split('/').next().unwrap_or(rel));
+        crate::backup::remove_empty_parents(target, &top);
+    }
+    let removed = removed
+        .iter()
+        .filter(|(_, t)| point.changed.contains(t))
+        .count();
     Ok(WriteReport {
-        written: point.changed.len(),
+        written: point.changed.len() - removed,
         same,
         backed_up,
+        removed,
         restore_point: point.id,
     })
 }

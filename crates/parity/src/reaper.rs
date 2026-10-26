@@ -236,6 +236,18 @@ pub enum ResourceKind {
     Effect,
     /// A file under `Data/` that a ReaPack package installed.
     ScriptData,
+    /// `reaper-mouse.ini`: mouse modifiers. Only written while Reaper is
+    /// closed.
+    MouseModifiers,
+    /// `reaper-themeconfig.ini`: the theme adjuster's settings (layouts,
+    /// sizes, colours). Only written while Reaper is closed.
+    ThemeSettings,
+    /// An image under `Data/toolbar_icons/`: custom toolbar icons the menus
+    /// and toolbars point at by name.
+    ToolbarIcon,
+    /// `presets/*.ini`: the FX presets saved in Reaper's own preset menu,
+    /// one file per plug-in.
+    FxPreset,
 }
 
 impl ResourceKind {
@@ -252,12 +264,19 @@ impl ResourceKind {
             Self::Menus => "reaper-menu.ini",
             Self::Effect => "Effects",
             Self::ScriptData => "Data",
+            Self::MouseModifiers => "reaper-mouse.ini",
+            Self::ThemeSettings => "reaper-themeconfig.ini",
+            Self::ToolbarIcon => "Data/toolbar_icons",
+            Self::FxPreset => "presets",
         }
     }
 
     /// One file at the top of the resource folder rather than a folder.
     pub fn is_single_file(self) -> bool {
-        matches!(self, Self::KeyMap | Self::Menus)
+        matches!(
+            self,
+            Self::KeyMap | Self::Menus | Self::MouseModifiers | Self::ThemeSettings
+        )
     }
 
     /// Only tracked when a ReaPack package lists it: the folder also holds
@@ -283,6 +302,10 @@ impl ResourceKind {
             Self::Menus => "Menus and toolbars",
             Self::Effect => "Effect",
             Self::ScriptData => "Script data",
+            Self::MouseModifiers => "Mouse modifiers",
+            Self::ThemeSettings => "Theme settings",
+            Self::ToolbarIcon => "Toolbar icon",
+            Self::FxPreset => "FX preset",
         }
     }
 
@@ -299,12 +322,16 @@ impl ResourceKind {
             Self::TrackTemplate => Some("rtracktemplate"),
             Self::ProjectTemplate => Some("rpp"),
             Self::FxChain => Some("rfxchain"),
+            Self::FxPreset => Some("ini"),
             Self::Script
             | Self::Theme
             | Self::KeyMap
             | Self::Menus
             | Self::Effect
-            | Self::ScriptData => None,
+            | Self::ScriptData
+            | Self::MouseModifiers
+            | Self::ThemeSettings
+            | Self::ToolbarIcon => None,
         }
     }
 
@@ -312,7 +339,12 @@ impl ResourceKind {
         match self {
             Self::Script => "reaper-script",
             Self::Theme => "reaper-theme",
-            Self::KeyMap | Self::Menus => "reaper-config",
+            Self::KeyMap
+            | Self::Menus
+            | Self::MouseModifiers
+            | Self::ThemeSettings
+            | Self::ToolbarIcon => "reaper-config",
+            Self::FxPreset => "reaper-preset",
             Self::Effect => "reaper-effect",
             Self::ScriptData => "reaper-data",
             _ => "reaper-template",
@@ -320,7 +352,7 @@ impl ResourceKind {
     }
 }
 
-const RESOURCE_KINDS: [ResourceKind; 9] = [
+const RESOURCE_KINDS: [ResourceKind; 13] = [
     ResourceKind::TrackTemplate,
     ResourceKind::ProjectTemplate,
     ResourceKind::FxChain,
@@ -330,6 +362,10 @@ const RESOURCE_KINDS: [ResourceKind; 9] = [
     ResourceKind::Menus,
     ResourceKind::Effect,
     ResourceKind::ScriptData,
+    ResourceKind::MouseModifiers,
+    ResourceKind::ThemeSettings,
+    ResourceKind::ToolbarIcon,
+    ResourceKind::FxPreset,
 ];
 
 /// Compiled code is never brought over, even if it sits in `Scripts/`: it is
@@ -337,9 +373,10 @@ const RESOURCE_KINDS: [ResourceKind; 9] = [
 const NEVER_SHARED_EXT: [&str; 8] = ["dll", "dylib", "so", "exe", "app", "msi", "pkg", "dmg"];
 
 /// What a path below the resource folder (`/`-separated) is, if Patch Pilot
-/// tracks it: a template with its extension in its folder, or any file in
-/// `Scripts/`, `ColorThemes/`, `Effects/` or `Data/` except compiled code and
-/// hidden files. `None`
+/// tracks it: a template (or an FX preset `.ini`) with its extension in its
+/// folder, one of the single settings files, or any file in `Scripts/`,
+/// `ColorThemes/`, `Effects/` or `Data/` except compiled code and hidden
+/// files. `None`
 /// for anything else, including paths that would leave the folder. Checked
 /// before writing a file that came from another machine.
 pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
@@ -356,9 +393,18 @@ pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
     if !safe {
         return None;
     }
-    let kind = RESOURCE_KINDS
-        .into_iter()
-        .find(|k| !k.is_single_file() && k.folder().eq_ignore_ascii_case(parts[0]))?;
+    // Toolbar icons are a folder inside `Data/`, which otherwise holds only
+    // package files.
+    let kind = if parts.len() >= 3
+        && parts[0].eq_ignore_ascii_case("Data")
+        && parts[1].eq_ignore_ascii_case("toolbar_icons")
+    {
+        ResourceKind::ToolbarIcon
+    } else {
+        RESOURCE_KINDS
+            .into_iter()
+            .find(|k| !k.is_single_file() && k.folder().eq_ignore_ascii_case(parts[0]))?
+    };
     let ext = Path::new(parts[parts.len() - 1])
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase());
@@ -393,7 +439,11 @@ pub fn find_resources(resource_dir: &Path) -> Vec<(PathBuf, String, ResourceKind
 /// The files of one folder kind under a resource folder that
 /// [`resource_kind`] tracks as that kind.
 fn walk_kind(resource_dir: &Path, kind: ResourceKind) -> Vec<(PathBuf, String, ResourceKind)> {
-    let walk = walkdir::WalkDir::new(resource_dir.join(kind.folder()))
+    let folder = kind
+        .folder()
+        .split('/')
+        .fold(resource_dir.to_owned(), |p, part| p.join(part));
+    let walk = walkdir::WalkDir::new(folder)
         .follow_links(true)
         .into_iter()
         // Don't descend into .git, __pycache__ and the like.
@@ -683,6 +733,63 @@ mod tests {
         );
         assert!(ResourceKind::KeyMap.needs_reaper_closed());
         assert!(!ResourceKind::Script.needs_reaper_closed());
+    }
+
+    #[test]
+    fn mouse_modifiers_theme_settings_icons_and_fx_presets_are_tracked() {
+        assert_eq!(
+            resource_kind("reaper-mouse.ini"),
+            Some(ResourceKind::MouseModifiers)
+        );
+        assert_eq!(
+            resource_kind("reaper-themeconfig.ini"),
+            Some(ResourceKind::ThemeSettings)
+        );
+        assert!(ResourceKind::MouseModifiers.needs_reaper_closed());
+        assert!(ResourceKind::ThemeSettings.needs_reaper_closed());
+        assert_eq!(
+            resource_kind("Data/toolbar_icons/150/my_tool.png"),
+            Some(ResourceKind::ToolbarIcon)
+        );
+        assert_eq!(
+            resource_kind("Data/toolbar_icons/my_tool.png"),
+            Some(ResourceKind::ToolbarIcon)
+        );
+        assert_eq!(
+            resource_kind("Data/other/thing.dat"),
+            Some(ResourceKind::ScriptData)
+        );
+        assert_eq!(
+            resource_kind("presets/vst3-Pro-Q 3.ini"),
+            Some(ResourceKind::FxPreset)
+        );
+        assert_eq!(resource_kind("presets/notes.txt"), None);
+        // Machine settings never are.
+        for rel in ["reaper.ini", "reaper-screensets.ini", "reaper-midihw.ini"] {
+            assert_eq!(resource_kind(rel), None, "{rel}");
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for rel in [
+            "reaper-mouse.ini",
+            "Data/toolbar_icons/my_tool.png",
+            "Data/package.dat",
+            "presets/js-saike_tanh.ini",
+        ] {
+            let p = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "x").unwrap();
+        }
+        let found: Vec<String> = find_resources(dir).into_iter().map(|f| f.1).collect();
+        assert_eq!(
+            found,
+            [
+                "Data/toolbar_icons/my_tool.png",
+                "presets/js-saike_tanh.ini",
+                "reaper-mouse.ini"
+            ]
+        );
     }
 
     #[test]

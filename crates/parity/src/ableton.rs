@@ -5,8 +5,9 @@
 //! - **User Library** (`ABLETON_USER_LIBRARY`): templates (`Templates/*.als`,
 //!   including `Default.als`), default device presets (`Defaults/`), racks and
 //!   presets (`.adg`, `.adv`), Max for Live devices (`.amxd`), clips (`.alc`),
-//!   grooves (`.agr`), and Collections tags: the `.xmp` files Live writes to
-//!   `Ableton Folder Info/` (Live 12 uses its `12/` subfolder).
+//!   grooves (`.agr`), tunings (`.ascl`), control surface scripts
+//!   (`Remote Scripts/**.py`), and Collections tags: the `.xmp` files Live
+//!   writes to `Ableton Folder Info/` (Live 12 uses its `12/` subfolder).
 //! - **Preferences folder** (`ABLETON_PREFS`): `Options.txt` only.
 //!
 //! Never read or shared: `Preferences.cfg` (binary, and it mixes portable
@@ -461,10 +462,10 @@ pub fn describe(path: &PortablePath) -> &'static str {
 pub fn user_library_label(rel: &str) -> Option<&'static str> {
     let parts = safe_parts(rel)?;
     let (file, dirs) = parts.split_last()?;
-    if dirs
-        .iter()
-        .any(|d| SKIPPED_DIRS.contains(&d.to_lowercase().as_str()))
-    {
+    if dirs.iter().any(|d| {
+        let d = d.to_lowercase();
+        SKIPPED_DIRS.contains(&d.as_str()) || d == "__pycache__"
+    }) {
         return None;
     }
     let lower = file.to_lowercase();
@@ -472,7 +473,14 @@ pub fn user_library_label(rel: &str) -> Option<&'static str> {
     let in_defaults = dirs
         .first()
         .is_some_and(|d| d.eq_ignore_ascii_case("Defaults"));
+    let in_remote_scripts = dirs
+        .first()
+        .is_some_and(|d| d.eq_ignore_ascii_case("Remote Scripts"));
     Some(match ext {
+        // Control surface scripts Live loads from the User Library; compiled
+        // `.pyc` files are Live's own cache.
+        "py" if in_remote_scripts => "Control surface script",
+        "ascl" => "Tuning",
         "xmp" => "Collections",
         "als" => "Template",
         "amxd" => "Max for Live device",
@@ -721,6 +729,11 @@ mod tests {
         assert_eq!(lib("Defaults/Audio Effects/EQ Eight.adv"), "Default preset");
         assert_eq!(lib("Presets/Instruments/Drum Rack/Kit.adg"), "Rack");
         assert_eq!(lib("Presets/Audio Effects/Reverb/Hall.adv"), "Preset");
+        assert_eq!(lib("Tunings/Just Intonation.ascl"), "Tuning");
+        assert_eq!(
+            lib("Remote Scripts/My Controller/__init__.py"),
+            "Control surface script"
+        );
         assert_eq!(
             describe(&PortablePath::logical(ABLETON_PREFS, "Options.txt")),
             "Setting"
@@ -739,6 +752,9 @@ mod tests {
             "/abs/x.adg",
             r"Presets\x.adg",
             "Presets/notes.txt",
+            "Presets/helper.py",
+            "Remote Scripts/My Controller/__init__.pyc",
+            "Remote Scripts/My Controller/__pycache__/x.py",
         ] {
             assert_eq!(user_library_label(rel), None, "{rel}");
         }
