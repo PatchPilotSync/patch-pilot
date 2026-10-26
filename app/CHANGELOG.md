@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.13 - 2026-10-26
+
+### Fixed
+
+- Compare no longer offers **Get Up To Speed** for another machine. Installing happens on the machine that needs it, so looking at your Mac from your PC now says "Get Up To Speed runs on that machine" with a **See its checklist** link. The tray does the same.
+- When a backup can't be opened, Patch Pilot now says why (still downloading, removed, damaged, or held by your cloud app), tries again on its own, and shows it under the backup list with **Try again** instead of a red bar across the window.
+
 ## 0.4.12 - 2026-10-26
 
 ### Improved
