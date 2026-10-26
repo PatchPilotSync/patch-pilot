@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { bringFiles, fileKey, filesToBring, type BringResult, type BringView, type FileToBring } from "./api";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { bringFiles, fileKey, filesToBring, ignoreItems, type BringResult, type BringView, type FileToBring } from "./api";
 import { bringSummary, isReaperScript, Needs } from "./bring";
+import { IgnoreButton, IgnoredToggle, pathRules } from "./Ignore";
 import { Badge, Button, buildTree, Card, Folder, FolderTree, isConflictCopy, treeItems, useFolders } from "./ui";
 
 /**
  * Bring over (decision #45): the Primary Rig's templates, scripts, themes and
  * plug-in presets (decision #63) this machine lacks, grouped by app. One
  * click brings the ticked ones over, each with every file it needs (decision
- * #62); anything replaced is backed up first. Loads its own list, so any screen about this machine can show it.
+ * #62); anything replaced is backed up first. Anything can be ignored here
+ * (decision #65), and then stops being listed or counted. Loads its own list,
+ * so any screen about this machine can show it.
  */
 export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [view, setView] = useState<BringView | null>(null);
@@ -68,6 +71,24 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
       return n;
     });
 
+  /** Stop asking for `fs` here, with whatever needs them (it wouldn't work without them). */
+  const ignore = (label: string, fs: FileToBring[], whole = false) => {
+    const keys = new Set(fs.map(fileKey));
+    const needing = files.filter((f) => !keys.has(fileKey(f)) && needs.withNeededBy(keys).has(fileKey(f)));
+    const rules = [...pathRules(fs, whole), ...needing.map((f) => ({ path_glob: `${f.root}/${f.rel}` }))];
+    setBusy(true);
+    ignoreItems(null, label, rules)
+      .then(load, (e) => onError(String(e)))
+      .finally(() => setBusy(false));
+  };
+  const ignoreAction = (label: string, fs: FileToBring[], whole = false) => (
+    <IgnoreButton
+      disabled={busy}
+      title="Stop asking to bring these over to this machine. They no longer count against its score."
+      onIgnore={() => ignore(label, fs, whole)}
+    />
+  );
+
   const upToDate = files.length === 0;
   const summary = result && bringSummary(result, "the Primary machine", leftOut);
 
@@ -87,7 +108,11 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
       }
       sub={
         <span title={upToDate ? undefined : summaryLine}>
-          {upToDate ? "Every template, script and theme from the Primary Rig is on this machine." : summaryLine}
+          {upToDate
+            ? view.ignored.length
+              ? "Everything from the Primary Rig you haven't ignored is on this machine."
+              : "Every template, script and theme from the Primary Rig is on this machine."
+            : summaryLine}
         </span>
       }
       actions={
@@ -122,6 +147,17 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
         </p>
       )}
 
+      {view.ignores.length > 0 && (
+        <div className="mt-1">
+          <IgnoredToggle
+            ignores={view.ignores}
+            machine={null}
+            onError={onError}
+            what={(v) => `${v.files} file${v.files === 1 ? "" : "s"}`}
+          />
+        </div>
+      )}
+
       {summary && (
         <p className="mt-1.5 text-[11px] text-ok">
           {summary.text}
@@ -140,7 +176,12 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                 className="px-1 text-xs"
                 open={folders.isOpen(app)}
                 onToggle={() => folders.toggle(app)}
-                actions={view.linked && <FolderTick files={fs} isChosen={isChosen} onChange={setChosen} />}
+                actions={
+                  <>
+                    {ignoreAction(`All ${app} files`, fs, true)}
+                    {view.linked && <FolderTick files={fs} isChosen={isChosen} onChange={setChosen} />}
+                  </>
+                }
               >
                 {groupByKind(fs).map(([kind, ks]) => {
                   const id = `${app}/${kind}`;
@@ -154,17 +195,25 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                       open={folders.isOpen(id)}
                       onToggle={() => folders.toggle(id)}
                       badges={view.linked && ticked < ks.length && <Badge>{ticked} ticked</Badge>}
-                      actions={view.linked && <FolderTick files={ks} isChosen={isChosen} onChange={setChosen} />}
+                      actions={
+                        <>
+                          {ignoreAction(`${app} ${plural(lower(kind))}`, ks)}
+                          {view.linked && <FolderTick files={ks} isChosen={isChosen} onChange={setChosen} />}
+                        </>
+                      }
                     >
                       <FolderTree
                         node={buildTree(ks, dirsOf, id)}
                         folders={folders}
                         indent={36}
-                        actions={(node) =>
-                          view.linked && (
-                            <FolderTick files={treeItems(node)} isChosen={isChosen} onChange={setChosen} />
-                          )
-                        }
+                        actions={(node) => (
+                          <>
+                            {ignoreAction(node.name, treeItems(node))}
+                            {view.linked && (
+                              <FolderTick files={treeItems(node)} isChosen={isChosen} onChange={setChosen} />
+                            )}
+                          </>
+                        )}
                         renderItems={(items, indent) => (
                           <ul className="flex flex-col" style={{ paddingLeft: indent }}>
                             {items.map((f) => (
@@ -175,6 +224,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                                 checked={isChosen(f)}
                                 companions={needs.withNeeds([fileKey(f)]).size - 1}
                                 onToggle={() => setChosen([f], !isChosen(f))}
+                                ignore={ignoreAction(fileName(f.rel), [f])}
                               />
                             ))}
                           </ul>
@@ -229,6 +279,7 @@ function FileLine({
   checked,
   companions,
   onToggle,
+  ignore,
 }: {
   f: FileToBring;
   linked: boolean;
@@ -236,10 +287,11 @@ function FileLine({
   /** Other files it brings along. */
   companions: number;
   onToggle: () => void;
+  ignore: ReactNode;
 }) {
   return (
     <li>
-      <label className="flex items-center gap-2 rounded-[5px] px-1 py-1 hover:bg-sel/50">
+      <label className="group flex items-center gap-2 rounded-[5px] px-1 py-1 hover:bg-sel/50">
         <input
           type="checkbox"
           className="accent-accent"
@@ -274,6 +326,7 @@ function FileLine({
         ) : (
           f.replaces && <Badge tone="amber">Updates this machine's copy</Badge>
         )}
+        {ignore}
       </label>
     </li>
   );

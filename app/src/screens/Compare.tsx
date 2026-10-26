@@ -6,7 +6,9 @@ import {
   filesToBring,
   updateGoldenFrom,
   compareMachine,
+  ignoreItems,
   ignoreSuggestions,
+  unignoreSuggestions,
   isReapack,
   FORMAT_LABEL,
   groupSummary,
@@ -25,6 +27,7 @@ import {
   type MachineCard,
   type MachineComparison,
   type MachinesView,
+  type Matcher,
   type ParityState,
   type PluginFormat,
   type SetupProgress,
@@ -32,6 +35,7 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
+import { IgnoreButton, IgnoredToggle, pathRules, productRules, useIgnores } from "../Ignore";
 import { bringSummary, isReaperScript, Needs } from "../bring";
 import { StepExtras, StepList, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
@@ -136,6 +140,7 @@ function DiffRow({
   selected,
   onSelect,
   showVendor,
+  ignore,
 }: {
   r: ComparisonRow;
   /** Shown instead of the name, e.g. just the file name inside a path folder. */
@@ -143,14 +148,18 @@ function DiffRow({
   selected: ComparisonRow | null;
   onSelect: (r: ComparisonRow) => void;
   showVendor: boolean;
+  /** Ignore it on this machine (rows that need work). */
+  ignore?: IgnoreRows;
 }) {
   return (
-    <li>
+    <li
+      className={`group flex items-center rounded-[5px] ${
+        selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
+      }`}
+    >
       <button
         onClick={() => onSelect(r)}
-        className={`flex h-7 w-full items-center gap-2.5 rounded-[5px] px-2 text-left ${
-          selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
-        }`}
+        className="flex h-7 min-w-0 flex-1 items-center gap-2.5 px-2 text-left"
       >
         <span className="min-w-0 flex-1 truncate" title={label ? r.name : undefined}>
           {label ?? r.name}
@@ -177,8 +186,36 @@ function DiffRow({
           <span className="w-28 shrink-0 text-right font-mono text-[11px] text-dim">{versionPair(r)}</span>
         )}
       </button>
+      {ignore && OPEN_STATES.includes(r.state) && (
+        <IgnoreButton disabled={ignore.busy} onIgnore={() => ignore.run(label ?? r.name, [r])} />
+      )}
     </li>
   );
+}
+
+/** Ignore (decision #65) rows of a machine's comparison. */
+interface IgnoreRows {
+  busy: boolean;
+  run: (label: string, rows: ComparisonRow[]) => void;
+}
+
+/** What to ignore for these rows: Reaper files by path (a folder as one), ReaPack as a whole, the rest by product. */
+function rowRules(rows: ComparisonRow[]): Matcher[] {
+  const files = rows.filter(isReaperFile);
+  const reapack = rows.some((r) => isReapack(r.product_id));
+  const rest = rows.filter((r) => !isReaperFile(r) && !isReapack(r.product_id));
+  return [
+    ...pathRules(files.map((r) => ({ root: "REAPER_RESOURCES", rel: r.name }))),
+    ...(reapack ? [{ vendor: "ReaPack" }] : []),
+    ...productRules(rest.map((r) => r.product_id)),
+  ];
+}
+
+/** A folder header's Ignore, for its rows that need work. */
+function IgnoreFolder({ label, rows, ignore }: { label: string; rows: ComparisonRow[]; ignore: IgnoreRows }) {
+  const work = rows.filter((r) => OPEN_STATES.includes(r.state));
+  if (!work.length) return null;
+  return <IgnoreButton disabled={ignore.busy} onIgnore={() => ignore.run(label, work)} />;
 }
 
 /** A request, from the tray popover, to show one machine (and maybe its plan). */
@@ -229,6 +266,12 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
     ignore: (rs) => {
       setBusy(true);
       ignoreSuggestions(rs.map((r) => ({ product: r.product_id, version: r.machine_version })))
+        .catch((e) => onError(String(e)))
+        .finally(() => setBusy(false));
+    },
+    unignore: (rs) => {
+      setBusy(true);
+      unignoreSuggestions(rs.map((r) => ({ product: r.product_id, version: r.machine_version })))
         .catch((e) => onError(String(e)))
         .finally(() => setBusy(false));
     },
@@ -303,6 +346,7 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
             suggest={suggest}
             bring={bring}
             onPlan={() => setPlan(true)}
+            onError={onError}
           />
         )}
       </section>
@@ -364,6 +408,7 @@ function Diff({
   suggest,
   bring,
   onPlan,
+  onError,
 }: {
   data: MachineComparison;
   selected: ComparisonRow | null;
@@ -371,8 +416,20 @@ function Diff({
   suggest: SuggestActions;
   bring: BringHere;
   onPlan: () => void;
+  onError: (e: string) => void;
 }) {
   const { machine, comparison: c } = data;
+  const [ignoring, setIgnoring] = useState(false);
+  // `data-changed` reloads the comparison without what was ignored.
+  const ignore: IgnoreRows = {
+    busy: ignoring,
+    run: (label, rs) => {
+      setIgnoring(true);
+      ignoreItems(machine.id, label, rowRules(rs))
+        .catch((e) => onError(String(e)))
+        .finally(() => setIgnoring(false));
+    },
+  };
   const [states, setStates] = useState<Set<ParityState>>(new Set());
   const [vendor, setVendor] = useState("");
   const [format, setFormat] = useState<PluginFormat | "">("");
@@ -486,6 +543,9 @@ function Diff({
 
         <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
         <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
+        <div className="px-2">
+          <IgnoredToggle ignores={data.ignores} machine={machine.is_this_machine ? null : machine.id} onError={onError} />
+        </div>
       </div>
 
       {/* Filters by state, then the rest of the filters with the folders' controls, so neither row wraps. */}
@@ -565,14 +625,24 @@ function Diff({
                       className="rounded-[5px] pl-6 pr-2"
                       open={folders.isOpen(id)}
                       onToggle={() => folders.toggle(id)}
-                      actions={name === REAPER_FILES && <BringButton rows={rs} bring={bring} />}
+                      actions={
+                        <>
+                          <IgnoreFolder label={name === REAPER_FILES ? "Reaper files" : name} rows={rs} ignore={ignore} />
+                          {name === REAPER_FILES && <BringButton rows={rs} bring={bring} />}
+                        </>
+                      }
                     >
                       {name === REAPER_FILES ? (
                         <FolderTree
                           node={buildTree(rs, reaperDirs, id)}
                           folders={folders}
                           indent={40}
-                          actions={(node) => <BringButton rows={treeItems(node)} bring={bring} />}
+                          actions={(node) => (
+                            <>
+                              <IgnoreFolder label={node.name} rows={treeItems(node)} ignore={ignore} />
+                              <BringButton rows={treeItems(node)} bring={bring} />
+                            </>
+                          )}
                           renderItems={(items, indent) => (
                             <ul style={{ paddingLeft: indent }}>
                               {items.map((r) => (
@@ -583,6 +653,7 @@ function Diff({
                                   selected={selected}
                                   onSelect={onSelect}
                                   showVendor={false}
+                                  ignore={ignore}
                                 />
                               ))}
                             </ul>
@@ -591,7 +662,14 @@ function Diff({
                       ) : (
                         <ul className="pl-8">
                           {rs.map((r) => (
-                            <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor={false} />
+                            <DiffRow
+                              key={r.product_id}
+                              r={r}
+                              selected={selected}
+                              onSelect={onSelect}
+                              showVendor={false}
+                              ignore={ignore}
+                            />
                           ))}
                         </ul>
                       )}
@@ -601,7 +679,7 @@ function Diff({
               ) : (
                 <ul className="pl-4">
                   {all.map((r) => (
-                    <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor />
+                    <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor ignore={ignore} />
                   ))}
                 </ul>
               )}
@@ -839,6 +917,8 @@ interface SuggestActions {
   /** The machine's whole latest scan becomes the next Primary Rig version. */
   update: () => void;
   ignore: (rows: ComparisonRow[]) => void;
+  /** Suggest ignored ones again. */
+  unignore: (rows: ComparisonRow[]) => void;
 }
 
 /** "1 script" / "8,071 scripts and effects" for a group of ReaPack rows. */
@@ -865,7 +945,8 @@ function SuggestionsNotice({
   const [open, setOpen] = useState(false);
   const folders = useFolders("suggestions");
   const rows = data.comparison.rows.filter((r) => data.suggested.includes(r.product_id));
-  if (!rows.length) return null;
+  const ignored = data.comparison.rows.filter((r) => data.suggested_ignored.includes(r.product_id));
+  if (!rows.length) return <IgnoredSuggestions rows={ignored} suggest={suggest} />;
   // By kind, then by unit: a script package or all of ReaPack is one row.
   const groups = new Map<SuggestionGroup, Map<string, ComparisonRow[]>>();
   for (const r of rows) {
@@ -977,6 +1058,13 @@ function SuggestionsNotice({
                 className="rounded-[5px] px-2"
                 open={folders.isOpen(g)}
                 onToggle={() => folders.toggle(g)}
+                actions={
+                  <IgnoreButton
+                    disabled={suggest.busy}
+                    title="Stop suggesting these versions for the Primary Rig, on every linked machine."
+                    onIgnore={() => suggest.ignore(units.flatMap(([, rs]) => rs))}
+                  />
+                }
               >
                 <ul className="pl-4">
                   {multi.map(([key, rs]) => unitRow(key, rs))}
@@ -1014,7 +1102,54 @@ function SuggestionsNotice({
           );
         })}
       </ul>
+      <IgnoredSuggestions rows={ignored} suggest={suggest} />
     </Notice>
+  );
+}
+
+/** Ignored suggestions shown on this machine, to suggest again. */
+const IGNORED_SHOWN = 20;
+
+function IgnoredSuggestions({ rows, suggest }: { rows: ComparisonRow[]; suggest: SuggestActions }) {
+  const [open, setOpen] = useState(false);
+  if (!rows.length) return null;
+  return (
+    <div className="text-[11px]">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="text-dim underline-offset-2 hover:text-fg hover:underline"
+      >
+        {rows.length.toLocaleString()} ignored suggestion{rows.length === 1 ? "" : "s"}
+        {open ? "" : "…"}
+      </button>
+      {open && (
+        <ul className="mt-1 flex flex-col">
+          {rows.slice(0, IGNORED_SHOWN).map((r) => (
+            <li key={r.product_id} className="flex h-7 items-center gap-2 rounded-[5px] px-1 hover:bg-sel/50">
+              <span className="min-w-0 flex-1 truncate text-xs" title={r.name}>
+                {r.name}
+                {r.machine_version && <span className="ml-2 font-mono text-dim">{r.machine_version}</span>}
+              </span>
+              <Button variant="quiet" className="h-6 px-2" disabled={suggest.busy} onClick={() => suggest.unignore([r])}>
+                Suggest again
+              </Button>
+            </li>
+          ))}
+          <li className="flex h-7 items-center gap-2 px-1">
+            <span className="min-w-0 flex-1 text-dim">
+              {rows.length > IGNORED_SHOWN ? `and ${(rows.length - IGNORED_SHOWN).toLocaleString()} more` : ""}
+            </span>
+            {rows.length > 1 && (
+              <Button variant="quiet" className="h-6 px-2" disabled={suggest.busy} onClick={() => suggest.unignore(rows)}>
+                Suggest all again
+              </Button>
+            )}
+          </li>
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -1305,7 +1440,9 @@ function PlanView({
     onError,
     // This machine's own checklist does the work inside its steps, as Set up does.
     bringOver: here,
+    ignore: (label, products) => ignoreItems(id, label, productRules(products)).catch((e) => onError(String(e))),
   };
+  const ignores = useIgnores(id, refresh);
   const tick = (key: string, done: boolean) => planTick(id, key, done).then(setProgress, (e) => onError(String(e)));
   const steps = progress?.steps ?? [];
   return (
@@ -1334,6 +1471,7 @@ function PlanView({
       )}
       <StepList steps={steps} scope={`plan.${id}`} onTick={tick} actions={actions} />
       {here && progress && <StepExtras steps={steps} onError={onError} />}
+      <IgnoredToggle ignores={ignores} machine={here ? null : id} onError={onError} />
     </div>
   );
 }

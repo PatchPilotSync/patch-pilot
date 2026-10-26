@@ -13,7 +13,9 @@ mod manifest;
 mod path;
 mod profile;
 
-pub use bundle::{BUNDLE_VERSION, Bundle, BundleGolden, BundleMachine, IgnoredSuggestion};
+pub use bundle::{
+    BUNDLE_VERSION, Bundle, BundleGolden, BundleMachine, IgnoreEntry, IgnoredSuggestion, ignore_key,
+};
 pub use golden::{GoldenVersion, GoldenVersionInfo, golden_machine_id, golden_name};
 pub use manifest::{
     Arch, Confidence, ContentHash, Item, ItemKind, MachineInfo, Manifest, ManifestError, Os,

@@ -8,6 +8,7 @@ import {
   setupStart,
   setupTick,
   setupView,
+  ignoreItems,
   openVendorApp,
   vaultMatches,
   vaultRun,
@@ -20,6 +21,7 @@ import {
 import { BigFiles } from "../BigFiles";
 import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
+import { IgnoreButton, IgnoredToggle, productRules, useIgnores } from "../Ignore";
 import { AppButton } from "./Compare";
 import { Button, Folder, Label, Notice, scoreColor, timeAgo, useFolders } from "../ui";
 
@@ -167,7 +169,9 @@ function Progress({
     run: (entry) => vaultRun(entry).catch((e) => onError(String(e))),
     onError,
     bringOver: true,
+    ignore: (label, products) => ignoreItems(null, label, productRules(products)).catch((e) => onError(String(e))),
   };
+  const ignores = useIgnores(null, view);
   const notReady = p.templates.filter((t) => t.missing.length > 0);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
@@ -210,6 +214,7 @@ function Progress({
 
       <StepList steps={p.steps} scope="setup" onTick={onTick} actions={actions} />
       <StepExtras steps={p.steps} onError={onError} />
+      <IgnoredToggle ignores={ignores} machine={null} onError={onError} />
 
       <div>
         <Label className="pb-0.5 pt-1">Templates</Label>
@@ -352,6 +357,8 @@ export interface Actions {
   onError: (e: string) => void;
   /** Show Bring over and Reaper setup inside their steps (this machine's own checklist). */
   bringOver: boolean;
+  /** Stop asking for these products on the machine (decision #65). */
+  ignore?: (label: string, products: string[]) => void;
 }
 
 /** Items listed under a step before "Show all". */
@@ -381,7 +388,7 @@ export function StepRow({
     </span>
   );
   return (
-    <div className="flex gap-2.5 rounded-[5px] px-2 py-1.5 hover:bg-sel/50">
+    <div className="group/step flex gap-2.5 rounded-[5px] px-2 py-1.5 hover:bg-sel/50">
       {s.automatic ? (
         box
       ) : (
@@ -406,8 +413,11 @@ export function StepRow({
             {(showAll ? s.open : s.open.slice(0, SHOWN)).map((d, n) => {
               const installer = s.automatic ? actions.installer(s.open_products[n]) : undefined;
               return (
-                <li key={d} className="flex items-center gap-2">
+                <li key={d} className="group flex items-center gap-2">
                   <span className="min-w-0 truncate">{d}</span>
+                  {actions.ignore && s.automatic && s.open_products[n] && (
+                    <IgnoreButton onIgnore={() => actions.ignore!(d, [s.open_products[n]])} />
+                  )}
                   {installer && (
                     <button
                       className="shrink-0 text-accent-text hover:underline"
@@ -457,6 +467,15 @@ export function StepRow({
         {s.status === "skipped" && <span className="mt-0.5 block text-[11px] text-dim">Marked done by you</span>}
       </span>
       {!finished && s.app && <AppButton app={actions.app(s.app)} onOpen={actions.open} />}
+      {actions.ignore && s.automatic && !finished && s.open_products.length > 0 && (
+        <button
+          onClick={() => actions.ignore!(s.title, s.open_products)}
+          className="h-6 shrink-0 self-start rounded-[5px] px-2 text-[11px] text-dim opacity-0 transition-opacity hover:bg-sel hover:text-fg focus:opacity-100 group-hover/step:opacity-100"
+          title="Stop asking for what's left in this step on this machine. It no longer counts against the score."
+        >
+          Ignore
+        </button>
+      )}
       {s.automatic && s.status !== "done" && (
         <button
           onClick={() => onTick(s.key, s.status !== "skipped")}

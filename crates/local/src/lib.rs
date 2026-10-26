@@ -8,7 +8,9 @@
 mod anonymize;
 pub mod apps;
 pub mod bring;
+pub mod duplicates;
 pub mod golden;
+pub mod ignore;
 pub mod open;
 pub mod reaper_extras;
 pub mod restore;

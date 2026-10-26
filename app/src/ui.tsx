@@ -116,7 +116,7 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 /**
- * A one-line status on a screen (decision #65): a dot (accent = something to
+ * A one-line status on a screen (decision #67): a dot (accent = something to
  * do, warn = needs a look, ok = all good), one line of text, and at its end
  * either buttons or a Show/Hide toggle that opens `children` below it.
  */
@@ -269,7 +269,7 @@ export function Folder({
   return (
     <section>
       <div
-        className={`flex h-7 w-full items-center gap-1.5 hover:bg-sel/60 ${className}`}
+        className={`group flex h-7 w-full items-center gap-1.5 hover:bg-sel/60 ${className}`}
         style={indent === undefined ? undefined : { paddingLeft: indent }}
       >
         <button

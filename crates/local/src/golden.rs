@@ -84,10 +84,7 @@ pub fn observe(store: &Store, this: Option<&str>) -> Result<Vec<Observed>, Strin
         let Some(scan) = store.latest_manifest(&info.id).map_err(err)? else {
             continue;
         };
-        let profile = store
-            .machine_profile(&info.id)
-            .map_err(err)?
-            .unwrap_or_default();
+        let profile = store.target_for(&info.id).map_err(err)?;
         let c = compare(&golden.manifest, &profile, &scan);
         out.push(Observed::new(
             &info.id,

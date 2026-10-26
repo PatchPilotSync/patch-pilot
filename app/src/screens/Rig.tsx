@@ -12,6 +12,7 @@ import {
   type UpdateAlert,
   type VendorApp,
 } from "../api";
+import { Duplicates } from "../Duplicates";
 import { Badge, Button, Folder, FolderControls, inputClass, Label, Notice, Pill, timeAgo, useFolders } from "../ui";
 
 type Grouping = "vendor" | "format";
@@ -192,54 +193,51 @@ export function Rig({ overview, setupOffer, warnings, busy, onRescan, onMakeGold
         );
       })}
 
-      {(inv.presets.length > 0 || inv.apps.length > 0) && (
-        <>
-          <Label className="px-4 pb-0.5 pt-4">Also on this machine</Label>
-          {inv.presets.length > 0 && (
-            <Folder
-              title="Preset folders"
-              count={inv.presets.length}
-              open={extra.isOpen("presets")}
-              onToggle={() => extra.toggle("presets")}
-              badges={<span className="text-[11px] text-dim">Linked machines can bring them over</span>}
-            >
-              <ul className="pb-1">
-                {inv.presets.map((p) => (
-                  <li key={p.name} className="flex h-7 items-center justify-between pl-8 pr-4 hover:bg-sel/60">
-                    <span>{p.name}</span>
-                    <span className="font-mono text-[11px] text-dim">{formatSize(p.size)}</span>
-                  </li>
-                ))}
-              </ul>
-            </Folder>
-          )}
-          {inv.apps.length > 0 && (
-            <Folder
-              title="Vendor apps and licensing tools"
-              count={inv.apps.length}
-              open={extra.isOpen("apps")}
-              onToggle={() => extra.toggle("apps")}
-            >
-              <ul className="pb-1">
-                {inv.apps.map((a) => (
-                  <li key={a.name} className="group flex h-7 items-center gap-3 pl-8 pr-4 hover:bg-sel/60">
-                    <span className="flex-1">{a.name}</span>
-                    {launchable.some((x) => x.name === a.name) && (
-                      <Button
-                        variant="quiet"
-                        className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        onClick={() => openVendorApp(launchable.find((x) => x.name === a.name)!.id).catch(() => {})}
-                      >
-                        Open
-                      </Button>
-                    )}
-                    <span className="font-mono text-[11px] text-dim">{a.version ?? ""}</span>
-                  </li>
-                ))}
-              </ul>
-            </Folder>
-          )}
-        </>
+      <Label className="px-4 pb-0.5 pt-4">Also on this machine</Label>
+      {inv.presets.length > 0 && (
+        <Folder
+          title="Preset folders"
+          count={inv.presets.length}
+          open={extra.isOpen("presets")}
+          onToggle={() => extra.toggle("presets")}
+          badges={<span className="text-[11px] text-dim">Linked machines can bring them over</span>}
+        >
+          <ul className="pb-1">
+            {inv.presets.map((p) => (
+              <li key={p.name} className="flex h-7 items-center justify-between pl-8 pr-4 hover:bg-sel/60">
+                <span>{p.name}</span>
+                <span className="font-mono text-[11px] text-dim">{formatSize(p.size)}</span>
+              </li>
+            ))}
+          </ul>
+        </Folder>
+      )}
+      <Duplicates />
+      {inv.apps.length > 0 && (
+        <Folder
+          title="Vendor apps and licensing tools"
+          count={inv.apps.length}
+          open={extra.isOpen("apps")}
+          onToggle={() => extra.toggle("apps")}
+        >
+          <ul className="pb-1">
+            {inv.apps.map((a) => (
+              <li key={a.name} className="group flex h-7 items-center gap-3 pl-8 pr-4 hover:bg-sel/60">
+                <span className="flex-1">{a.name}</span>
+                {launchable.some((x) => x.name === a.name) && (
+                  <Button
+                    variant="quiet"
+                    className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    onClick={() => openVendorApp(launchable.find((x) => x.name === a.name)!.id).catch(() => {})}
+                  >
+                    Open
+                  </Button>
+                )}
+                <span className="font-mono text-[11px] text-dim">{a.version ?? ""}</span>
+              </li>
+            ))}
+          </ul>
+        </Folder>
       )}
     </div>
   );
