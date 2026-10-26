@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.10 - 2026-10-26
+
+### Improved
+
+- The GitHub option is easier to find: **Use GitHub…** now sits beside Change folder on This machine's Sync & backup line, instead of only appearing after you click Change folder.
+
 ## 0.4.9 - 2026-10-26
 
 ### Improved
