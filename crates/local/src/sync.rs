@@ -94,6 +94,7 @@ pub fn changed(report: &ImportReport) -> bool {
     !report.machines_added.is_empty()
         || !report.profiles_added.is_empty()
         || report.ignored_added > 0
+        || report.ignores_changed > 0
         || matches!(report.golden, patchpilot_store::GoldenImport::Imported(_))
 }
 
