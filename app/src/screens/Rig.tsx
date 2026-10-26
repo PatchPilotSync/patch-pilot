@@ -13,6 +13,7 @@ import {
   type UpdateAlert,
   type VendorApp,
 } from "../api";
+import { Duplicates } from "../Duplicates";
 import { Badge, Button, Folder, FolderControls, inputClass, Pill, timeAgo, useFolders } from "../ui";
 
 type Grouping = "vendor" | "format";
@@ -204,6 +205,8 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
           </ul>
         </section>
       )}
+
+      <Duplicates />
 
       {inv.apps.length > 0 && (
         <section>

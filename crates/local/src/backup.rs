@@ -1,4 +1,4 @@
-//! Back up everything (decision #65): every user-owned file Patch Pilot
+//! Back up everything (decision #67): every user-owned file Patch Pilot
 //! tracks on this machine (Reaper templates, FX chains, scripts, themes, key
 //! maps and menus, Ableton templates and settings, plug-in presets) and the
 //! Installer Vault's index go into `Patch Pilot Backup` in a cloud folder the
@@ -640,9 +640,11 @@ pub fn load_backup(dir: &Path, folder: &str, stamp: &str) -> Result<Backup, Stri
 /// What restoring `backup` would put on this machine (its latest scan
 /// `machine`): every file it lacks or has a different copy of, sorted and
 /// linked as Bring over lists them. The Installer Vault's index is included
-/// only when this machine's vault folder (`vault_root`) has none.
+/// only when this machine's vault folder (`vault_root`) has none. `profile`
+/// leaves out what's ignored on this machine (see [`restore_profile`]).
 pub fn restore_list(
     backup: &Backup,
+    profile: &TargetProfile,
     machine: Option<&Manifest>,
     vault_root: Option<&Path>,
 ) -> Vec<FileToBring> {
@@ -651,7 +653,7 @@ pub fn restore_list(
         .iter()
         .map(|f| f.key().to_lowercase())
         .collect();
-    let files = bring::files_to_bring(&backup.scan, &TargetProfile::default(), machine)
+    let files = bring::files_to_bring(&backup.scan, profile, machine)
         .into_iter()
         .filter(|f| kept.contains(&f.key().to_lowercase()))
         .map(|mut f| {
@@ -680,6 +682,16 @@ pub fn restore_list(
         });
     }
     files
+}
+
+/// What a restore onto `this` keeps: everything, less what's ignored there
+/// (decision #65), as Bring over from another machine does.
+pub fn restore_profile(store: &Store, this: &str) -> Result<TargetProfile, String> {
+    let mut profile = TargetProfile::default();
+    profile
+        .rules
+        .extend(store.ignore_rules(this).map_err(|e| e.to_string())?);
+    Ok(profile)
 }
 
 /// The bytes `backup` held for `f`, checked against its hash: in the
@@ -729,7 +741,8 @@ pub fn restore(
     now: i64,
 ) -> Result<RestoreReport, String> {
     let machine = store.latest_manifest(this).map_err(|e| e.to_string())?;
-    let list = restore_list(backup, machine.as_ref(), vault_root);
+    let profile = restore_profile(store, this)?;
+    let list = restore_list(backup, &profile, machine.as_ref(), vault_root);
     let chosen = bring::with_needs(&list, keys);
     let held_in: HashMap<String, &BackedUpFile> = backup
         .files
@@ -955,6 +968,7 @@ mod tests {
         let old = load_backup(&dir, "Studio PC", "2025-10-26 02.48.38").unwrap();
         let list = restore_list(
             &old,
+            &TargetProfile::default(),
             store.latest_manifest("mac").unwrap().as_ref(),
             Some(&mac_vault),
         );

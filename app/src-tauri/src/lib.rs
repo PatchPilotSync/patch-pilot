@@ -7,6 +7,7 @@ mod backup;
 mod bring;
 mod catalog;
 mod compare;
+mod duplicates;
 mod history;
 mod reaper;
 mod report;
@@ -96,6 +97,10 @@ pub fn run() {
             compare::add_to_golden,
             compare::update_golden_from,
             compare::ignore_suggestions,
+            compare::unignore_suggestions,
+            compare::ignore_items,
+            compare::unignore,
+            compare::ignore_list,
             history::history,
             history::undo_preview,
             history::undo_change,
@@ -115,6 +120,8 @@ pub fn run() {
             backup::back_up_now,
             backup::backup_restore_list,
             backup::restore_backup,
+            duplicates::find_duplicates,
+            duplicates::clean_up_duplicates,
             catalog::updates,
             report::rig_report_preview,
             report::save_rig_report,

@@ -1,4 +1,4 @@
-//! Back up everything (decision #65): this machine's templates, scripts,
+//! Back up everything (decision #67): this machine's templates, scripts,
 //! themes, settings, presets and Installer Vault index go into `Patch Pilot
 //! Backup` in a cloud folder it picks, by hand or after every changed scan,
 //! and any machine can restore one, onto a fresh machine with nothing linked
@@ -213,12 +213,18 @@ pub async fn back_up_now(app: AppHandle) -> Result<BackupReport, String> {
 pub async fn backup_restore_list(folder: String, stamp: String) -> Result<RestoreView, String> {
     let dir = backup_dir(&settings()?).ok_or("Pick the folder your backups are in first.")?;
     let b = backup::load_backup(&dir, &folder, &stamp)?;
-    let machine = match this_machine() {
-        Ok(this) => open(&db_path()?)?.latest_manifest(&this).map_err(err)?,
-        Err(_) => None,
+    let (profile, machine) = match this_machine() {
+        Ok(this) => {
+            let store = open(&db_path()?)?;
+            (
+                backup::restore_profile(&store, &this)?,
+                store.latest_manifest(&this).map_err(err)?,
+            )
+        }
+        Err(_) => (Default::default(), None),
     };
     Ok(RestoreView {
-        files: backup::restore_list(&b, machine.as_ref(), vault_root().as_deref()),
+        files: backup::restore_list(&b, &profile, machine.as_ref(), vault_root().as_deref()),
         machine_name: b.machine_name,
         stamp: b.stamp,
     })

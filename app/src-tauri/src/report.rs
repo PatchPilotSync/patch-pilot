@@ -44,7 +44,7 @@ fn build(store: &Store, id: &str, options: &ReportOptions) -> Result<RigReport, 
         .ok_or("scan this machine first")?;
     let parity = match store.golden(None).map_err(err)? {
         Some(g) => {
-            let profile = store.machine_profile(id).map_err(err)?.unwrap_or_default();
+            let profile = store.target_for(id).map_err(err)?;
             Some(ReportParity {
                 score: compare(&g.manifest, &profile, &scan).score,
                 golden_version: g.info.version,

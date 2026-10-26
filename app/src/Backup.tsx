@@ -19,7 +19,7 @@ import { groupByApp, summaryOf } from "./BringOver";
 import { Button, timeAgo } from "./ui";
 
 /**
- * Back up everything (decision #65): one line on This machine saying when it
+ * Back up everything (decision #67): one line on This machine saying when it
  * last backed up and where, with Back up now; Show opens the folder, the
  * automatic switch and Restore. On a fresh machine that finds another
  * machine's backup, the line offers to restore it.

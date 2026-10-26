@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use patchpilot_core::{Manifest, Os, TargetProfile};
 use patchpilot_local::bring::{self, FileToBring};
+use patchpilot_local::ignore::IgnoreView;
+use patchpilot_store::Store;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -23,6 +25,10 @@ pub struct BringView {
     pub has_source: bool,
     /// Sorted by app, then path.
     pub files: Vec<FileToBring>,
+    /// What the user ignored on this machine, left out of `files`.
+    pub ignored: Vec<FileToBring>,
+    /// The ignores that hide `ignored`, to take back.
+    pub ignores: Vec<IgnoreView>,
 }
 
 /// Mirrored in `src/api.ts`.
@@ -54,13 +60,38 @@ pub async fn files_to_bring(from: Option<String>) -> Result<BringView, String> {
             linked,
             has_source: false,
             files: Vec::new(),
+            ignored: Vec::new(),
+            ignores: Vec::new(),
         });
     }
-    let (source, files) = list(&this_machine()?, from.as_deref())?;
+    let this = this_machine()?;
+    let (source, files) = list(&this, from.as_deref())?;
+    let (ignored, ignores) = match &source {
+        Some(source) => {
+            let store = open(&db)?;
+            let scan = store.latest_manifest(&this).map_err(err)?;
+            let (base, target) = profiles(&store, &this, from.as_deref())?;
+            let (ignored, ignores) = patchpilot_local::ignore::bring_ignored(
+                &store,
+                &this,
+                source,
+                &base,
+                &target,
+                scan.as_ref(),
+            )?;
+            (
+                bring::drop_same_here(source, scan.as_ref(), ignored),
+                ignores,
+            )
+        }
+        None => Default::default(),
+    };
     Ok(BringView {
         linked,
         has_source: source.is_some(),
         files,
+        ignored,
+        ignores,
     })
 }
 
@@ -184,26 +215,37 @@ pub async fn bring_files(
 fn list(this: &str, from: Option<&str>) -> Result<(Option<Manifest>, Vec<FileToBring>), String> {
     let store = open(&db_path()?)?;
     let machine = store.latest_manifest(this).map_err(err)?;
-    let (source, profile) = match from {
+    let source = match from {
         Some(id) if id == this => return Err("That's this machine.".to_owned()),
-        Some(id) => (
-            store.latest_manifest(id).map_err(err)?,
-            TargetProfile::default(),
-        ),
-        None => (
-            store.golden(None).map_err(err)?.map(|g| g.manifest),
-            store
-                .machine_profile(this)
-                .map_err(err)?
-                .unwrap_or_default(),
-        ),
+        Some(id) => store.latest_manifest(id).map_err(err)?,
+        None => store.golden(None).map_err(err)?.map(|g| g.manifest),
     };
     let Some(source) = source else {
         return Ok((None, Vec::new()));
     };
+    let (_, profile) = profiles(&store, this, from)?;
     let files = bring::files_to_bring(&source, &profile, machine.as_ref());
     let files = bring::drop_same_here(&source, machine.as_ref(), files);
     Ok((Some(source), files))
+}
+
+/// What files come through, without and with what the user ignored here:
+/// from the Primary Rig this machine's profile, from another machine all of it.
+fn profiles(
+    store: &Store,
+    this: &str,
+    from: Option<&str>,
+) -> Result<(TargetProfile, TargetProfile), String> {
+    let base = match from {
+        Some(_) => TargetProfile::default(),
+        None => store
+            .machine_profile(this)
+            .map_err(err)?
+            .unwrap_or_default(),
+    };
+    let mut target = base.clone();
+    target.rules.extend(store.ignore_rules(this).map_err(err)?);
+    Ok((base, target))
 }
 
 type Fetched = (String, Vec<u8>);

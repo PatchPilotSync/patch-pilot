@@ -199,6 +199,10 @@ export interface MachineComparison {
   suggested: string[];
   /** What each of `suggested` counts as, by product ID. */
   suggestion_units: Record<string, SuggestionUnit>;
+  /** Product IDs of rows that would be suggested but were ignored. */
+  suggested_ignored: string[];
+  /** What the user ignored on this machine, left out of the comparison. */
+  ignores: IgnoreView[];
 }
 
 export type Phase = "foundation" | "vendor_handoff" | "manual";
@@ -229,6 +233,35 @@ export const updateGoldenFrom = (machine: string) => invoke<number>("update_gold
 /** Stop suggesting this version of the product, on every linked machine. */
 export const ignoreSuggestions = (items: { product: string; version: string | null }[]) =>
   invoke<void>("ignore_suggestions", { items });
+/** Suggest these versions again, on every linked machine. */
+export const unignoreSuggestions = (items: { product: string; version: string | null }[]) =>
+  invoke<void>("unignore_suggestions", { items });
+
+// Ignore (decision #66): src-tauri/src/compare.rs and patchpilot_local::ignore.
+
+/** What an ignore hides: a product, a path (`ROOT/rel`, `**` for a folder) or a vendor. */
+export type Matcher = { product: string } | { path_glob: string } | { vendor: string };
+
+export interface IgnoreView {
+  key: string;
+  label: string;
+  /** Applies on every linked machine, not just this one. */
+  every_machine: boolean;
+  /** Primary Rig products it leaves out. */
+  hidden: number;
+  /** Files it keeps out of Bring over (Bring over's list only). */
+  files: number;
+}
+
+/**
+ * Stop asking for what `rules` match on a machine (this one when null), or on every
+ * linked machine: it drops out of the score, Get Up To Speed and Bring over.
+ */
+export const ignoreItems = (machine: string | null, label: string, rules: Matcher[], everyMachine = false) =>
+  invoke<void>("ignore_items", { machine, label, rules, everyMachine });
+/** Ask for it again. */
+export const unignore = (machine: string | null, key: string) => invoke<void>("unignore", { machine, key });
+export const ignoreList = (machine: string | null) => invoke<IgnoreView[]>("ignore_list", { machine });
 
 /** ReaPack repositories and packages (patchpilot_parity::reapack), which can number in the thousands. */
 export const isReapack = (productId: string) =>
@@ -263,6 +296,10 @@ export interface BringView {
   /** There is a Primary Rig (or the machine asked for) to bring from. */
   has_source: boolean;
   files: FileToBring[];
+  /** Left out because the user ignored them here. */
+  ignored: FileToBring[];
+  /** The ignores behind `ignored`. */
+  ignores: IgnoreView[];
 }
 
 export interface BringResult {
@@ -333,7 +370,7 @@ export const setTransferFolder = (service: string | null, folder: string | null)
 export const sendBigFiles = () => invoke<number>("send_big_files");
 export const onTransfersChanged = (f: () => void): Promise<UnlistenFn> => listen("transfers-changed", f);
 
-// Back up everything (decision #65); mirrors src-tauri/src/backup.rs and patchpilot_local::backup.
+// Back up everything (decision #67); mirrors src-tauri/src/backup.rs and patchpilot_local::backup.
 
 export interface BackupSettings {
   /** A CloudFolder id, or "custom"; null until picked. */
@@ -744,3 +781,46 @@ export const undoPreview = (id: number) => invoke<FilePreview[]>("undo_preview",
 export const undoChange = (id: number) => invoke<HistoryView>("undo_change", { id });
 export const goBackPlan = (snapshotId: number) => invoke<GoBackPlan>("go_back_plan", { snapshotId });
 export const goBack = (snapshotId: number) => invoke<HistoryView>("go_back", { snapshotId });
+
+// Duplicate presets (decision #66); mirrors patchpilot_local::duplicates.
+
+/** Where a copy lives, best place to keep first. */
+export type PlaceKind = "standard" | "daw" | "personal" | "loose";
+
+export interface DuplicateCopy {
+  path: string;
+  /** "Serum presets", "Reaper FX chains", "Downloads". */
+  place: string;
+  kind: PlaceKind;
+  mtime: number | null;
+}
+
+export interface DuplicateGroup {
+  hash: string;
+  name: string;
+  size: number;
+  /** The suggested copy to keep comes first. */
+  copies: DuplicateCopy[];
+}
+
+export interface Duplicates {
+  /** Largest waste first. */
+  groups: DuplicateGroup[];
+  /** Preset files looked at. */
+  files: number;
+  places: string[];
+}
+
+export interface CleanUp {
+  removed: number;
+  freed: number;
+  /** Copies left alone: changed since the search, or the kept copy is gone. */
+  skipped: string[];
+  restore_point: number | null;
+}
+
+/** Look for the same preset in several folders on this machine. */
+export const findDuplicates = () => invoke<Duplicates>("find_duplicates");
+/** Remove the extra copies as one restore point (History can undo it), then rescan. */
+export const cleanUpDuplicates = (choices: { keep: string; remove: string[] }[]) =>
+  invoke<CleanUp>("clean_up_duplicates", { choices });

@@ -188,7 +188,7 @@ pub(crate) fn view(
     let offer = match (&golden, &scan, &active) {
         (Some(g), Some(scan), None) => {
             g.info.source_machine_id.as_deref() != Some(this)
-                && compare(&g.manifest, &profile.clone().unwrap_or_default(), scan).score < 100
+                && compare(&g.manifest, &store.target_for(this).map_err(err)?, scan).score < 100
         }
         _ => false,
     };
@@ -222,7 +222,7 @@ fn active(store: &Store, dir: &std::path::Path, this: &str) -> Result<Option<Act
     let profile = store.machine_profile(this).map_err(err)?;
     let progress = setup_progress(
         &golden.manifest,
-        &profile.clone().unwrap_or_default(),
+        &store.target_for(this).map_err(err)?,
         &baseline,
         &machine,
         &state.ticked,

@@ -20,10 +20,12 @@ use crate::{Comparison, ComparisonRow, ParityState};
 /// Rows of `c` that could go into the Primary Rig: products Primary Rig doesn't
 /// have, or has an older version of. Folders and configs are left out (a
 /// sample library or a settings file isn't something to add from one
-/// machine), except ReaPack repositories, which its packages need.
+/// machine), except ReaPack repositories, which its packages need. So is
+/// what the Primary Rig has but the machine's target leaves out.
 pub fn suggestions(c: &Comparison) -> impl Iterator<Item = &ComparisonRow> {
     c.rows.iter().filter(|r| {
         matches!(r.state, ParityState::Extra | ParityState::NewerThanGolden)
+            && !r.left_out
             && (!matches!(r.kind, ItemKind::Folder | ItemKind::Config) || is_reapack(&r.product_id))
     })
 }

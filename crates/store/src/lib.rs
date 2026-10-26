@@ -14,8 +14,8 @@ use std::path::Path;
 
 use patchpilot_core::{
     Bundle, BundleGolden, BundleMachine, Confidence, ContentHash, GoldenVersion, GoldenVersionInfo,
-    IgnoredSuggestion, Item, MachineInfo, Manifest, PathMap, PortablePath, Product, ProfileRule,
-    TargetProfile, golden_machine_id, golden_name,
+    IgnoreEntry, IgnoredSuggestion, Item, MachineInfo, Manifest, PathMap, PortablePath, Product,
+    ProfileRule, RuleAction, TargetProfile, golden_machine_id, golden_name,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
@@ -133,8 +133,11 @@ pub struct ImportReport {
     pub profiles_added: Vec<String>,
     /// Profiles whose ID exists here with different rules; left as they are.
     pub profiles_conflicting: Vec<String>,
-    /// Primary Rig suggestions ignored on the other machine and now here too.
+    /// Primary Rig suggestions ignored (or offered again) on the other
+    /// machine and now here too.
     pub ignored_added: usize,
+    /// Ignores made or taken back on the other machine and now here too.
+    pub ignores_changed: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -378,7 +381,8 @@ impl Store {
             .filter(|p| !p.builtin)
             .map(|p| p.profile)
             .collect();
-        bundle.ignored = self.ignored_suggestions()?;
+        bundle.ignored = self.suggestion_decisions()?;
+        bundle.ignores = self.ignores()?;
         Ok(bundle)
     }
 
@@ -435,8 +439,18 @@ impl Store {
 
         report.golden = self.import_golden(bundle)?;
         for i in &bundle.ignored {
-            if self.ignore_suggestion(&i.product_id, i.version.as_deref(), i.ignored_at)? {
+            if self.set_suggestion_ignored(
+                &i.product_id,
+                i.version.as_deref(),
+                !i.undone,
+                i.ignored_at,
+            )? {
                 report.ignored_added += 1;
+            }
+        }
+        for e in &bundle.ignores {
+            if self.set_ignore(e)? {
+                report.ignores_changed += 1;
             }
         }
         Ok(report)
@@ -502,37 +516,178 @@ impl Store {
         version: Option<&str>,
         now: i64,
     ) -> Result<bool> {
-        let exists: bool = self.conn.query_row(
-            "SELECT EXISTS (SELECT 1 FROM decisions WHERE state = 'suggestion'
-                 AND decision = 'ignore' AND product_id = ?1 AND note IS ?2)",
-            params![product_id, version],
-            |r| r.get(0),
-        )?;
-        if exists {
-            return Ok(false);
+        self.set_suggestion_ignored(product_id, version, true, now)
+    }
+
+    /// Ignore a suggestion, or with `ignored` false offer it again (kept as
+    /// an `accept`, so the change travels in bundles). The later decision
+    /// wins; false if nothing changed.
+    pub fn set_suggestion_ignored(
+        &mut self,
+        product_id: &str,
+        version: Option<&str>,
+        ignored: bool,
+        at: i64,
+    ) -> Result<bool> {
+        let existing: Option<(i64, String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT id, decision, decided_at FROM decisions WHERE state = 'suggestion'
+                     AND product_id = ?1 AND note IS ?2 ORDER BY id DESC LIMIT 1",
+                params![product_id, version],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        self.decide(existing, ignored, at, |conn, decision| {
+            conn.execute(
+                "INSERT INTO decisions (machine_id, product_id, state, decision, decided_at, note)
+                 VALUES (NULL, ?1, 'suggestion', ?2, ?3, ?4)",
+                params![product_id, decision, at, version],
+            )
+        })
+    }
+
+    /// Update the latest decision row to `ignored` at `at` if that is newer
+    /// and different, or add one with `insert` when there is none.
+    fn decide(
+        &mut self,
+        existing: Option<(i64, String, i64)>,
+        ignored: bool,
+        at: i64,
+        insert: impl FnOnce(&Connection, &str) -> rusqlite::Result<usize>,
+    ) -> Result<bool> {
+        let decision = if ignored { "ignore" } else { "accept" };
+        match existing {
+            Some((_, d, _)) if d == decision => Ok(false),
+            Some((_, _, when)) if when > at => Ok(false),
+            Some((id, _, _)) => {
+                self.conn.execute(
+                    "UPDATE decisions SET decision = ?2, decided_at = ?3 WHERE id = ?1",
+                    params![id, decision, at],
+                )?;
+                Ok(true)
+            }
+            // Nothing to take back.
+            None if !ignored => Ok(false),
+            None => {
+                insert(&self.conn, decision)?;
+                Ok(true)
+            }
         }
-        self.conn.execute(
-            "INSERT INTO decisions (machine_id, product_id, state, decision, decided_at, note)
-             VALUES (NULL, ?1, 'suggestion', 'ignore', ?2, ?3)",
-            params![product_id, now, version],
-        )?;
-        Ok(true)
     }
 
     /// Every ignored Primary Rig suggestion, oldest first.
     pub fn ignored_suggestions(&self) -> Result<Vec<IgnoredSuggestion>> {
+        Ok(self
+            .suggestion_decisions()?
+            .into_iter()
+            .filter(|i| !i.undone)
+            .collect())
+    }
+
+    /// Ignored suggestions and the ones offered again, for bundles.
+    fn suggestion_decisions(&self) -> Result<Vec<IgnoredSuggestion>> {
         let mut stmt = self.conn.prepare(
-            "SELECT product_id, note, decided_at FROM decisions
-             WHERE state = 'suggestion' AND decision = 'ignore' ORDER BY id",
+            "SELECT product_id, note, decided_at, decision FROM decisions
+             WHERE state = 'suggestion' ORDER BY id",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(IgnoredSuggestion {
                 product_id: r.get(0)?,
                 version: r.get(1)?,
                 ignored_at: r.get(2)?,
+                undone: r.get::<_, String>(3)? == "accept",
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Ignore something on a machine (or every machine), or with
+    /// `entry.undone` take it back. Kept in `decisions` with state `hidden`,
+    /// the rules' key as `product_id` and the label in `note`. The later
+    /// decision wins; false if nothing changed, or if the machine isn't
+    /// known here.
+    pub fn set_ignore(&mut self, entry: &IgnoreEntry) -> Result<bool> {
+        if let Some(m) = &entry.machine_id
+            && !self.machine_exists(m)?
+        {
+            return Ok(false);
+        }
+        let key = entry.key();
+        let existing: Option<(i64, String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT id, decision, decided_at FROM decisions WHERE state = 'hidden'
+                     AND machine_id IS ?1 AND product_id = ?2 ORDER BY id DESC LIMIT 1",
+                params![entry.machine_id, key],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        self.decide(existing, !entry.undone, entry.at, |conn, decision| {
+            conn.execute(
+                "INSERT INTO decisions (machine_id, product_id, state, decision, decided_at, note)
+                 VALUES (?1, ?2, 'hidden', ?3, ?4, ?5)",
+                params![entry.machine_id, key, decision, entry.at, entry.label],
+            )
+        })
+    }
+
+    /// Every ignore, taken back or not, oldest first.
+    pub fn ignores(&self) -> Result<Vec<IgnoreEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT machine_id, product_id, note, decided_at, decision FROM decisions
+             WHERE state = 'hidden' ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let key: String = r.get(1)?;
+            Ok(IgnoreEntry {
+                machine_id: r.get(0)?,
+                rules: serde_json::from_str(&key).unwrap_or_default(),
+                label: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                at: r.get(3)?,
+                undone: r.get::<_, String>(4)? == "accept",
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The ignores in force on a machine: its own and every machine's.
+    pub fn ignores_for(&self, machine_id: &str) -> Result<Vec<IgnoreEntry>> {
+        Ok(self
+            .ignores()?
+            .into_iter()
+            .filter(|e| !e.undone && e.machine_id.as_deref().is_none_or(|m| m == machine_id))
+            .collect())
+    }
+
+    /// What a machine is measured against: its target profile (or the whole
+    /// Primary Rig), with everything ignored there left out.
+    pub fn target_for(&self, machine_id: &str) -> Result<TargetProfile> {
+        let mut profile = self.machine_profile(machine_id)?.unwrap_or_default();
+        // Last matching rule wins, so these come after the profile's own.
+        profile.rules.extend(self.ignore_rules(machine_id)?);
+        Ok(profile)
+    }
+
+    /// The ignores in force on a machine as profile exclusions.
+    pub fn ignore_rules(&self, machine_id: &str) -> Result<Vec<ProfileRule>> {
+        Ok(self
+            .ignores_for(machine_id)?
+            .into_iter()
+            .flat_map(|e| e.rules)
+            .map(|matcher| ProfileRule {
+                action: RuleAction::Exclude,
+                matcher,
+            })
+            .collect())
+    }
+
+    fn machine_exists(&self, id: &str) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM machines WHERE id = ?1)",
+            [id],
+            |r| r.get(0),
+        )?)
     }
 
     /// Every machine with saved scans (not Primary Rig versions), by name.
