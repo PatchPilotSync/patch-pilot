@@ -12,6 +12,7 @@ pub mod backup;
 pub mod bring;
 pub mod duplicates;
 pub mod github;
+pub mod gitpack;
 pub mod golden;
 pub mod ignore;
 pub mod open;

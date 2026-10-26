@@ -4,17 +4,19 @@
 //! `patchpilot_local::github::sync`, which keeps the backup folder's copy in
 //! app-data and the repo the same. Backups push after they're made
 //! (backup.rs); keeping files in sync pulls before it looks (autosync.rs),
-//! and every 10 minutes while it's on.
+//! and every 10 minutes while it's on. Pushes go over Git's own smart HTTP
+//! protocol (thousands of files a request) and a big first pull comes as one
+//! archive, since the REST API's limits stop after a few hundred files.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use patchpilot_local::backup::{self, BackupSettings};
 use patchpilot_local::github::{
-    self, Change, GitHubReport, GitHubSettings, PushError, Remote, RemoteFile, RepoRef,
+    self, GitHubReport, GitHubSettings, Progress, Remote, RemoteFile, RepoRef,
 };
 use reqwest::StatusCode;
 use reqwest::blocking::{Client, RequestBuilder};
@@ -34,6 +36,12 @@ const TOKEN_PAGE: &str =
     "https://github.com/settings/tokens/new?scopes=repo&description=Patch%20Pilot";
 /// Emitted when signing in finishes or fails, for the UI.
 pub const GITHUB_CHANGED: &str = "github-changed";
+/// Emitted with a [`Progress`] while a long sync runs, then with null.
+pub const GITHUB_PROGRESS: &str = "github-progress";
+/// After a sync that didn't finish, try again after this, then twice as
+/// long each time up to [`RETRY_MAX`]. A part already sent stays sent.
+const RETRY: Duration = Duration::from_secs(120);
+const RETRY_MAX: Duration = Duration::from_secs(1800);
 /// How often to look for other machines' changes while keeping files in sync.
 const POLL: Duration = Duration::from_secs(600);
 /// A linked machine's scan arrives before its push; look again after this.
@@ -49,6 +57,11 @@ struct GitHubState {
     /// One sync at a time.
     running: Mutex<()>,
     look_pending: AtomicBool,
+    /// How far the running sync has got.
+    progress: Mutex<Option<Progress>>,
+    retry_pending: AtomicBool,
+    /// Seconds until the next try after a failure; 0 after a success.
+    retry_after: AtomicU64,
 }
 
 /// Mirrored in `src/api.ts`.
@@ -73,6 +86,7 @@ pub struct GitHubView {
     pub device: Option<DeviceCode>,
     pub error: Option<String>,
     pub last: Option<GitHubReport>,
+    pub progress: Option<Progress>,
     pub default_repo: &'static str,
 }
 
@@ -114,8 +128,18 @@ fn uses_github(settings: &BackupSettings) -> bool {
     settings.service.as_deref() == Some(github::SERVICE)
 }
 
+/// The running sync's progress and the last sync's error, for the Sync &
+/// backup line.
+pub fn status(app: &AppHandle) -> (Option<Progress>, Option<String>) {
+    let state = app.state::<GitHubState>();
+    let progress = state.progress.lock().ok().and_then(|p| *p);
+    let error = state.error.lock().ok().and_then(|e| e.clone());
+    (progress, error)
+}
+
 /// Bring the copy and the repo up to date, when the backup folder is the
-/// repo's copy. Quietly nothing otherwise.
+/// repo's copy. Quietly nothing otherwise. One that doesn't finish tries
+/// again on its own, picking up where it stopped.
 pub fn sync_now(app: &AppHandle) -> Result<Option<GitHubReport>, String> {
     let dir = app_dir()?;
     if !uses_github(&backup::load_settings(&dir)) {
@@ -123,17 +147,75 @@ pub fn sync_now(app: &AppHandle) -> Result<Option<GitHubReport>, String> {
     }
     let state = app.state::<GitHubState>();
     let _one = state.running.lock().map_err(|e| e.to_string())?;
-    let result = sync_blocking(&dir);
+    let mut shown: Option<Instant> = None;
+    let result = sync_blocking(&dir, &mut |p| {
+        if let Ok(mut slot) = state.progress.lock() {
+            *slot = Some(p);
+        }
+        // A few times a second at most.
+        if shown.is_none_or(|t| t.elapsed() >= Duration::from_millis(300)) || p.done == p.total {
+            shown = Some(Instant::now());
+            let _ = app.emit(GITHUB_PROGRESS, Some(p));
+        }
+    });
+    if let Ok(mut slot) = state.progress.lock() {
+        *slot = None;
+    }
+    let had_error = state.error.lock().is_ok_and(|e| e.is_some());
     if let Ok(mut e) = state.error.lock() {
         *e = result.as_ref().err().cloned();
     }
     if let (Ok(r), Ok(mut last)) = (&result, state.last.lock()) {
         *last = Some(r.clone());
     }
+    if shown.is_some() {
+        let _ = app.emit(GITHUB_PROGRESS, None::<Progress>);
+    }
+    let changed = result.as_ref().map_or(true, |r| r.pulled + r.pushed > 0);
+    if shown.is_some() || changed || had_error {
+        let _ = app.emit(BACKUP_CHANGED, ());
+    }
+    match &result {
+        Ok(_) => state.retry_after.store(0, Ordering::SeqCst),
+        Err(_) => retry_later(app),
+    }
     result.map(Some)
 }
 
-fn sync_blocking(dir: &std::path::Path) -> Result<GitHubReport, String> {
+/// Try a sync that didn't finish again, waiting longer each time.
+fn retry_later(app: &AppHandle) {
+    let state = app.state::<GitHubState>();
+    if state.retry_pending.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let wait = match state.retry_after.load(Ordering::SeqCst) {
+        0 => RETRY,
+        s => (Duration::from_secs(s) * 2).min(RETRY_MAX),
+    };
+    state.retry_after.store(wait.as_secs(), Ordering::SeqCst);
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(wait);
+        handle
+            .state::<GitHubState>()
+            .retry_pending
+            .store(false, Ordering::SeqCst);
+        if !in_use() {
+            return;
+        }
+        // Keeping files in sync syncs with GitHub first, then looks.
+        if crate::autosync::enabled() {
+            crate::autosync::look(&handle);
+        } else {
+            let _ = sync_now(&handle);
+        }
+    });
+}
+
+fn sync_blocking(
+    dir: &std::path::Path,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<GitHubReport, String> {
     let token = github::load_token(dir).ok_or("Sign in to GitHub again on This machine.")?;
     let mut settings = github::load_settings(dir);
     let repo = settings
@@ -143,7 +225,7 @@ fn sync_blocking(dir: &std::path::Path) -> Result<GitHubReport, String> {
     let this = this_machine()?;
     let name = machine_name(&this);
     let mut index = github::load_index(dir);
-    let api = Api::new(&token, repo);
+    let api = Api::new(&token, settings.login.as_deref(), repo);
     let report = github::sync(
         &api,
         &github::mirror_dir(dir),
@@ -152,12 +234,13 @@ fn sync_blocking(dir: &std::path::Path) -> Result<GitHubReport, String> {
         &mut settings,
         &mut index,
         patchpilot_local::now(),
+        progress,
     );
+    // A part that went keeps its commit, so the next try starts after it.
+    github::save_settings(dir, &settings)?;
     // The index is right for the files read even when the sync stopped.
     github::save_index(dir, &index)?;
-    let report = report?;
-    github::save_settings(dir, &settings)?;
-    Ok(report)
+    report
 }
 
 fn machine_name(this: &str) -> String {
@@ -188,6 +271,7 @@ pub async fn github_view(app: AppHandle) -> Result<GitHubView, String> {
         device: state.device.lock().ok().and_then(|d| d.clone()),
         error: state.error.lock().ok().and_then(|e| e.clone()),
         last: state.last.lock().ok().and_then(|l| l.clone()),
+        progress: state.progress.lock().ok().and_then(|p| *p),
         default_repo: github::DEFAULT_REPO,
     })
 }
@@ -466,25 +550,75 @@ pub async fn github_open(page: String) -> Result<(), String> {
 }
 
 fn http() -> Client {
+    client(Duration::from_secs(120))
+}
+
+/// For a push or an archive: up to 96 MB each way on a slow line.
+fn long_http() -> Client {
+    client(Duration::from_secs(3600))
+}
+
+fn client(timeout: Duration) -> Client {
     crate::sync::install_crypto();
     Client::builder()
         .user_agent(concat!("Patch Pilot/", env!("CARGO_PKG_VERSION")))
-        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(timeout)
         .build()
         .unwrap_or_default()
 }
 
 /// Send with the token; the status and JSON body (null when there's none).
-fn call(req: RequestBuilder, token: &str) -> Result<(StatusCode, Value), String> {
-    let res = req
-        .bearer_auth(token)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .send()
-        .map_err(|e| format!("Can't reach GitHub: {e}"))?;
+/// When GitHub asks to slow down, waits as long as it says (a few minutes
+/// at most) and asks again.
+fn call(mut req: RequestBuilder, token: &str) -> Result<(StatusCode, Value), String> {
+    for tries in 1.. {
+        let again = req.try_clone();
+        let res = req
+            .bearer_auth(token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .map_err(|e| format!("Can't reach GitHub: {e}"))?;
+        let status = res.status();
+        let wait = slow_down(&res);
+        let body = res.json::<Value>().unwrap_or(Value::Null);
+        match (wait, again) {
+            (Some(wait), Some(next)) if tries < 4 && is_rate_limit(status, &body) => {
+                std::thread::sleep(wait);
+                req = next;
+            }
+            _ => return Ok((status, body)),
+        }
+    }
+    unreachable!()
+}
+
+/// How long GitHub asked to wait, when it did.
+fn slow_down(res: &reqwest::blocking::Response) -> Option<Duration> {
     let status = res.status();
-    let body = res.json::<Value>().unwrap_or(Value::Null);
-    Ok((status, body))
+    if status != StatusCode::FORBIDDEN && status != StatusCode::TOO_MANY_REQUESTS {
+        return None;
+    }
+    let header = |k: &str| {
+        res.headers()
+            .get(k)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<i64>().ok())
+    };
+    let secs = header("retry-after").or_else(|| {
+        (header("x-ratelimit-remaining") == Some(0))
+            .then(|| header("x-ratelimit-reset").map(|t| t - patchpilot_local::now()))
+            .flatten()
+    });
+    Some(Duration::from_secs(secs.unwrap_or(60).clamp(1, 300) as u64))
+}
+
+fn is_rate_limit(status: StatusCode, body: &Value) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS
+        || body["message"]
+            .as_str()
+            .is_some_and(|m| m.to_ascii_lowercase().contains("rate limit"))
 }
 
 fn api_error(status: StatusCode, body: &Value) -> String {
@@ -493,10 +627,8 @@ fn api_error(status: StatusCode, body: &Value) -> String {
         StatusCode::UNAUTHORIZED => {
             "The GitHub sign-in ran out. Sign in again on This machine.".into()
         }
-        StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
-            if message.to_ascii_lowercase().contains("rate limit") =>
-        {
-            "GitHub asked Patch Pilot to slow down. It tries again shortly.".into()
+        _ if is_rate_limit(status, body) => {
+            "GitHub asked to slow down; picking up where it stopped in a few minutes.".into()
         }
         StatusCode::NOT_FOUND => {
             "GitHub can't find that repo (deleted, or this sign-in can't see it).".into()
@@ -505,21 +637,26 @@ fn api_error(status: StatusCode, body: &Value) -> String {
     }
 }
 
-/// The repo over GitHub's Git data API: files are blobs, a push is one
-/// commit, and the branch only moves if nobody pushed meanwhile.
+/// The repo: reads through GitHub's REST API, pushes over Git's smart HTTP
+/// protocol (`git-receive-pack`), the same way `git push` does.
 struct Api {
     http: Client,
+    long: Client,
     token: String,
+    /// Git's sign-in takes a user name with the token.
+    login: String,
     repo: RepoRef,
     /// Each commit's tree, read once.
     trees: Mutex<HashMap<String, String>>,
 }
 
 impl Api {
-    fn new(token: &str, repo: RepoRef) -> Self {
+    fn new(token: &str, login: Option<&str>, repo: RepoRef) -> Self {
         Self {
             http: http(),
+            long: long_http(),
             token: token.to_owned(),
+            login: login.unwrap_or("x-access-token").to_owned(),
             repo,
             trees: Mutex::new(HashMap::new()),
         }
@@ -527,6 +664,13 @@ impl Api {
 
     fn url(&self, path: &str) -> String {
         format!("{API}/repos/{}/{}/{path}", self.repo.owner, self.repo.name)
+    }
+
+    fn git_url(&self, path: &str) -> String {
+        format!(
+            "https://github.com/{}/{}.git/{path}",
+            self.repo.owner, self.repo.name
+        )
     }
 
     fn ok(&self, req: RequestBuilder) -> Result<Value, String> {
@@ -556,6 +700,26 @@ impl Api {
             t.insert(commit.to_owned(), tree.clone());
         }
         Ok(tree)
+    }
+
+    /// A Git request's answer, or what went wrong in words.
+    fn git_ok(
+        &self,
+        res: reqwest::Result<reqwest::blocking::Response>,
+    ) -> Result<reqwest::blocking::Response, String> {
+        let res = res.map_err(|e| format!("Can't reach GitHub: {e}"))?;
+        match res.status() {
+            s if s.is_success() => Ok(res),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(format!(
+                "GitHub didn't let this sign-in change {}. Sign in again with access to it.",
+                self.repo.full_name()
+            )),
+            StatusCode::NOT_FOUND => Err(api_error(StatusCode::NOT_FOUND, &Value::Null)),
+            s if s == StatusCode::TOO_MANY_REQUESTS || s.is_server_error() => {
+                Err("GitHub is busy; picking up where it stopped in a few minutes.".into())
+            }
+            s => Err(format!("GitHub said {}.", s.as_u16())),
+        }
     }
 }
 
@@ -632,58 +796,37 @@ impl Remote for Api {
             .map_err(|e| format!("Can't reach GitHub: {e}"))
     }
 
-    fn upload(&self, bytes: &[u8]) -> Result<String, String> {
-        let body = json!({
-            "content": base64::engine::general_purpose::STANDARD.encode(bytes),
-            "encoding": "base64",
-        });
-        let made = self.ok(self.http.post(self.url("git/blobs")).json(&body))?;
-        made["sha"]
-            .as_str()
-            .map(str::to_owned)
-            .ok_or_else(|| "GitHub didn't keep the file.".into())
+    fn archive(&self, commit: &str) -> Result<Box<dyn std::io::Read + '_>, String> {
+        let res = self
+            .long
+            .get(self.url(&format!("tarball/{commit}")))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send();
+        Ok(Box::new(self.git_ok(res)?))
     }
 
-    fn commit(&self, parent: &str, changes: &[Change], message: &str) -> Result<String, PushError> {
-        let failed = PushError::Failed;
-        let base = self.tree_of(parent).map_err(failed)?;
-        let entries: Vec<Value> = changes
-            .iter()
-            .map(|c| json!({ "path": c.path, "mode": "100644", "type": "blob", "sha": c.id }))
-            .collect();
-        let tree = self
-            .ok(self
-                .http
-                .post(self.url("git/trees"))
-                .json(&json!({ "base_tree": base, "tree": entries })))
-            .map_err(failed)?;
-        let tree = tree["sha"]
-            .as_str()
-            .ok_or_else(|| failed("GitHub didn't make the commit.".into()))?;
-        let commit = self
-            .ok(self.http.post(self.url("git/commits")).json(&json!({
-                "message": message,
-                "tree": tree,
-                "parents": [parent],
-            })))
-            .map_err(failed)?;
-        let commit = commit["sha"]
-            .as_str()
-            .ok_or_else(|| failed("GitHub didn't make the commit.".into()))?
-            .to_owned();
-        let (status, body) = call(
-            self.http
-                .patch(self.url(&format!("git/refs/heads/{}", self.repo.branch)))
-                .json(&json!({ "sha": commit, "force": false })),
-            &self.token,
-        )
-        .map_err(failed)?;
-        if status.is_success() {
-            Ok(commit)
-        } else if status == StatusCode::UNPROCESSABLE_ENTITY || status == StatusCode::CONFLICT {
-            Err(PushError::Moved)
-        } else {
-            Err(failed(api_error(status, &body)))
-        }
+    fn receive_pack(&self, body: Vec<u8>) -> Result<Vec<u8>, String> {
+        // Ask first, as `git push` does, so a sign-in that can't push stops
+        // before the upload.
+        let res = self
+            .http
+            .get(self.git_url("info/refs?service=git-receive-pack"))
+            .basic_auth(&self.login, Some(&self.token))
+            .send();
+        self.git_ok(res)?;
+        let res = self
+            .long
+            .post(self.git_url("git-receive-pack"))
+            .basic_auth(&self.login, Some(&self.token))
+            .header("Content-Type", "application/x-git-receive-pack-request")
+            .header("Accept", "application/x-git-receive-pack-result")
+            .body(body)
+            .send();
+        self.git_ok(res)?
+            .bytes()
+            .map(|b| b.to_vec())
+            .map_err(|e| format!("The connection to GitHub dropped: {e}"))
     }
 }

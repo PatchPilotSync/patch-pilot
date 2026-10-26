@@ -440,6 +440,10 @@ export interface BackupView {
   dir: string | null;
   /** "owner/name" while backups and syncing go through a GitHub repo (decision #73). */
   github: string | null;
+  /** How far a long GitHub sync has got, while one runs. */
+  github_progress: GitHubProgress | null;
+  /** Why the last GitHub sync didn't finish; it tries again on its own. */
+  github_error: string | null;
   /** The big-file folder, offered first when picking. */
   transfer_folder: string | null;
   /** This machine's backups first. */
@@ -482,6 +486,14 @@ export interface GitHubReport {
   unsafe_paths: string[];
 }
 
+/** "Uploading 3,200 of 15,456 files". */
+export interface GitHubProgress {
+  /** Sending this machine's files; otherwise bringing others' in. */
+  uploading: boolean;
+  done: number;
+  total: number;
+}
+
 export interface GitHubView {
   /** Signing in opens GitHub with a code; otherwise it takes a pasted token. */
   device_sign_in: boolean;
@@ -495,6 +507,7 @@ export interface GitHubView {
   device: { user_code: string; verification_uri: string } | null;
   error: string | null;
   last: GitHubReport | null;
+  progress: GitHubProgress | null;
   default_repo: string;
 }
 
@@ -506,6 +519,9 @@ export const githubUseRepo = (name: string) => invoke<GitHubView>("github_use_re
 export const githubSignOut = () => invoke<GitHubView>("github_sign_out");
 export const githubOpen = (page: "device" | "token" | "repo") => invoke<void>("github_open", { page });
 export const onGitHubChanged = (f: () => void): Promise<UnlistenFn> => listen("github-changed", f);
+/** A long sync's progress, then null when it ends. */
+export const onGitHubProgress = (f: (p: GitHubProgress | null) => void): Promise<UnlistenFn> =>
+  listen<GitHubProgress | null>("github-progress", (e) => f(e.payload));
 
 // Keep files in sync (decision #70); mirrors src-tauri/src/autosync.rs and patchpilot_local::autosync.
 
