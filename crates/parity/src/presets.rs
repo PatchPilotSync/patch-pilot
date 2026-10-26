@@ -319,6 +319,7 @@ pub fn preset_items(folders: &[PresetFolder], os: Os) -> (Vec<Product>, Vec<Item
             platform_portable: f.portable,
             confidence: Confidence::Medium,
             requires: Vec::new(),
+            needs_files: Vec::new(),
         });
     }
     (products, items)

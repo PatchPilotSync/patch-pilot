@@ -182,6 +182,7 @@ fn item(
         platform_portable: portable,
         confidence: Confidence::High,
         requires: Vec::new(),
+        needs_files: Vec::new(),
     }
 }
 

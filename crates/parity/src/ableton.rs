@@ -623,6 +623,7 @@ pub fn settings_items(
             platform_portable: true,
             confidence: Confidence::High,
             requires,
+            needs_files: Vec::new(),
         });
     }
     (products, items)

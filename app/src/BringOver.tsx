@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { bringFiles, fileKey, filesToBring, type BringResult, type BringView, type FileToBring } from "./api";
-import { Badge, Button, buildTree, Folder, FolderTree, isConflictCopy, useFolders } from "./ui";
+import { bringSummary, Needs } from "./bring";
+import { Badge, Button, buildTree, Folder, FolderTree, isConflictCopy, treeItems, useFolders } from "./ui";
 
 /**
  * Bring over (decision #45): the Primary Rig's templates, scripts and themes
- * this machine lacks, grouped by app. One click brings the ticked ones over;
- * anything replaced is backed up first. Loads its own list, so any screen
- * about this machine can show it.
+ * this machine lacks, grouped by app. One click brings the ticked ones over,
+ * each with every file it needs (decision #61); anything replaced is backed
+ * up first. Loads its own list, so any screen about this machine can show it.
  */
 export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [view, setView] = useState<BringView | null>(null);
@@ -15,26 +16,34 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BringResult | null>(null);
 
+  const files = useMemo(() => view?.files ?? [], [view]);
+  const needs = useMemo(() => new Needs(files), [files]);
   const load = useCallback(() => {
-    filesToBring().then(setView, (e) => onError(String(e)));
+    filesToBring().then(
+      (v) => {
+        setView(v);
+        // Sync-app conflict copies, and anything needing one, start unticked.
+        setSkipped(new Needs(v.files).withNeededBy(v.files.filter((f) => isConflictCopy(f.rel)).map(fileKey)));
+      },
+      (e) => onError(String(e)),
+    );
   }, [onError]);
   useEffect(load, [load]);
 
-  const files = useMemo(() => view?.files.filter((f) => !f.too_large) ?? [], [view]);
-  // Sync-app conflict copies start unticked; a tick flips a file from its default.
-  const isSkipped = (f: FileToBring) => skipped.has(fileKey(f)) !== isConflictCopy(f.rel);
-  const chosen = files.filter((f) => !isSkipped(f));
-  const groups = useMemo(() => groupByApp(view?.files ?? []), [view]);
+  const canBring = (f: FileToBring) => !f.incomplete;
+  const isChosen = (f: FileToBring) => canBring(f) && !skipped.has(fileKey(f));
+  const chosen = files.filter(isChosen);
+  const groups = useMemo(() => groupByApp(files), [files]);
   // One app opens by default; its kinds (Scripts, FX chains, ...) stay folded.
   const folders = useFolders("bring-over", (id) => !id.includes("/") && groups.length === 1);
 
-  if (!view || (view.files.length === 0 && !result)) return null;
+  if (!view || !view.has_source) return null;
+  if (files.length === 0 && !result && !view.linked) return null;
 
   async function bring() {
     setBusy(true);
     try {
       setResult(await bringFiles(chosen.map(fileKey)));
-      setSkipped(new Set());
       load();
     } catch (e) {
       onError(String(e));
@@ -43,26 +52,39 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
     }
   }
 
-  const toggle = (k: string) =>
+  /** Tick or untick `fs` as one: ticking brings what they need along, unticking leaves what needs them. */
+  const setChosen = (fs: FileToBring[], on: boolean) =>
     setSkipped((s) => {
       const n = new Set(s);
-      if (n.has(k)) n.delete(k);
-      else n.add(k);
+      const keys = fs.filter(canBring).map(fileKey);
+      if (on) for (const k of needs.withNeeds(keys)) n.delete(k);
+      else for (const k of needs.withNeededBy(keys)) n.add(k);
       return n;
     });
+
+  const upToDate = files.length === 0;
+  const summary = result && bringSummary(result, "the Primary machine");
 
   return (
     <section className="rounded-lg border border-line bg-panel px-3 py-2.5">
       <header className="flex items-center gap-3">
+        {upToDate && (
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" className="shrink-0 text-ok">
+            <circle cx="7" cy="7" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M4.2 7.2 6.1 9 9.8 5.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
         <div className="min-w-0 flex-1">
-          <h2 className="text-xs font-semibold">Bring over from the Primary Rig</h2>
+          <h2 className={`text-xs font-semibold ${upToDate ? "text-ok" : ""}`}>
+            {upToDate ? "Up to date with the Primary Rig" : "Bring over from the Primary Rig"}
+          </h2>
           <p className="truncate text-[11px] text-dim">
-            {view.files.length === 0
-              ? "Everything is here."
-              : groups.map(([app, fs]) => `${app}: ${summary(fs)}`).join(" · ")}
+            {upToDate
+              ? "Every template, script and theme from the Primary Rig is on this machine."
+              : groups.map(([app, fs]) => `${app}: ${summaryOf(fs)}`).join(" · ")}
           </p>
         </div>
-        {view.files.length > 0 && (
+        {!upToDate && (
           <Button variant="quiet" onClick={() => setOpen((o) => !o)} className="shrink-0">
             {open ? "Hide files" : "Show files"}
           </Button>
@@ -74,29 +96,20 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
         )}
       </header>
 
-      {!view.linked && view.files.length > 0 && (
+      {!view.linked && files.length > 0 && (
         <p className="mt-1.5 text-[11px] text-dim">
           Link this machine with the Primary one (Link a machine, top bar) to bring these over.
         </p>
       )}
 
-      {result && (
+      {summary && (
         <p className="mt-1.5 text-[11px] text-ok">
-          Brought over {result.written} file{result.written === 1 ? "" : "s"}.
-          {result.backed_up > 0 &&
-            ` ${result.backed_up} replaced file${result.backed_up === 1 ? " was" : "s were"} saved first.`}
-          {result.written > 0 && " You can undo this in History."}
-          {result.unavailable.length > 0 && (
-            <span className="text-warn">
-              {" "}
-              {result.unavailable.length} not available yet: open Patch Pilot on the Primary machine so it can send
-              them.
-            </span>
-          )}
+          {summary.text}
+          {summary.warn && <span className="text-warn"> {summary.warn}</span>}
         </p>
       )}
 
-      {open && (
+      {open && !upToDate && (
         <div className="mt-2 flex flex-col gap-2">
           <div className="-mx-1">
             {groups.map(([app, fs]) => (
@@ -107,10 +120,11 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                 className="px-1 text-xs"
                 open={folders.isOpen(app)}
                 onToggle={() => folders.toggle(app)}
+                actions={view.linked && <FolderTick files={fs} isChosen={isChosen} onChange={setChosen} />}
               >
                 {groupByKind(fs).map(([kind, ks]) => {
                   const id = `${app}/${kind}`;
-                  const ticked = ks.filter((f) => !f.too_large && !isSkipped(f)).length;
+                  const ticked = ks.filter(isChosen).length;
                   return (
                     <Folder
                       key={id}
@@ -120,11 +134,17 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                       open={folders.isOpen(id)}
                       onToggle={() => folders.toggle(id)}
                       badges={view.linked && ticked < ks.length && <Badge>{ticked} ticked</Badge>}
+                      actions={view.linked && <FolderTick files={ks} isChosen={isChosen} onChange={setChosen} />}
                     >
                       <FolderTree
                         node={buildTree(ks, (f) => f.rel.split("/").slice(1, -1), id)}
                         folders={folders}
                         indent={36}
+                        actions={(node) =>
+                          view.linked && (
+                            <FolderTick files={treeItems(node)} isChosen={isChosen} onChange={setChosen} />
+                          )
+                        }
                         renderItems={(items, indent) => (
                           <ul className="flex flex-col" style={{ paddingLeft: indent }}>
                             {items.map((f) => (
@@ -132,8 +152,9 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
                                 key={fileKey(f)}
                                 f={f}
                                 linked={view.linked}
-                                checked={!isSkipped(f)}
-                                onToggle={() => toggle(fileKey(f))}
+                                checked={isChosen(f)}
+                                companions={needs.withNeeds([fileKey(f)]).size - 1}
+                                onToggle={() => setChosen([f], !isChosen(f))}
                               />
                             ))}
                           </ul>
@@ -146,8 +167,9 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
             ))}
           </div>
           <p className="text-[11px] text-dim">
-            Plug-ins aren't copied: they need their installers and licences. Anything replaced is backed up in Patch
-            Pilot's app folder first.
+            Files that work together (a script and what it loads, a ReaPack package, a theme and its images) are ticked
+            together, so they always arrive whole. Plug-ins aren't copied: they need their installers and licences.
+            Anything replaced is backed up in Patch Pilot's app folder first.
           </p>
         </div>
       )}
@@ -155,15 +177,46 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   );
 }
 
+/** A folder header's checkbox: ticked when every file in it is, dashed when some are. */
+export function FolderTick({
+  files,
+  isChosen,
+  onChange,
+}: {
+  files: FileToBring[];
+  isChosen: (f: FileToBring) => boolean;
+  onChange: (files: FileToBring[], on: boolean) => void;
+}) {
+  const can = files.filter((f) => !f.incomplete);
+  const n = can.filter(isChosen).length;
+  return (
+    <input
+      type="checkbox"
+      className="mr-1 shrink-0 accent-accent"
+      aria-label={n === can.length ? "Untick every file in this folder" : "Tick every file in this folder"}
+      title={n === can.length ? "Untick every file in this folder" : "Tick every file in this folder"}
+      disabled={can.length === 0}
+      checked={can.length > 0 && n === can.length}
+      ref={(el) => {
+        if (el) el.indeterminate = n > 0 && n < can.length;
+      }}
+      onChange={() => onChange(can, n < can.length)}
+    />
+  );
+}
+
 function FileLine({
   f,
   linked,
   checked,
+  companions,
   onToggle,
 }: {
   f: FileToBring;
   linked: boolean;
   checked: boolean;
+  /** Other files it brings along. */
+  companions: number;
   onToggle: () => void;
 }) {
   return (
@@ -172,13 +225,21 @@ function FileLine({
         <input
           type="checkbox"
           className="accent-accent"
-          disabled={f.too_large || !linked}
-          checked={!f.too_large && checked}
+          disabled={f.incomplete || !linked}
+          checked={checked}
           onChange={onToggle}
         />
         <span className="min-w-0 flex-1 truncate text-xs" title={f.rel}>
           {fileName(f.rel)}
         </span>
+        {companions > 0 && (
+          <span
+            className="shrink-0 text-[11px] text-dim"
+            title="Files it needs to work. They're brought over with it."
+          >
+            + {companions} file{companions === 1 ? "" : "s"}
+          </span>
+        )}
         {isConflictCopy(f.rel) && (
           <span title="A copy a sync app (Dropbox, OneDrive...) made when two machines changed this file at once. Not ticked, so it stays behind.">
             <Badge tone="amber">conflict copy</Badge>
@@ -186,6 +247,10 @@ function FileLine({
         )}
         {f.too_large ? (
           <Badge>Too large to send</Badge>
+        ) : f.incomplete ? (
+          <span title="A file it needs is over the 2 MB the link can carry, so it would arrive without it.">
+            <Badge>Needs a file too large to send</Badge>
+          </span>
         ) : (
           f.replaces && <Badge tone="amber">Updates this machine's copy</Badge>
         )}
@@ -207,7 +272,7 @@ function groupByApp(files: FileToBring[]): [string, FileToBring[]][] {
 }
 
 /** "3 FX chains, 12 scripts" */
-function summary(files: FileToBring[]): string {
+function summaryOf(files: FileToBring[]): string {
   const counts = new Map<string, number>();
   for (const f of files) counts.set(f.kind, (counts.get(f.kind) ?? 0) + 1);
   return [...counts.entries()].map(([k, n]) => `${n} ${n === 1 ? lower(k) : plural(lower(k))}`).join(", ");
@@ -219,7 +284,7 @@ function lower(s: string): string {
 }
 
 function plural(s: string): string {
-  return s.endsWith("s") ? s : `${s}s`;
+  return s.endsWith("s") || s.endsWith("data") ? s : `${s}s`;
 }
 
 function fileName(rel: string): string {

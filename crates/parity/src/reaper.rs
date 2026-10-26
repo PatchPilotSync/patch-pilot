@@ -230,6 +230,12 @@ pub enum ResourceKind {
     /// `reaper-menu.ini`: customized menus and toolbars. Only written while
     /// Reaper is closed.
     Menus,
+    /// A file under `Effects/` that a ReaPack package installed (JSFX and
+    /// their imports). Reaper's own effects live there too and come with
+    /// Reaper, so only package files are tracked (decision #61).
+    Effect,
+    /// A file under `Data/` that a ReaPack package installed.
+    ScriptData,
 }
 
 impl ResourceKind {
@@ -244,12 +250,20 @@ impl ResourceKind {
             Self::Theme => "ColorThemes",
             Self::KeyMap => "reaper-kb.ini",
             Self::Menus => "reaper-menu.ini",
+            Self::Effect => "Effects",
+            Self::ScriptData => "Data",
         }
     }
 
     /// One file at the top of the resource folder rather than a folder.
     pub fn is_single_file(self) -> bool {
         matches!(self, Self::KeyMap | Self::Menus)
+    }
+
+    /// Only tracked when a ReaPack package lists it: the folder also holds
+    /// what Reaper installs itself.
+    pub fn is_package_only(self) -> bool {
+        matches!(self, Self::Effect | Self::ScriptData)
     }
 
     /// Reaper keeps it open and rewrites it, so it may only be written while
@@ -267,6 +281,8 @@ impl ResourceKind {
             Self::Theme => "Theme",
             Self::KeyMap => "Key map",
             Self::Menus => "Menus and toolbars",
+            Self::Effect => "Effect",
+            Self::ScriptData => "Script data",
         }
     }
 
@@ -283,7 +299,12 @@ impl ResourceKind {
             Self::TrackTemplate => Some("rtracktemplate"),
             Self::ProjectTemplate => Some("rpp"),
             Self::FxChain => Some("rfxchain"),
-            Self::Script | Self::Theme | Self::KeyMap | Self::Menus => None,
+            Self::Script
+            | Self::Theme
+            | Self::KeyMap
+            | Self::Menus
+            | Self::Effect
+            | Self::ScriptData => None,
         }
     }
 
@@ -292,12 +313,14 @@ impl ResourceKind {
             Self::Script => "reaper-script",
             Self::Theme => "reaper-theme",
             Self::KeyMap | Self::Menus => "reaper-config",
+            Self::Effect => "reaper-effect",
+            Self::ScriptData => "reaper-data",
             _ => "reaper-template",
         }
     }
 }
 
-const RESOURCE_KINDS: [ResourceKind; 7] = [
+const RESOURCE_KINDS: [ResourceKind; 9] = [
     ResourceKind::TrackTemplate,
     ResourceKind::ProjectTemplate,
     ResourceKind::FxChain,
@@ -305,6 +328,8 @@ const RESOURCE_KINDS: [ResourceKind; 7] = [
     ResourceKind::Theme,
     ResourceKind::KeyMap,
     ResourceKind::Menus,
+    ResourceKind::Effect,
+    ResourceKind::ScriptData,
 ];
 
 /// Compiled code is never brought over, even if it sits in `Scripts/`: it is
@@ -313,7 +338,8 @@ const NEVER_SHARED_EXT: [&str; 8] = ["dll", "dylib", "so", "exe", "app", "msi", 
 
 /// What a path below the resource folder (`/`-separated) is, if Patch Pilot
 /// tracks it: a template with its extension in its folder, or any file in
-/// `Scripts/` or `ColorThemes/` except compiled code and hidden files. `None`
+/// `Scripts/`, `ColorThemes/`, `Effects/` or `Data/` except compiled code and
+/// hidden files. `None`
 /// for anything else, including paths that would leave the folder. Checked
 /// before writing a file that came from another machine.
 pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
@@ -343,10 +369,14 @@ pub fn resource_kind(rel: &str) -> Option<ResourceKind> {
 }
 
 /// Every file under a resource folder that [`resource_kind`] tracks, with
-/// its `/`-separated path below the folder. Sorted by path.
+/// its `/`-separated path below the folder, except package-only kinds (see
+/// [`resource_items`]). Sorted by path.
 pub fn find_resources(resource_dir: &Path) -> Vec<(PathBuf, String, ResourceKind)> {
     let mut out = Vec::new();
     for kind in RESOURCE_KINDS {
+        if kind.is_package_only() {
+            continue;
+        }
         if kind.is_single_file() {
             let path = resource_dir.join(kind.folder());
             if path.is_file() {
@@ -354,34 +384,42 @@ pub fn find_resources(resource_dir: &Path) -> Vec<(PathBuf, String, ResourceKind
             }
             continue;
         }
-        let walk = walkdir::WalkDir::new(resource_dir.join(kind.folder()))
-            .follow_links(true)
-            .into_iter()
-            // Don't descend into .git, __pycache__ and the like.
-            .filter_entry(|e| {
-                e.depth() == 0 || {
-                    let n = e.file_name().to_string_lossy();
-                    !n.starts_with('.') && n != "__pycache__"
-                }
-            });
-        for entry in walk.filter_map(Result::ok) {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let Ok(rel) = entry.path().strip_prefix(resource_dir) else {
-                continue;
-            };
-            let rel: Vec<_> = rel
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .collect();
-            let rel = rel.join("/");
-            if resource_kind(&rel) == Some(kind) {
-                out.push((entry.into_path(), rel, kind));
-            }
-        }
+        out.extend(walk_kind(resource_dir, kind));
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// The files of one folder kind under a resource folder that
+/// [`resource_kind`] tracks as that kind.
+fn walk_kind(resource_dir: &Path, kind: ResourceKind) -> Vec<(PathBuf, String, ResourceKind)> {
+    let walk = walkdir::WalkDir::new(resource_dir.join(kind.folder()))
+        .follow_links(true)
+        .into_iter()
+        // Don't descend into .git, __pycache__ and the like.
+        .filter_entry(|e| {
+            e.depth() == 0 || {
+                let n = e.file_name().to_string_lossy();
+                !n.starts_with('.') && n != "__pycache__"
+            }
+        });
+    let mut out = Vec::new();
+    for entry in walk.filter_map(Result::ok) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(resource_dir) else {
+            continue;
+        };
+        let rel: Vec<_> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let rel = rel.join("/");
+        if resource_kind(&rel) == Some(kind) {
+            out.push((entry.into_path(), rel, kind));
+        }
+    }
     out
 }
 
@@ -427,12 +465,71 @@ pub fn template_items(
     os: Os,
     product_of: impl Fn(&PluginRef) -> Option<ProductId>,
 ) -> (Vec<Product>, Vec<Item>) {
+    resource_items(resource_dir, os, product_of, &[])
+}
+
+/// [`template_items`], plus the `Effects/` and `Data/` files of ReaPack
+/// `packages` (each a list of paths below the resource folder), and each
+/// file's [`Item::needs_files`]: what it loads, and the rest of its package
+/// (decision #61).
+pub fn resource_items(
+    resource_dir: &Path,
+    os: Os,
+    product_of: impl Fn(&PluginRef) -> Option<ProductId>,
+    packages: &[Vec<String>],
+) -> (Vec<Product>, Vec<Item>) {
+    use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+
+    let mut found = find_resources(resource_dir);
+    // Effects/ and Data/ also hold what Reaper installs itself, so their
+    // files are tracked only when a package lists them or a tracked file
+    // needs them.
+    let listed: HashSet<String> = packages
+        .iter()
+        .flatten()
+        .map(|r| r.replace('\\', "/").to_lowercase())
+        .collect();
+    let mut untracked: HashMap<String, (PathBuf, String, ResourceKind)> = HashMap::new();
+    for kind in RESOURCE_KINDS.into_iter().filter(|k| k.is_package_only()) {
+        for file in walk_kind(resource_dir, kind) {
+            if listed.contains(&file.1.to_lowercase()) {
+                found.push(file);
+            } else {
+                untracked.insert(file.1.to_lowercase(), file);
+            }
+        }
+    }
+    let known = crate::reaper_links::Known::new(
+        found
+            .iter()
+            .chain(untracked.values())
+            .map(|(_, rel, _)| rel.as_str()),
+    );
+    let mut needs = BTreeMap::new();
+    crate::reaper_links::link_groups(&mut needs, packages, &known);
+
     let mut products = Vec::new();
     let mut items = Vec::new();
-    for (path, rel, kind) in find_resources(resource_dir) {
+    let mut queue: VecDeque<_> = found.into();
+    while let Some((path, rel, kind)) = queue.pop_front() {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
+        // Key maps are kept with this machine's resource folder spelled
+        // portably, so the same shortcuts compare equal on every machine.
+        let bytes = match kind {
+            ResourceKind::KeyMap => portable_key_map(bytes, resource_dir, os),
+            _ => bytes,
+        };
+        let mut needs_files: Vec<String> = crate::reaper_links::loaded_files(&rel, &bytes, &known);
+        needs_files.extend(needs.remove(&rel).into_iter().flatten());
+        needs_files.sort();
+        needs_files.dedup();
+        for n in &needs_files {
+            if let Some(file) = untracked.remove(&n.to_lowercase()) {
+                queue.push_back(file);
+            }
+        }
         let id = ProductId(format!("{}/{}", kind.product_prefix(), slug(&rel)));
         let mut requires: Vec<ProductId> = if kind.is_template() {
             parse_template(&String::from_utf8_lossy(&bytes))
@@ -468,9 +565,51 @@ pub fn template_items(
             platform_portable: true,
             confidence: Confidence::High,
             requires,
+            needs_files,
         });
     }
+    products.sort_by(|a, b| a.name.cmp(&b.name));
+    items.sort_by_cached_key(|i| match &i.path {
+        PortablePath::Logical { rel, .. } => rel.clone(),
+        _ => String::new(),
+    });
+    // A theme's images need their theme too, so ticking any of them brings
+    // the whole theme.
+    let themes: Vec<(String, Vec<String>)> = items
+        .iter()
+        .filter_map(|i| match &i.path {
+            PortablePath::Logical { rel, .. } if rel.to_lowercase().ends_with(".reapertheme") => {
+                Some((rel.clone(), i.needs_files.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    for (theme, parts) in themes {
+        for item in &mut items {
+            if matches!(&item.path, PortablePath::Logical { rel, .. } if parts.contains(rel))
+                && !item.needs_files.contains(&theme)
+            {
+                item.needs_files.push(theme.clone());
+                item.needs_files.sort();
+            }
+        }
+    }
     (products, items)
+}
+
+/// How a key map's paths into this machine's resource folder are spelled
+/// when shared: `<REAPER_RESOURCES>/Scripts/a.lua`.
+pub const KEY_MAP_ROOT: &str = "<REAPER_RESOURCES>";
+
+/// A key map with paths under `dir` (this machine's resource folder, on
+/// `os`) written as [`KEY_MAP_ROOT`] paths. Not UTF-8: unchanged.
+pub fn portable_key_map(bytes: Vec<u8>, dir: &Path, os: Os) -> Vec<u8> {
+    match String::from_utf8(bytes) {
+        Ok(text) => {
+            remap_key_map(&text, &dir.to_string_lossy(), os, KEY_MAP_ROOT, Os::Macos).into_bytes()
+        }
+        Err(e) => e.into_bytes(),
+    }
 }
 
 /// `reaper-kb.ini` text from another machine, with script paths under that
@@ -631,6 +770,8 @@ mod tests {
             ("Scripts/ReaTeam Scripts/Items/X.lua", Script),
             ("Scripts/tool/icon.png", Script),
             ("ColorThemes/Imperial.ReaperThemeZip", Theme),
+            ("Effects/ReaTeam JSFX/comp.jsfx", Effect),
+            ("Data/amp_models/clean.wav", ScriptData),
         ] {
             assert_eq!(resource_kind(ok), Some(kind), "{ok}");
         }
@@ -644,7 +785,7 @@ mod tests {
             "FXChains\\a.RfxChain",
             "FXChains/a.RfxChain/",
             "FXChains//a.RfxChain",
-            "Effects/a.RfxChain",
+            "Plugins/a.RfxChain",
             "UserPlugins/reaper_sws64.dll",
             "Scripts/tool/helper.dll",
             "Scripts/.git/config",
@@ -653,6 +794,80 @@ mod tests {
         ] {
             assert_eq!(resource_kind(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn package_files_scripts_and_themes_carry_what_they_need() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let put = |rel: &str, body: &str| {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, body).unwrap();
+        };
+        put(
+            "Scripts/R/Tool/main.lua",
+            "dofile(script_path .. 'lib/gui.lua')",
+        );
+        put("Scripts/R/Tool/lib/gui.lua", "-- gui");
+        put("Effects/R/comp.jsfx", "import comp.jsfx-inc\n");
+        put("Effects/R/comp.jsfx-inc", "// inc");
+        put("Effects/utility/volume", "desc: stock");
+        put("ColorThemes/Flat.ReaperTheme", "[color theme]\n");
+        put("ColorThemes/Flat/knob.png", "png");
+        put(
+            "reaper-kb.ini",
+            &format!(
+                "SCR 4 0 RS1 \"Custom: main.lua\" \"{}/Scripts/R/Tool/main.lua\"\n",
+                dir.display()
+            ),
+        );
+        let package = vec![
+            "Scripts/R/Tool/main.lua".to_owned(),
+            "Effects/R/comp.jsfx".to_owned(),
+        ];
+        let (_, items) = resource_items(dir, Os::Macos, |_| None, &[package]);
+        let needs = |rel: &str| {
+            items
+                .iter()
+                .find(|i| i.path == PortablePath::logical(REAPER_RESOURCES, rel))
+                .unwrap_or_else(|| panic!("{rel} not found"))
+                .needs_files
+                .clone()
+        };
+        assert_eq!(
+            needs("Scripts/R/Tool/main.lua"),
+            ["Effects/R/comp.jsfx", "Scripts/R/Tool/lib/gui.lua"]
+        );
+        assert_eq!(
+            needs("Effects/R/comp.jsfx"),
+            ["Effects/R/comp.jsfx-inc", "Scripts/R/Tool/main.lua"]
+        );
+        assert_eq!(
+            needs("ColorThemes/Flat.ReaperTheme"),
+            ["ColorThemes/Flat/knob.png"]
+        );
+        assert_eq!(
+            needs("ColorThemes/Flat/knob.png"),
+            ["ColorThemes/Flat.ReaperTheme"]
+        );
+        // Only package effects (and what they import) are tracked, not Reaper's own.
+        assert!(
+            !items.iter().any(
+                |i| i.path == PortablePath::logical(REAPER_RESOURCES, "Effects/utility/volume")
+            )
+        );
+        // The key map's path into this folder is shared portably.
+        let kb = items
+            .iter()
+            .find(|i| i.path == PortablePath::logical(REAPER_RESOURCES, "reaper-kb.ini"))
+            .unwrap();
+        let portable =
+            "SCR 4 0 RS1 \"Custom: main.lua\" \"<REAPER_RESOURCES>/Scripts/R/Tool/main.lua\"\n";
+        assert_eq!(
+            kb.content_hash.as_ref().unwrap().as_str(),
+            format!("blake3:{}", blake3::hash(portable.as_bytes()).to_hex())
+        );
     }
 
     #[test]

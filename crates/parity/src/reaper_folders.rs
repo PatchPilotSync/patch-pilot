@@ -157,6 +157,7 @@ pub fn folder_items(settings: &[FolderSetting], map: &PathMap) -> (Vec<Product>,
                 platform_portable: true,
                 confidence: Confidence::High,
                 requires: Vec::new(),
+                needs_files: Vec::new(),
             };
             (product, item)
         })

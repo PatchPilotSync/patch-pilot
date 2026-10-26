@@ -100,6 +100,33 @@ pub fn read_registry(db: &Path) -> Result<Vec<Package>, String> {
     rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
 }
 
+/// The files of each installed package in ReaPack's `registry.db`, as paths
+/// below the resource folder, so a package's files travel together
+/// (decision #61). A missing file or an unknown format means none.
+pub fn read_package_files(resource_dir: &Path) -> Vec<Vec<String>> {
+    let db = registry_path(resource_dir);
+    if !db.is_file() {
+        return Vec::new();
+    }
+    let read = || -> rusqlite::Result<Vec<Vec<String>>> {
+        let conn = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mut stmt =
+            conn.prepare("SELECT entry, path FROM files ORDER BY entry, main DESC, path")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out: Vec<(i64, Vec<String>)> = Vec::new();
+        for row in rows {
+            let (entry, path) = row?;
+            let path = path.replace('\\', "/");
+            match out.last_mut() {
+                Some((e, files)) if *e == entry => files.push(path),
+                _ => out.push((entry, vec![path])),
+            }
+        }
+        Ok(out.into_iter().map(|(_, f)| f).collect())
+    };
+    read().unwrap_or_default()
+}
+
 fn entry_columns(conn: &Connection) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare("SELECT name FROM pragma_table_info('entries')")
@@ -333,6 +360,30 @@ mod tests {
         let warnings = add_reaper_extras(&mut m, dir, Some(r"C:\Users\josh"));
         assert!(warnings.is_empty(), "{warnings:?}");
         m
+    }
+
+    #[test]
+    fn reads_each_packages_files() {
+        let dir = resource_dir(&[("Script: Foo.lua", "1.2"), ("Effect: Comp.jsfx", "1.0")]);
+        let conn = Connection::open(registry_path(dir.path())).unwrap();
+        conn.execute_batch(
+            "INSERT INTO files (entry, path, main, type) VALUES
+               (1, 'Scripts/ReaTeam Scripts/Items Editing/Foo.lua', 1, 1),
+               (1, 'Scripts/ReaTeam Scripts/Items Editing/Foo/lib.lua', 0, 1),
+               (2, 'Effects\\ReaTeam JSFX\\Comp.jsfx', 1, 3);",
+        )
+        .unwrap();
+        assert_eq!(
+            read_package_files(dir.path()),
+            [
+                vec![
+                    "Scripts/ReaTeam Scripts/Items Editing/Foo.lua".to_owned(),
+                    "Scripts/ReaTeam Scripts/Items Editing/Foo/lib.lua".to_owned(),
+                ],
+                vec!["Effects/ReaTeam JSFX/Comp.jsfx".to_owned()],
+            ]
+        );
+        assert!(read_package_files(tempfile::tempdir().unwrap().path()).is_empty());
     }
 
     #[test]

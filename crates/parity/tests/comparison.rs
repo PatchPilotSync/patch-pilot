@@ -77,3 +77,60 @@ fn profile_and_templates_feed_the_comparison() {
         std::slice::from_ref(&comp.product_id)
     );
 }
+
+#[test]
+fn rows_say_which_files_they_need_and_the_machine_lacks() {
+    use patchpilot_core::{
+        Arch, Confidence, Item, ItemKind, MachineInfo, Os, PathMap, PortablePath, ProductId,
+    };
+    let file = |rel: &str, needs: &[&str]| Item {
+        kind: ItemKind::DawAsset,
+        product_id: Some(ProductId(format!("reaper-script/{rel}"))),
+        format: None,
+        platform: Os::Windows,
+        arch: None,
+        version: None,
+        path: PortablePath::logical("REAPER_RESOURCES", rel),
+        content_hash: None,
+        size: None,
+        mtime: None,
+        platform_portable: true,
+        confidence: Confidence::High,
+        requires: Vec::new(),
+        needs_files: needs.iter().map(|s| s.to_string()).collect(),
+    };
+    let manifest = |items: Vec<Item>| {
+        let mut m = Manifest::new(
+            MachineInfo {
+                id: "m".into(),
+                name: "M".into(),
+                os: Os::Windows,
+                arch: Arch::X86_64,
+                os_version: None,
+                path_map: PathMap::new(Os::Windows),
+            },
+            0,
+        );
+        m.items = items;
+        m
+    };
+    let golden = manifest(vec![
+        file("Scripts/T/main.lua", &["Scripts/T/lib.lua"]),
+        file("Scripts/T/lib.lua", &["Scripts/T/img.png"]),
+        file("Scripts/T/img.png", &[]),
+    ]);
+    let machine = manifest(vec![
+        file("Scripts/T/main.lua", &[]),
+        file("Scripts/T/lib.lua", &[]),
+    ]);
+    let c = compare(&golden, &TargetProfile::default(), &machine);
+    let main = c
+        .rows
+        .iter()
+        .find(|r| {
+            r.name == "reaper-script/Scripts/T/main.lua" || r.product_id.0.ends_with("main.lua")
+        })
+        .unwrap();
+    assert_eq!(main.works_with, ["Scripts/T/img.png", "Scripts/T/lib.lua"]);
+    assert_eq!(main.works_with_missing, ["Scripts/T/img.png"]);
+}

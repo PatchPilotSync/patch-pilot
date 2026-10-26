@@ -1,7 +1,11 @@
 //! One machine against the Primary Rig (#41): score, reasons, per-product rows
 //! with both sides' items, and template readiness, for the comparison view.
 
-use patchpilot_core::{Confidence, ItemKind, Manifest, Os, PluginFormat, ProductId, TargetProfile};
+use std::collections::HashMap;
+
+use patchpilot_core::{
+    Confidence, Item, ItemKind, Manifest, Os, PluginFormat, PortablePath, ProductId, TargetProfile,
+};
 use serde::Serialize;
 
 use crate::{
@@ -41,6 +45,11 @@ pub struct ComparisonRow {
     /// The target's items for this product (Primary Rig after the profile).
     pub golden_items: Vec<ItemSide>,
     pub machine_items: Vec<ItemSide>,
+    /// Other files this one needs beside it to work, directly or through
+    /// others (decision #61), as paths below its root. Empty for most rows.
+    pub works_with: Vec<String>,
+    /// Those of `works_with` the machine has no copy of.
+    pub works_with_missing: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -68,6 +77,8 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
         &ScoreWeights::default(),
     );
     let target = apply_profile(&golden, profile);
+    let target_files = files_by_path(&target);
+    let machine_files = files_by_path(&machine);
 
     let rows = score
         .diff
@@ -95,6 +106,8 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
                 .flat_map(|m| m.items.iter())
                 .filter(|i| i.product_id.as_ref() == Some(&d.product_id))
                 .collect();
+            let (works_with, works_with_missing) =
+                works_with(&items, &target_files, &machine_files);
             ComparisonRow {
                 product_id: d.product_id.clone(),
                 name: d.name.clone(),
@@ -112,6 +125,8 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
                 needed_by_templates: needed.contains(&d.product_id),
                 golden_items: sides(&target),
                 machine_items: sides(&machine),
+                works_with,
+                works_with_missing,
             }
         })
         .collect();
@@ -123,6 +138,47 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
         templates: template_readiness(&machine),
         unresolved: score.diff.unresolved.len(),
     }
+}
+
+/// Items at a logical path, by `root/rel` lowercased.
+type Files<'a> = HashMap<String, &'a Item>;
+
+fn files_by_path(m: &Manifest) -> Files<'_> {
+    m.items
+        .iter()
+        .filter_map(|i| match &i.path {
+            PortablePath::Logical { root, rel } => {
+                Some((format!("{root}/{rel}").to_lowercase(), i))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// What the first of `items` (target's first) that needs other files needs,
+/// through others too, and which of those `machine` lacks.
+fn works_with(items: &[&Item], target: &Files, machine: &Files) -> (Vec<String>, Vec<String>) {
+    let Some(item) = items.iter().find(|i| !i.needs_files.is_empty()) else {
+        return (Vec::new(), Vec::new());
+    };
+    let PortablePath::Logical { root, rel } = &item.path else {
+        return (Vec::new(), Vec::new());
+    };
+    let lookup = |rel: &str| {
+        let key = format!("{root}/{rel}").to_lowercase();
+        target.get(&key).or_else(|| machine.get(&key)).copied()
+    };
+    let mut all = crate::reaper_links::with_needs([rel.as_str()], |r| {
+        lookup(r).map(|i| i.needs_files.as_slice())
+    });
+    all.retain(|r| !r.eq_ignore_ascii_case(rel));
+    let all: Vec<String> = all.into_iter().collect();
+    let missing = all
+        .iter()
+        .filter(|r| !machine.contains_key(&format!("{root}/{r}").to_lowercase()))
+        .cloned()
+        .collect();
+    (all, missing)
 }
 
 /// Low < Medium < High.
