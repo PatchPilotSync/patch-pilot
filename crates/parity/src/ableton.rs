@@ -443,6 +443,29 @@ pub fn library_cfg_text(cfg: &str, clouds: &[PlaceRoot]) -> String {
     text
 }
 
+/// Shared `Library.cfg` text with only the parts that sync: without the
+/// Collection names and hidden items unless `collections`, without the
+/// Places unless `places` (decision #80). Merging what's left leaves the rest
+/// of this machine's file as it is.
+pub fn library_cfg_parts(text: &str, collections: bool, places: bool) -> String {
+    let mut out = String::new();
+    let mut section = "names";
+    for line in text.lines() {
+        if line == HIDDEN_LINE || line == PLACES_LINE {
+            section = line;
+        }
+        let keep = match section {
+            PLACES_LINE => places,
+            _ => collections,
+        };
+        if keep {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// `cfg` with the Collection names, what the sidebar shows and the Places
 /// from `text` (as written by [`library_cfg_text`]). Travelling Places take
 /// the incoming order and names, each pointed at the same folder here; one

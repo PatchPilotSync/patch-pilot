@@ -14,8 +14,10 @@ import {
   setBackupAuto,
   setBackupFolder,
   setKeepInSync,
+  setSyncKind,
   settleConflict,
   syncLookNow,
+  syncPrefsView,
   syncView,
   type BackupSet,
   type BackupView,
@@ -25,6 +27,7 @@ import {
   type RestoreView,
   type SkippedFile,
   type SyncConflict,
+  type SyncKind,
   type SyncSource,
   type SyncView,
 } from "./api";
@@ -476,6 +479,7 @@ function Details({
       )}
       {last && last.skipped.length > 0 && <Skipped files={last.skipped} onError={onError} />}
       {sync?.on && <SyncSummary sync={sync} />}
+      {sync?.on && <SyncChoices onError={onError} />}
       {/* While syncing, this machine's own backups would only offer its own files back. */}
       <Restore
         sets={view.sets}
@@ -582,6 +586,67 @@ function SyncSummary({ sync }: { sync: SyncView }) {
         MIDI, plug-in folders) never sync.
       </p>
       {sync.error && <p className="text-warn">{sync.error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Sync preferences (decision #80): a checkbox per kind of file or setting,
+ * under Reaper, Ableton Live and Plug-ins. A kind turned off stays this
+ * machine's own: it neither comes here nor goes from here.
+ */
+function SyncChoices({ onError }: { onError: (e: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [kinds, setKinds] = useState<SyncKind[] | null>(null);
+  useEffect(() => {
+    syncPrefsView().then(setKinds, (e) => onError(String(e)));
+  }, [onError]);
+  if (!kinds) return null;
+  const off = kinds.filter((k) => !k.on).length;
+  const apps = [...new Set(kinds.map((k) => k.app))];
+
+  async function toggle(id: string, on: boolean) {
+    setKinds((ks) => ks && ks.map((k) => (k.id === id ? { ...k, on } : k)));
+    try {
+      setKinds(await setSyncKind(id, on));
+    } catch (e) {
+      onError(String(e));
+    }
+  }
+
+  return (
+    <div className="text-[11px]">
+      <Button variant="link" className="h-5 px-0" onClick={() => setOpen(!open)}>
+        Choose what syncs{off > 0 ? ` (${off} kept on this machine only)` : ""} {open ? "▾" : "▸"}
+      </Button>
+      {open && (
+        <div className="mt-1 flex flex-col gap-2">
+          {apps.map((app) => (
+            <section key={app}>
+              <h4 className="mb-0.5 font-medium text-fg">{app}</h4>
+              <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                {kinds
+                  .filter((k) => k.app === app)
+                  .map((k) => (
+                    <label key={k.id} className="flex items-center gap-1.5 text-dim">
+                      <input
+                        type="checkbox"
+                        className="accent-accent"
+                        checked={k.on}
+                        onChange={(e) => toggle(k.id, e.target.checked)}
+                      />
+                      {k.label}
+                    </label>
+                  ))}
+              </div>
+            </section>
+          ))}
+          <p className="text-dim">
+            Unticked kinds stay this machine's own: changes to them don't come here or go from here. Backups and Sync
+            with still have them.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -516,3 +516,40 @@ fn a_real_windows_library_cfg_shares_names_hidden_collections_and_dropbox_places
     ));
     assert_eq!(library_cfg_text(&merged, &mac_dropbox), text);
 }
+
+#[test]
+fn library_cfg_parts_that_are_turned_off_leave_this_machines_own() {
+    let pc = std::fs::read_to_string(fixture("Library-12.4.7-windows.cfg")).unwrap();
+    let mac = std::fs::read_to_string(fixture("prefs-mac/Live 12.1.5/Library.cfg")).unwrap();
+    let dropbox = |path: &str| {
+        [PlaceRoot {
+            name: "Dropbox".into(),
+            path: path.into(),
+        }]
+    };
+    let text = library_cfg_text(&pc, &dropbox(r"D:\Dropbox"));
+    let into_mac = |text: String| {
+        let merged = merge_incoming(
+            ABLETON_PREFS,
+            LIBRARY_CFG,
+            Some(mac.as_bytes()),
+            text.into_bytes(),
+            &dropbox("/Users/alice/Dropbox"),
+            Os::Macos,
+        )
+        .unwrap();
+        String::from_utf8(merged).unwrap()
+    };
+    // Places only: the Mac's names and what it shows stay.
+    let places_only = into_mac(library_cfg_parts(&text, false, true));
+    assert_eq!(collection_names(&places_only), collection_names(&mac));
+    assert!(!places_only.contains(r#"IsEnabled="false""#));
+    assert_eq!(places(&places_only).len(), 5);
+    // Collections only: the Mac's Places stay.
+    let names_only = into_mac(library_cfg_parts(&text, true, false));
+    assert_eq!(collection_names(&names_only), collection_names(&pc));
+    assert_eq!(places(&names_only), places(&mac));
+    // Neither: nothing changes.
+    assert_eq!(into_mac(library_cfg_parts(&text, false, false)), mac);
+    assert_eq!(library_cfg_parts(&text, true, true), text);
+}

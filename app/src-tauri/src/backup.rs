@@ -135,11 +135,17 @@ fn back_up() -> Result<BackupReport, String> {
         return Err("Scan this machine first.".into());
     }
     let store = open(&db)?;
-    backup::back_up(
+    // Kinds turned off here stay this machine's own (decision #80).
+    let not_synced: Vec<String> = patchpilot_local::sync_prefs::load(&app_dir()?)
+        .off
+        .into_iter()
+        .collect();
+    backup::back_up_with(
         &store,
         &this_machine()?,
         vault_root().as_deref(),
         &dir,
+        &not_synced,
         patchpilot_local::now(),
     )
 }

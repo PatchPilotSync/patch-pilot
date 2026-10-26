@@ -140,6 +140,8 @@ pub fn run() {
             autosync::set_keep_in_sync,
             autosync::settle_conflict,
             autosync::sync_look_now,
+            autosync::sync_prefs_view,
+            autosync::set_sync_kind,
             github::github_view,
             github::github_sign_in,
             github::github_cancel_sign_in,

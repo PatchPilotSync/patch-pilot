@@ -14,6 +14,7 @@ use std::time::Duration;
 use patchpilot_local::FolderWatch;
 use patchpilot_local::autosync::{self, Conflict, Placed, SyncReport};
 use patchpilot_local::backup::{self, Backup, backup_dir};
+use patchpilot_local::sync_prefs::{self, KINDS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -197,12 +198,13 @@ fn sync_now(app: &AppHandle) -> Result<Option<SyncReport>, String> {
     let app_dir = app_dir()?;
     let mut store = open(&db)?;
     let mut state = autosync::load_state(&app_dir);
-    let report = autosync::sync_in(
+    let report = autosync::sync_in_with(
         &mut store,
         &app_dir.join("blobs"),
         &this,
         &dir,
         &mut state,
+        &sync_prefs::load(&app_dir),
         patchpilot_local::now(),
     )?;
     autosync::save_state(&app_dir, &state)?;
@@ -341,6 +343,50 @@ pub async fn sync_look_now(app: AppHandle) -> Result<SyncView, String> {
         .await
         .map_err(|e| e.to_string())?;
     sync_view(app).await
+}
+
+/// One kind of file or setting and whether it syncs here. Mirrored in `src/api.ts`.
+#[derive(Debug, Serialize)]
+pub struct SyncKindView {
+    pub id: &'static str,
+    pub app: &'static str,
+    pub label: &'static str,
+    pub on: bool,
+}
+
+/// What keeping files in sync carries for this machine (decision #80).
+#[tauri::command]
+pub fn sync_prefs_view() -> Result<Vec<SyncKindView>, String> {
+    let prefs = sync_prefs::load(&app_dir()?);
+    Ok(KINDS
+        .iter()
+        .map(|k| SyncKindView {
+            id: k.id,
+            app: k.app,
+            label: k.label,
+            on: prefs.syncs(k.id),
+        })
+        .collect())
+}
+
+/// Turn one kind on or off for this machine, then back up (so linked
+/// machines learn it) and look again.
+#[tauri::command]
+pub async fn set_sync_kind(
+    app: AppHandle,
+    id: String,
+    on: bool,
+) -> Result<Vec<SyncKindView>, String> {
+    let dir = app_dir()?;
+    let mut prefs = sync_prefs::load(&dir);
+    prefs.set(&id, on);
+    sync_prefs::save(&dir, &prefs)?;
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        crate::backup::auto_back_up(&handle);
+        look(&handle);
+    });
+    sync_prefs_view()
 }
 
 /// Settle a file changed here and on `machine_id`: use that machine's copy
