@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "patchpilot-app"
-version = "0.4.11"
+version = "0.4.12"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
