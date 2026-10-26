@@ -4,6 +4,15 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.12 - 2026-10-26
+
+### Improved
+
+- Syncing with GitHub now handles big rigs. The first upload of thousands of files goes up in a few large batches instead of one file at a time, so GitHub no longer asks Patch Pilot to slow down. If an upload is interrupted, it picks up where it stopped on its own.
+- A machine joining GitHub sync downloads the other machine's files in one go.
+- The Sync & backup line shows progress ("Uploading 3,200 of 15,456 files to GitHub…"), tells you what to do next on your other machine, and has a **View on GitHub** link that opens your repo.
+- Choosing a GitHub repo turns on Keep Files in Sync. While syncing, **Sync with** only lists your other machines, not this one.
+
 ## 0.4.11 - 2026-10-26
 
 ### Improved
