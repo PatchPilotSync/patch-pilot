@@ -28,6 +28,113 @@ pub fn suggestions(c: &Comparison) -> impl Iterator<Item = &ComparisonRow> {
     })
 }
 
+/// What kind of thing a suggestion is, so a long list reads as "12 plug-ins,
+/// 40 scripts, 3 templates" instead of one big number. In display order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionGroup {
+    Plugins,
+    Apps,
+    Scripts,
+    Templates,
+    Presets,
+    Themes,
+    Configs,
+    Other,
+}
+
+impl SuggestionGroup {
+    pub fn of(r: &ComparisonRow) -> Self {
+        let id = r.product_id.0.as_str();
+        let under = |p: &str| id.starts_with(p);
+        if under("reaper-script/") || is_reapack(&r.product_id) {
+            Self::Scripts
+        } else if under("reaper-template/") {
+            Self::Templates
+        } else if under("reaper-theme/") {
+            Self::Themes
+        } else if under(crate::ableton::PRODUCT_PREFIX) {
+            match r.kind {
+                ItemKind::Config => Self::Configs,
+                _ if r.name.to_ascii_lowercase().ends_with(".als") => Self::Templates,
+                _ => Self::Presets,
+            }
+        } else if under(crate::presets::PRODUCT_PREFIX) {
+            Self::Presets
+        } else {
+            match r.kind {
+                ItemKind::Plugin => Self::Plugins,
+                ItemKind::VendorApp | ItemKind::LicenseTool => Self::Apps,
+                ItemKind::Config => Self::Configs,
+                _ => Self::Other,
+            }
+        }
+    }
+}
+
+/// What counts once among suggestions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SuggestionUnit {
+    pub group: SuggestionGroup,
+    /// Rows with the same key are one thing.
+    pub key: String,
+    /// Its name: the product, the script's folder, or "ReaPack packages".
+    pub label: String,
+}
+
+/// The [`SuggestionUnit`] a suggestion row belongs to.
+pub fn suggestion_unit(r: &ComparisonRow) -> SuggestionUnit {
+    let (key, label) = unit_of(r);
+    SuggestionUnit {
+        group: SuggestionGroup::of(r),
+        key,
+        label,
+    }
+}
+
+/// What counts once among suggestions, and its name: all of ReaPack is one
+/// thing (it installs them itself), and a Reaper script or theme counts with
+/// the rest of its folder, since script packages put many files in one
+/// folder. Other rows count on their own.
+fn unit_of(r: &ComparisonRow) -> (String, String) {
+    if is_reapack(&r.product_id) {
+        return ("reapack".to_owned(), REAPACK_GROUP.to_owned());
+    }
+    let id = &r.product_id.0;
+    if id.starts_with("reaper-script/") || id.starts_with("reaper-theme/") {
+        // The row's name is the file's path under the resource folder:
+        // `Scripts/ReaTeam Scripts/Items Editing/foo.lua`. A file right in
+        // `Scripts/` is its own unit; a theme's images sit in a folder named
+        // like its `.ReaperTheme` file.
+        if let Some((dir, file)) = r.name.rsplit_once('/') {
+            let (unit, label) = match dir.split_once('/') {
+                Some(_) => (dir.to_owned(), dir.rsplit('/').next().unwrap_or(dir)),
+                None => {
+                    let stem = file.split('.').next().unwrap_or(file);
+                    (format!("{dir}/{stem}"), stem)
+                }
+            };
+            return (format!("dir:{unit}"), label.to_owned());
+        }
+    }
+    (format!("row:{id}"), r.name.clone())
+}
+
+/// How many suggestions there are in each group, counting each
+/// [`SuggestionUnit`] once. Groups without any are left out.
+pub fn suggestion_summary<'a>(
+    rows: impl IntoIterator<Item = &'a ComparisonRow>,
+) -> Vec<(SuggestionGroup, usize)> {
+    let mut units: BTreeMap<SuggestionGroup, BTreeSet<String>> = BTreeMap::new();
+    for r in rows {
+        units
+            .entry(SuggestionGroup::of(r))
+            .or_default()
+            .insert(unit_of(r).0);
+    }
+    units.into_iter().map(|(g, u)| (g, u.len())).collect()
+}
+
 /// ReaPack can bring thousands of scripts; alerts name them as one thing.
 const REAPACK_GROUP: &str = "ReaPack packages";
 
@@ -96,14 +203,7 @@ impl Observed {
             score: c.score,
             gaps: gaps(c).map(|r| (gap_keys(r), gap_sentence(r))).collect(),
             suggestions: suggestions(c)
-                .map(|r| {
-                    let name = if is_reapack(&r.product_id) {
-                        REAPACK_GROUP.to_owned()
-                    } else {
-                        r.name.clone()
-                    };
-                    (row_suggestion_key(r), name)
-                })
+                .map(|r| (row_suggestion_key(r), unit_of(r).1))
                 .filter(|(k, _)| !ignored.contains(k))
                 .collect(),
         }
@@ -420,5 +520,39 @@ mod tests {
         let json = serde_json::to_string(&seen).unwrap();
         assert_eq!(serde_json::from_str::<Seen>(&json).unwrap(), seen);
         assert_eq!(serde_json::from_str::<Seen>("{}").unwrap(), Seen::default());
+    }
+
+    #[test]
+    fn script_packages_count_once_and_suggestions_add_up_by_group() {
+        let m = studio(|m| {
+            add_product(m, "acme-delay", "Acme Delay", "1.0.0");
+            for (id, name) in [
+                (
+                    "reaper-script/a",
+                    "Scripts/ReaTeam Scripts/Items Editing/a.lua",
+                ),
+                (
+                    "reaper-script/b",
+                    "Scripts/ReaTeam Scripts/Items Editing/b.lua",
+                ),
+                ("reaper-script/c", "Scripts/c.lua"),
+                ("reaper-template/t", "TrackTemplates/Vocals.RTrackTemplate"),
+                ("reapack/one", "Script: One.lua"),
+                ("reapack/two", "Script: Two.lua"),
+            ] {
+                add_product(m, id, name, "1");
+            }
+        });
+        let c = compare(&golden(), &TargetProfile::default(), &m);
+        assert_eq!(
+            suggestion_summary(suggestions(&c)),
+            [
+                (SuggestionGroup::Plugins, 1),
+                (SuggestionGroup::Scripts, 3),
+                (SuggestionGroup::Templates, 1),
+            ]
+        );
+        let names = observe(&m, true, &BTreeSet::new()).suggestions;
+        assert!(names.iter().any(|(_, n)| n == "Items Editing"), "{names:?}");
     }
 }

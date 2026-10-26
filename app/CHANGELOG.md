@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### Improved
+
+- Suggestions for the Primary Rig say what they are ("3 plug-ins, 12 scripts and 2 templates") instead of one big number, and a script package counts once: the files in one Scripts folder are one script, and everything ReaPack installs is one. In Compare they're listed in folders by kind, and a whole package can be added or ignored in one click.
+
 ## 0.4.0 - 2026-10-26
 
 ### Improved

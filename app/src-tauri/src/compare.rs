@@ -3,13 +3,14 @@
 //! suggestions for the Primary Rig (M9), and importing another machine's
 //! export file.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use patchpilot_core::{Bundle, Os, ProductId};
+use patchpilot_core::{Bundle, Os};
 use patchpilot_local::up_to_speed::{PlanStart, load_up_to_speed, save_up_to_speed};
 use patchpilot_parity::{
-    Comparison, Plan, SetupProgress, compare, plan_still_covers, suggestion_key, up_to_speed,
+    Comparison, ComparisonRow, Plan, SetupProgress, SuggestionGroup, SuggestionUnit, compare,
+    plan_still_covers, suggestion_key, up_to_speed,
 };
 use patchpilot_store::{GoldenImport, Store};
 use serde::Serialize;
@@ -37,6 +38,8 @@ pub struct MachineCard {
     pub score: Option<u8>,
     /// Products here the Primary Rig lacks or has older, not ignored.
     pub suggestions: usize,
+    /// The same, by kind: plug-ins, scripts, templates... in display order.
+    pub suggestion_groups: Vec<(SuggestionGroup, usize)>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +56,9 @@ pub struct MachineComparison {
     /// Product IDs of `comparison.rows` that could go into the Primary Rig
     /// (newer here or not in Primary Rig), without the ones the user ignored.
     pub suggested: Vec<String>,
+    /// What each of `suggested` counts as, by product ID: a script with the
+    /// rest of its folder, all of ReaPack as one.
+    pub suggestion_units: BTreeMap<String, SuggestionUnit>,
 }
 
 #[derive(Debug, Serialize)]
@@ -286,13 +292,14 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
     let mut machines = Vec::new();
     for info in store.machines().map_err(err)? {
         let profile = store.machine_profile(&info.id).map_err(err)?;
-        let (score, suggestions) = match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
-            (Some(g), Some(scan)) => {
-                let c = compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan);
-                (Some(c.score), suggestion_count(&suggested(&c, &ignored)))
-            }
-            _ => (None, 0),
-        };
+        let (score, suggestion_groups) =
+            match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
+                (Some(g), Some(scan)) => {
+                    let c = compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan);
+                    (Some(c.score), suggestion_groups(&c, &ignored))
+                }
+                _ => (None, Vec::new()),
+            };
         machines.push(MachineCard {
             scanned_at: scanned_at(store, &info.id)?,
             is_this_machine: Some(info.id.as_str()) == this,
@@ -304,7 +311,8 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
                 name: p.name,
             }),
             score,
-            suggestions,
+            suggestions: suggestion_groups.iter().map(|(_, n)| n).sum(),
+            suggestion_groups,
             id: info.id,
             name: info.name,
             os: info.os,
@@ -335,7 +343,17 @@ pub(crate) fn comparison(
         &profile.clone().unwrap_or_default(),
         &scan,
     );
-    let suggested = suggested(&comparison, &patchpilot_local::golden::ignored_keys(store)?);
+    let ignored = patchpilot_local::golden::ignored_keys(store)?;
+    let suggested = suggested(&comparison, &ignored);
+    let suggestion_groups = suggestion_groups(&comparison, &ignored);
+    let suggestion_units = open_suggestions(&comparison, &ignored)
+        .map(|r| {
+            (
+                r.product_id.0.clone(),
+                patchpilot_parity::suggestion_unit(r),
+            )
+        })
+        .collect();
     Ok(MachineComparison {
         machine: MachineCard {
             scanned_at: scanned_at(store, id)?,
@@ -346,7 +364,8 @@ pub(crate) fn comparison(
                 name: p.name,
             }),
             score: Some(comparison.score),
-            suggestions: suggestion_count(&suggested),
+            suggestions: suggestion_groups.iter().map(|(_, n)| n).sum(),
+            suggestion_groups,
             id: info.id,
             name: info.name,
             os: info.os,
@@ -354,25 +373,32 @@ pub(crate) fn comparison(
         golden_version: golden.info.version,
         comparison,
         suggested,
+        suggestion_units,
     })
 }
 
-/// How many suggestions to show: ReaPack's packages count as one.
-fn suggestion_count(ids: &[String]) -> usize {
-    let reapack = |id: &String| patchpilot_parity::reapack::is_reapack(&ProductId(id.clone()));
-    ids.iter().filter(|id| !reapack(id)).count() + usize::from(ids.iter().any(reapack))
+/// Suggestions by kind, each script package or ReaPack counted once.
+fn suggestion_groups(c: &Comparison, ignored: &BTreeSet<String>) -> Vec<(SuggestionGroup, usize)> {
+    patchpilot_parity::suggestion_summary(open_suggestions(c, ignored))
 }
 
 fn suggested(c: &Comparison, ignored: &BTreeSet<String>) -> Vec<String> {
-    patchpilot_parity::suggestions(c)
-        .filter(|r| {
-            !ignored.contains(&suggestion_key(
-                &r.product_id.0,
-                r.machine_version.as_deref(),
-            ))
-        })
+    open_suggestions(c, ignored)
         .map(|r| r.product_id.0.clone())
         .collect()
+}
+
+/// Suggestions the user hasn't ignored.
+fn open_suggestions<'a>(
+    c: &'a Comparison,
+    ignored: &'a BTreeSet<String>,
+) -> impl Iterator<Item = &'a ComparisonRow> {
+    patchpilot_parity::suggestions(c).filter(|r| {
+        !ignored.contains(&suggestion_key(
+            &r.product_id.0,
+            r.machine_version.as_deref(),
+        ))
+    })
 }
 
 pub(crate) fn existing_store() -> Result<Option<Store>, String> {
