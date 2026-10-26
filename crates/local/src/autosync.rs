@@ -185,15 +185,13 @@ fn spelled_here(dir: &Path, rel: &str) -> Option<String> {
     let mut path = dir.to_owned();
     let mut parts = Vec::new();
     for want in rel.split('/') {
-        let name = if path.join(want).exists() {
-            want.to_owned()
-        } else {
-            std::fs::read_dir(&path)
-                .ok()?
-                .filter_map(Result::ok)
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .find(|n| n.to_lowercase() == want)?
-        };
+        // Read the folder even where a lowercased path would open, so the
+        // name is spelled as it is on disk.
+        let name = std::fs::read_dir(&path)
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .find(|n| n.to_lowercase() == want)?;
         path.push(&name);
         parts.push(name);
     }
