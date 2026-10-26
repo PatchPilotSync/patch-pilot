@@ -4,6 +4,20 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.2 - 2026-10-26
+
+### Improved
+
+- Scripts arrive whole. A script that loads other files (a library, images, settings), every file of a ReaPack package, a JSFX with its imports, and a theme with its image folder now come over together, so they work on arrival. If one of those files is too big to send over the link, Patch Pilot says so instead of bringing a script that would fail.
+- Bring over whole folders from Compare: each Reaper folder has a "Bring over" button for this machine, and when you look at another linked machine, "Copy here" copies its files straight onto this one.
+- In Bring over, every folder has a checkbox, and ticking a script ticks the files it needs.
+- Compare shows when a script is missing files it needs on a machine.
+
+### Fixed
+
+- Bring over no longer keeps offering a key map this machine already has. The same shortcuts saved on a Mac and on a PC now count as the same, and the list refreshes after every Bring over.
+- When everything is here, the Bring over card turns green and says it's up to date, and when something is skipped it says why.
+
 ## 0.4.1 - 2026-10-26
 
 ### Improved
