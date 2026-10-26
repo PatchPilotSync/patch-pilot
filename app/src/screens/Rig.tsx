@@ -136,77 +136,89 @@ export function Rig({
         )}
       </div>
 
-      <div className="flex items-end gap-3 pl-4 pr-3 pt-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold">
-            Plug-ins installed on this machine{" "}
-            <span className="font-normal tabular-nums text-dim">{inv.products.toLocaleString()}</span>
-          </h2>
-          <p className="text-xs text-dim">
-            {plural(vendorCount, "vendor")} · {plural(inv.plugins, "file")} in the standard plug-in folders. Read
-            only: nothing is loaded or changed.
-          </p>
-        </div>
-        {!filtering && <FolderControls ids={groups.map((g) => g.title)} folders={folders} className="" />}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-1 px-3 pb-1 pt-2">
-        {(["vendor", "format"] as const).map((g) => (
-          <Pill key={g} active={grouping === g} onClick={() => setGrouping(g)}>
-            By {g}
-          </Pill>
-        ))}
-        <span className="ml-2 flex flex-wrap gap-2 text-xs text-dim">
-          {inv.formats.map((f) => (
-            <span key={f.format}>
-              {FORMAT_LABEL[f.format]} <span className="tabular-nums">{f.count}</span>
-            </span>
-          ))}
-        </span>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by name or vendor"
-          aria-label="Filter plug-ins"
-          className={`ml-auto w-48 ${inputClass}`}
-        />
-      </div>
-
-      {groups.length === 0 && (
-        <p className="px-4 py-3 text-dim">
-          {inv.products === 0 ? "No plug-ins found in the standard folders." : "Nothing matches."}
-        </p>
-      )}
-      {groups.map((g) => {
-        const updateCount = g.rows.filter(({ p }) => alertById.has(p.id)).length;
-        return (
-          <Folder
-            key={g.title}
-            title={g.title}
-            count={g.rows.length}
-            open={filtering || folders.isOpen(g.title)}
-            onToggle={() => folders.toggle(g.title)}
-            badges={
-              updateCount > 0 && (
+      {/* The whole plug-in list folds into one folder (closed at first) so the screen stays short. */}
+      <div className="pt-2">
+        <Folder
+          title="All plug-ins"
+          count={inv.products}
+          open={extra.isOpen("plugins")}
+          onToggle={() => extra.toggle("plugins")}
+          badges={
+            <>
+              {alerts.length > 0 && (
                 <Badge>
-                  {updateCount} update{updateCount === 1 ? "" : "s"}
+                  {alerts.length} update{alerts.length === 1 ? "" : "s"}
                 </Badge>
-              )
-            }
-          >
-            <ul className="pb-1">
-              {g.rows.map(({ vendor, p }) => (
-                <ProductLine
-                  key={`${g.title}/${p.id}`}
-                  p={p}
-                  vendor={grouping === "format" ? vendor : null}
-                  update={alertById.get(p.id)}
-                />
+              )}
+              <span className="text-[11px] text-dim">
+                {plural(vendorCount, "vendor")} · {plural(inv.plugins, "file")} · read only
+              </span>
+            </>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-1 pb-1 pl-8 pr-3 pt-1">
+            {(["vendor", "format"] as const).map((g) => (
+              <Pill key={g} active={grouping === g} onClick={() => setGrouping(g)}>
+                By {g}
+              </Pill>
+            ))}
+            <span className="ml-2 flex flex-wrap gap-2 text-xs text-dim">
+              {inv.formats.map((f) => (
+                <span key={f.format}>
+                  {FORMAT_LABEL[f.format]} <span className="tabular-nums">{f.count}</span>
+                </span>
               ))}
-            </ul>
-          </Folder>
-        );
-      })}
+            </span>
+            <span className="flex-1" />
+            {!filtering && <FolderControls ids={groups.map((g) => g.title)} folders={folders} className="" />}
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by name or vendor"
+              aria-label="Filter plug-ins"
+              className={`w-48 ${inputClass}`}
+            />
+          </div>
+
+          {groups.length === 0 && (
+            <p className="py-3 pl-8 pr-4 text-dim">
+              {inv.products === 0 ? "No plug-ins found in the standard folders." : "Nothing matches."}
+            </p>
+          )}
+          {groups.map((g) => {
+            const updateCount = g.rows.filter(({ p }) => alertById.has(p.id)).length;
+            return (
+              <Folder
+                key={g.title}
+                title={g.title}
+                count={g.rows.length}
+                className="pr-4"
+                indent={32}
+                open={filtering || folders.isOpen(g.title)}
+                onToggle={() => folders.toggle(g.title)}
+                badges={
+                  updateCount > 0 && (
+                    <Badge>
+                      {updateCount} update{updateCount === 1 ? "" : "s"}
+                    </Badge>
+                  )
+                }
+              >
+                <ul className="pb-1">
+                  {g.rows.map(({ vendor, p }) => (
+                    <ProductLine
+                      key={`${g.title}/${p.id}`}
+                      p={p}
+                      vendor={grouping === "format" ? vendor : null}
+                      update={alertById.get(p.id)}
+                    />
+                  ))}
+                </ul>
+              </Folder>
+            );
+          })}
+        </Folder>
+      </div>
 
       <Label className="px-4 pb-0.5 pt-4">Also on this machine</Label>
       {inv.presets.length > 0 && (
@@ -293,7 +305,7 @@ function Updates({ alerts }: { alerts: UpdateAlert[] }) {
 
 function ProductLine({ p, vendor, update }: { p: ProductRow; vendor: string | null; update?: UpdateAlert }) {
   return (
-    <li className="flex h-7 items-center gap-3 pl-8 pr-4 hover:bg-sel/60">
+    <li className="flex h-7 items-center gap-3 pl-14 pr-4 hover:bg-sel/60">
       <span className="min-w-0 flex-1 truncate">
         {p.name}
         {vendor && <span className="ml-2 text-xs text-dim">{vendor}</span>}
