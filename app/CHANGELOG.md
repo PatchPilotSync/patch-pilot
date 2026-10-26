@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.19 - 2026-10-26
+
+### New
+
+- Choose what syncs: under Sync & backup, untick any kind of file or setting (for example Reaper shortcuts, Live Places or plug-in presets) to keep this machine's own. Reaper, Ableton Live and plug-in presets each have their own section.
+
 ## 0.4.18 - 2026-10-26
 
 ### New

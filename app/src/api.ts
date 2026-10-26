@@ -600,6 +600,16 @@ export interface SyncView {
 
 export const syncView = () => invoke<SyncView>("sync_view");
 export const syncLookNow = () => invoke<SyncView>("sync_look_now");
+/** One kind of file or setting and whether it syncs on this machine (decision #80). */
+export interface SyncKind {
+  id: string;
+  /** "Reaper", "Ableton Live" or "Plug-ins". */
+  app: string;
+  label: string;
+  on: boolean;
+}
+export const syncPrefsView = () => invoke<SyncKind[]>("sync_prefs_view");
+export const setSyncKind = (id: string, on: boolean) => invoke<SyncKind[]>("set_sync_kind", { id, on });
 export const setKeepInSync = (on: boolean) => invoke<SyncView>("set_keep_in_sync", { on });
 export const settleConflict = (c: SyncConflict, theirs: boolean) =>
   invoke<SyncView>("settle_conflict", { root: c.root, rel: c.rel, machineId: c.machine_id, theirs });

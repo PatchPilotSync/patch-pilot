@@ -39,11 +39,14 @@ use patchpilot_core::{ContentHash, Os};
 use patchpilot_store::Store;
 use serde::{Deserialize, Serialize};
 
-use patchpilot_parity::ableton::{ABLETON_PREFS, LIBRARY_CFG, is_names_only, places_not_here};
+use patchpilot_parity::ableton::{
+    ABLETON_PREFS, LIBRARY_CFG, is_names_only, library_cfg_parts, places_not_here,
+};
 
 use crate::backup::{self, BackedUpFile, Backup, FORMAT_VERSION, VAULT_ROOT};
 use crate::bring::{self, FileToBring};
 use crate::restore::{Daw, daw_running};
+use crate::sync_prefs::{self, SyncPrefs};
 
 const STATE_FILE: &str = "autosync.json";
 
@@ -310,6 +313,20 @@ pub fn sync_in(
     state: &mut SyncState,
     now: i64,
 ) -> Result<SyncReport, String> {
+    sync_in_with(store, blobs, this, dir, state, &SyncPrefs::default(), now)
+}
+
+/// [`sync_in`] with this machine's sync preferences (decision #80): kinds
+/// turned off here, or on the machine a backup is from, are left alone.
+pub fn sync_in_with(
+    store: &mut Store,
+    blobs: &Path,
+    this: &str,
+    dir: &Path,
+    state: &mut SyncState,
+    prefs: &SyncPrefs,
+    now: i64,
+) -> Result<SyncReport, String> {
     let machine = store
         .latest_manifest(this)
         .map_err(|e| e.to_string())?
@@ -351,7 +368,7 @@ pub fn sync_in(
             ..SourceSummary::default()
         });
         if ok {
-            backups.push(b);
+            backups.push(only_what_syncs(b, prefs));
         }
     }
     // Machines unlinked since are forgotten.
@@ -518,7 +535,7 @@ pub fn sync_in(
             // would change nothing here is in sync with it, whatever its hash.
             if key == library_cfg
                 && let (Some(h), Some(d)) = (&here, &here_dir)
-                && let Some(bytes) = backup::bytes_of(o.backup, o.held)
+                && let Some(bytes) = shared_bytes(o.backup, o.held, prefs)
                 && !bring::would_change(d, &o.file.root, &o.file.rel, bytes)
             {
                 mark(state);
@@ -580,7 +597,7 @@ pub fn sync_in(
     let mut bytes: HashMap<String, Vec<u8>> = HashMap::new();
     let mut missing = BTreeSet::new();
     for o in &chosen {
-        match backup::bytes_of(o.backup, o.held) {
+        match shared_bytes(o.backup, o.held, prefs) {
             Some(b) => {
                 bytes.insert(o.file.key(), b);
             }
@@ -774,15 +791,60 @@ pub fn sync_in(
             .filter(|c| c.machine_id == b.machine_id)
             .count();
     }
-    report.missing_places = missing_places(&backups, root_dir(ABLETON_PREFS).as_deref());
+    report.missing_places = missing_places(&backups, root_dir(ABLETON_PREFS).as_deref(), prefs);
     report.waiting = waiting.into_iter().collect();
     Ok(report)
 }
 
+/// Whether `id` syncs between this machine and `b`'s.
+fn both_sync(b: &Backup, prefs: &SyncPrefs, id: &str) -> bool {
+    prefs.syncs(id) && !b.not_synced.iter().any(|k| k == id)
+}
+
+/// `b` with only the files that sync between its machine and this one: a
+/// kind turned off on either is left out, and so is `Library.cfg` when
+/// both its parts are.
+fn only_what_syncs(mut b: Backup, prefs: &SyncPrefs) -> Backup {
+    let collections = both_sync(&b, prefs, sync_prefs::COLLECTIONS);
+    let places = both_sync(&b, prefs, sync_prefs::PLACES);
+    let key = library_cfg_key();
+    let keep: Vec<bool> = b
+        .files
+        .iter()
+        .map(|f| {
+            if f.key().to_lowercase() == key {
+                return collections || places;
+            }
+            sync_prefs::kind_of(&f.root, &f.rel).is_none_or(|id| both_sync(&b, prefs, id))
+        })
+        .collect();
+    let mut keep = keep.into_iter();
+    b.files.retain(|_| keep.next().unwrap_or(true));
+    b
+}
+
+/// A backed-up file's bytes as they sync here: for `Library.cfg`, only the
+/// parts both machines sync.
+fn shared_bytes(b: &Backup, f: &BackedUpFile, prefs: &SyncPrefs) -> Option<Vec<u8>> {
+    let bytes = backup::bytes_of(b, f)?;
+    if f.key().to_lowercase() != library_cfg_key() {
+        return Some(bytes);
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    Some(
+        library_cfg_parts(
+            &text,
+            both_sync(b, prefs, sync_prefs::COLLECTIONS),
+            both_sync(b, prefs, sync_prefs::PLACES),
+        )
+        .into_bytes(),
+    )
+}
+
 /// The names of linked machines' Places whose folder isn't here: their
 /// cloud folder isn't on this machine, or hasn't brought the folder yet.
-fn missing_places(backups: &[Backup], prefs: Option<&Path>) -> Vec<String> {
-    let Some(cfg) = prefs.and_then(|d| std::fs::read_to_string(d.join(LIBRARY_CFG)).ok()) else {
+fn missing_places(backups: &[Backup], dir: Option<&Path>, prefs: &SyncPrefs) -> Vec<String> {
+    let Some(cfg) = dir.and_then(|d| std::fs::read_to_string(d.join(LIBRARY_CFG)).ok()) else {
         return Vec::new();
     };
     let clouds = crate::place_clouds();
@@ -792,7 +854,7 @@ fn missing_places(backups: &[Backup], prefs: Option<&Path>) -> Vec<String> {
         let Some(f) = b.files.iter().find(|f| f.key().to_lowercase() == key) else {
             continue;
         };
-        if let Some(bytes) = backup::bytes_of(b, f) {
+        if let Some(bytes) = shared_bytes(b, f, prefs) {
             names.extend(places_not_here(
                 &String::from_utf8_lossy(&bytes),
                 &cfg,
@@ -1093,6 +1155,44 @@ mod tests {
         back_up(&store, "mac", None, &dir, 4_000).unwrap();
         sync_in(&mut store, &blobs, "pc", &dir, &mut state, 11).unwrap();
         assert_eq!(read(&pc, VOCAL).as_deref(), Some("vocal"));
+    }
+
+    #[test]
+    fn kinds_turned_off_on_either_machine_stay_each_machines_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac REAPER");
+        let pc = tmp.path().join("PC REAPER");
+        let dir = tmp.path().join("Dropbox").join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        let all = [DRUMS, VOCAL];
+        let mut store = Store::open_in_memory().unwrap();
+        let mut state = SyncState::default();
+        put(&mac, DRUMS, "drums");
+        put(&mac, VOCAL, "vocal");
+        scan(&mut store, "mac", "MacBook", &mac, &all, 1);
+        scan(&mut store, "pc", "Studio PC", &pc, &all, 1);
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+
+        // Track templates off on the PC: only the FX chain comes.
+        let mut prefs = SyncPrefs::default();
+        prefs.set("reaper/track-templates", false);
+        let r = sync_in_with(&mut store, &blobs, "pc", &dir, &mut state, &prefs, 2).unwrap();
+        assert_eq!(r.files_placed(), 1, "{r:?}");
+        assert_eq!(read(&pc, DRUMS), None);
+        assert_eq!(read(&pc, VOCAL).as_deref(), Some("vocal"));
+
+        // On again here, but the Mac keeps its track templates to itself.
+        let off = vec!["reaper/track-templates".to_owned()];
+        backup::back_up_with(&store, "mac", None, &dir, &off, 2_000).unwrap();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 3).unwrap();
+        assert_eq!(r.files_placed(), 0, "{r:?}");
+        assert_eq!(read(&pc, DRUMS), None);
+
+        // On for both: it comes.
+        backup::back_up_with(&store, "mac", None, &dir, &[], 3_000).unwrap();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
+        assert_eq!(r.files_placed(), 1, "{r:?}");
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums"));
     }
 
     #[test]

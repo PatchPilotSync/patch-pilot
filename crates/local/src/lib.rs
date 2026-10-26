@@ -20,6 +20,7 @@ pub mod reaper_extras;
 pub mod restore;
 pub mod setup;
 pub mod sync;
+pub mod sync_prefs;
 pub mod transfer;
 pub mod up_to_speed;
 pub mod vault;

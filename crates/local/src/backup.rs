@@ -140,6 +140,10 @@ pub struct Backup {
     /// The machine's scan, narrowed to the files backed up (metadata only),
     /// so a restore can list them the way Bring over does.
     pub scan: Manifest,
+    /// The kinds this machine keeps to itself (decision #80): linked
+    /// machines don't take its copies of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_synced: Vec<String>,
     /// The machine's folder in the backup.
     #[serde(skip)]
     pub folder: PathBuf,
@@ -217,6 +221,19 @@ pub fn back_up(
     dir: &Path,
     now: i64,
 ) -> Result<BackupReport, String> {
+    back_up_with(store, this, vault_root, dir, &[], now)
+}
+
+/// [`back_up`], saying which kinds this machine keeps to itself
+/// (`not_synced`, see [`Backup::not_synced`]).
+pub fn back_up_with(
+    store: &Store,
+    this: &str,
+    vault_root: Option<&Path>,
+    dir: &Path,
+    not_synced: &[String],
+    now: i64,
+) -> Result<BackupReport, String> {
     let scan = store
         .latest_manifest(this)
         .map_err(|e| e.to_string())?
@@ -249,7 +266,7 @@ pub fn back_up(
     let same_list = prev.as_ref().is_some_and(|p| {
         let a: HashSet<_> = p.files.iter().map(|f| (&f.path, &f.hash)).collect();
         let b: HashSet<_> = current.iter().map(|(f, _)| (&f.path, &f.hash)).collect();
-        a == b
+        a == b && p.not_synced == not_synced
     });
     let files_dir = folder.join(FILES);
     let all_there = current.iter().all(|(f, _)| {
@@ -305,6 +322,7 @@ pub fn back_up(
         os: scan.machine.os,
         files: current.into_iter().map(|(f, _)| f).collect(),
         scan,
+        not_synced: not_synced.to_vec(),
         folder: folder.clone(),
     };
     let json = serde_json::to_vec_pretty(&backup).map_err(|e| e.to_string())?;

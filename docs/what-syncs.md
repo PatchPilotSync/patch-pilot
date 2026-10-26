@@ -43,6 +43,13 @@ machines too, as long as their copy wasn't edited there.
 | Plug-ins tagged into Collections | The tag travels, but Live only shows it once the plug-in is installed; Windows and Mac plug-in names can differ. |
 | Installer Vault index | Restored on purpose from the backup, not synced. |
 
+## Choosing what syncs
+
+Under Sync & backup, **Choose what syncs** lists each of the kinds above
+under Reaper, Ableton Live and Plug-ins, all on by default. Untick one on a
+machine to keep that machine's own: changes to it neither come there nor go
+from there to the others (decision #80). Backups still have it.
+
 ## Sync with
 
 "Sync with" on the Sync & backup line brings over another machine's latest
