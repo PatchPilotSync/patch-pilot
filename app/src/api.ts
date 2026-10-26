@@ -285,6 +285,54 @@ export const filesToBring = (from?: string) => invoke<BringView>("files_to_bring
 export const bringFiles = (keys: string[], from?: string) =>
   invoke<BringResult>("bring_files", { keys, from: from ?? null });
 
+// Big-file hand-off (decision #64); mirrors src-tauri/src/transfer.rs and patchpilot_local::transfer.
+
+export interface CloudFolder {
+  /** dropbox, onedrive, google-drive, icloud, box, pcloud, sync, mega, other */
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface TransferSettings {
+  /** A CloudFolder id, or "custom"; null until picked. */
+  service: string | null;
+  folder: string | null;
+}
+
+export interface Sendable {
+  root: string;
+  rel: string;
+  size: number;
+  /** Linked machines that need it, by name. */
+  machines: string[];
+  /** Already in the cloud folder, waiting to be picked up. */
+  sent: boolean;
+}
+
+export interface ReceiveReport {
+  placed: number;
+  waiting: number;
+  cleaned: number;
+}
+
+export interface TransferView {
+  clouds: CloudFolder[];
+  settings: TransferSettings;
+  /** The Patch Pilot Transfers folder in use, if the folder picked is there. */
+  dir: string | null;
+  sendable: Sendable[];
+  /** Big files this machine needs. */
+  needed: number;
+  last: ReceiveReport;
+}
+
+export const transferView = () => invoke<TransferView>("transfer_view");
+export const setTransferFolder = (service: string | null, folder: string | null) =>
+  invoke<TransferView>("set_transfer_folder", { service, folder });
+export const sendBigFiles = () => invoke<number>("send_big_files");
+export const onTransfersChanged = (f: () => void): Promise<UnlistenFn> => listen("transfers-changed", f);
+
 export const STATE_LABEL: Record<ParityState, string> = {
   missing: "Missing",
   incomplete: "Incomplete",

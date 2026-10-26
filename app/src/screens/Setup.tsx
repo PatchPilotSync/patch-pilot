@@ -17,6 +17,7 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
+import { BigFiles } from "../BigFiles";
 import { BringOver } from "../BringOver";
 import { AppButton } from "./Compare";
 import { Button, Folder, scoreColor, timeAgo, useFolders } from "../ui";
@@ -405,8 +406,9 @@ export function StepRow({
           </ul>
         )}
         {!finished && actions.bringOver && s.automatic && s.title.startsWith("Bring over") && (
-          <div className="mt-1.5">
+          <div className="mt-1.5 flex flex-col gap-2">
             <BringOver onError={actions.onError} />
+            <BigFiles onError={actions.onError} />
           </div>
         )}
         {!finished && s.after.length > 0 && (

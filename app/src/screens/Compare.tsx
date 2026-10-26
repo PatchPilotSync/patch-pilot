@@ -32,6 +32,7 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
+import { BigFiles } from "../BigFiles";
 import { BringOver } from "../BringOver";
 import { bringSummary, Needs } from "../bring";
 import { ReaperExtras } from "../ReaperExtras";
@@ -1322,6 +1323,7 @@ function PlanView({
         </Button>
       </header>
       {here && <BringOver onError={onError} />}
+      {here && <BigFiles onError={onError} />}
       {here && <ReaperExtras onError={onError} />}
       {progress && steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       {progress?.complete && steps.length > 0 && (

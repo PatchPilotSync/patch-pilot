@@ -1,3 +1,4 @@
+import { BigFiles } from "../BigFiles";
 import { useEffect, useMemo, useState } from "react";
 import {
   FORMAT_LABEL,
@@ -93,6 +94,9 @@ export function Rig({ overview, warnings, busy, onRescan, onMakeGolden, onReport
       </header>
 
       <GoldenCard golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
+
+      {/* Errors here surface where the files are listed, on Up To Speed. */}
+      <BigFiles onError={() => {}} className="mx-4 mt-2" />
 
       {warnings.length > 0 && (
         <details className="border-b border-line px-4 py-2 text-xs">
