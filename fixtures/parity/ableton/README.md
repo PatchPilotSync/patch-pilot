@@ -12,3 +12,6 @@ folders. File contents are placeholders; only paths and hashes matter.
   (its structure follows a real Live 12.4 file; paths are made up).
   `Preferences.cfg` never is.
 - `prefs-win/`: the same on Windows, where files sit in `Preferences/`.
+- `Library-12.4.7-windows.cfg`: a real Live 12.4.7 `Library.cfg` from Windows
+  (user name changed): Collections 6 and 7 removed with the sidebar's Edit
+  (`IsEnabled="false"`), Places in Dropbox and on another drive.

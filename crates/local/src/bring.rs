@@ -791,9 +791,9 @@ mod tests {
         std::fs::create_dir_all(&prefs).unwrap();
         std::fs::copy(&fixture, prefs.join("Library.cfg")).unwrap();
 
-        // What this machine shares is the names and the Places in shared
-        // folders (none here), checked against the scan's hash.
-        let names = b"1\tFaves\n2\tSynths & Keys\n3\t\n4\t\n5\t\n6\t\n7\t\nplaces\n";
+        // What this machine shares is the names, hidden sidebar items and the
+        // Places in shared folders (none here), checked against the scan's hash.
+        let names = b"1\tFaves\n2\tSynths & Keys\n3\t\n4\t\n5\t\n6\t\n7\t\nhidden\nplaces\n";
         let file = SharedFile {
             hash: patchpilot_sync::content_hash(names),
             path: prefs.join("Library.cfg"),

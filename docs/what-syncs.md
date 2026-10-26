@@ -17,7 +17,7 @@ places what's new, changed or renamed on its linked machines (decisions #70,
 | Reaper | Mouse modifiers (`reaper-mouse.ini`) | yes |
 | Reaper | Theme adjuster settings (`reaper-themeconfig.ini`) | yes |
 | Ableton Live | Templates (including `Default.als`), default presets, racks, presets, Max for Live devices, clips, grooves, tunings | yes |
-| Ableton Live | Collection names (only the names in `Library.cfg`; each machine keeps its own User Library path) | yes |
+| Ableton Live | Collection names, and which Collections and browser categories are shown (removed with the sidebar's Edit); each machine keeps its own User Library path | yes |
 | Ableton Live | Places in Dropbox (or another cloud folder) or the User Library, pointed at the same folder on each machine (decision #79) | yes |
 | Ableton Live | What's tagged into Collections (the `.xmp` files in the User Library's `Ableton Folder Info`) | yes |
 | Ableton Live | Control surface scripts in the User Library (`Remote Scripts/`) and `Options.txt` | yes |

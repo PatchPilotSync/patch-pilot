@@ -310,7 +310,7 @@ fn places_in_dropbox_and_the_user_library_travel_and_others_stay() {
     let text = String::from_utf8(shared.clone()).unwrap();
     assert_eq!(
         text,
-        "1\tFaves\nplaces\n{Dropbox}/Samples/JUNGLE BREAKS\tJUNGLE BREAKS\n\
+        "1\tFaves\nhidden\nplaces\n{Dropbox}/Samples/JUNGLE BREAKS\tJUNGLE BREAKS\n\
          {Dropbox}/Acapellas\tAcapellas & Vox\n{User Library}/Racks\tAbleton Racks\n"
     );
 
@@ -433,4 +433,86 @@ fn names_from_before_places_travelled_leave_places_alone() {
         1,
         "a Place outside shared folders stays"
     );
+}
+
+#[test]
+fn collections_hidden_on_one_machine_are_hidden_on_the_other() {
+    let mac = std::fs::read_to_string(fixture("prefs-mac/Live 12.1.5/Library.cfg")).unwrap();
+    // On the PC, Collection 3 and the Clips category are hidden with Edit.
+    let pc = mac
+        .replace(
+            r#"Uri="color:colors=3" DisplayName="" IconName="" Settings="" IsEnabled="true""#,
+            r#"Uri="color:colors=3" DisplayName="" IconName="" Settings="" IsEnabled="false""#,
+        )
+        .replace(
+            r#"Uri="view:X-Clips" DisplayName="" IconName="" Settings="" IsEnabled="true""#,
+            r#"Uri="view:X-Clips" DisplayName="" IconName="" Settings="" IsEnabled="false""#,
+        );
+    assert_ne!(pc, mac);
+    let shared = shared_view(ABLETON_PREFS, LIBRARY_CFG, pc.clone().into_bytes(), &[]);
+    let text = String::from_utf8(shared.clone()).unwrap();
+    assert!(
+        text.contains("\nhidden\ncolor:colors=3\nview:X-Clips\nplaces\n"),
+        "{text}"
+    );
+
+    let merged = String::from_utf8(merge(Some(mac.as_bytes()), shared.clone()).unwrap()).unwrap();
+    assert_eq!(merged, pc);
+    // And shown again the other way.
+    let back = merge(
+        Some(merged.as_bytes()),
+        shared_view(ABLETON_PREFS, LIBRARY_CFG, mac.clone().into_bytes(), &[]),
+    )
+    .unwrap();
+    assert_eq!(String::from_utf8(back).unwrap(), mac);
+}
+
+#[test]
+fn a_real_windows_library_cfg_shares_names_hidden_collections_and_dropbox_places() {
+    // Live 12.4.7 on Windows, as a user had it: Collections 6 and 7 removed
+    // with the sidebar's Edit, and Places in Dropbox and on another drive.
+    let pc = std::fs::read_to_string(fixture("Library-12.4.7-windows.cfg")).unwrap();
+    let dropbox = [PlaceRoot {
+        name: "Dropbox".into(),
+        path: r"D:\Dropbox".into(),
+    }];
+    let text = library_cfg_text(&pc, &dropbox);
+    assert_eq!(
+        text,
+        "1\tFavorites\n2\tInst\n3\tChains\n4\tDynamics and Color\n5\tTime\n6\tNot Purple\n7\tMisc\n\
+         hidden\ncolor:colors=6\ncolor:colors=7\n\
+         places\n\
+         {Dropbox}/Audio/Samples/Acapellas\tAcapellas\n\
+         {Dropbox}/Audio/Project Files/Ableton Sessions/!User Library/Ableton Racks\tAbleton Racks\n\
+         {Dropbox}/Audio/Project Files/Ableton Sessions/Ableton MaxLive\tAbleton MaxLive\n\
+         {Dropbox}/Audio/Samples/JUNGLE BREAKS\tJUNGLE BREAKS\n"
+    );
+
+    // A Mac with Dropbox in its File Provider folder gets all of it.
+    let mac = std::fs::read_to_string(fixture("prefs-mac/Live 12.1.5/Library.cfg")).unwrap();
+    let mac_dropbox = [PlaceRoot {
+        name: "Dropbox".into(),
+        path: "/Users/alice/Library/CloudStorage/Dropbox".into(),
+    }];
+    let merged = merge_incoming(
+        ABLETON_PREFS,
+        LIBRARY_CFG,
+        Some(mac.as_bytes()),
+        text.clone().into_bytes(),
+        &mac_dropbox,
+        Os::Macos,
+    )
+    .unwrap();
+    let merged = String::from_utf8(merged).unwrap();
+    assert_eq!(collection_names(&merged), collection_names(&pc));
+    assert!(merged.contains(
+        r#"Uri="color:colors=6" DisplayName="Not Purple" IconName="" Settings="" IsEnabled="false""#
+    ));
+    assert!(merged.contains(
+        r#"Uri="color:colors=5" DisplayName="Time" IconName="" Settings="" IsEnabled="true""#
+    ));
+    assert!(merged.contains(
+        r#"Path="/Users/alice/Library/CloudStorage/Dropbox/Audio/Samples/JUNGLE BREAKS" DisplayName="JUNGLE BREAKS""#
+    ));
+    assert_eq!(library_cfg_text(&merged, &mac_dropbox), text);
 }

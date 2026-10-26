@@ -36,6 +36,7 @@
 //! `~/Library/Preferences/Ableton/Live 12.1.5/`, Windows
 //! `%APPDATA%\Ableton\Live 12.1.5\Preferences\`. The newest one wins.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use std::io::Read;
@@ -242,6 +243,12 @@ const USER_LIBRARY_PLACES: &str = "User Library";
 /// none, and leaves Places alone.
 const PLACES_LINE: &str = "places";
 
+/// The line after the Collection names in the shared text after which come
+/// the `Uri`s of the browser sidebar's hidden items (`IsEnabled="false"`):
+/// Collections and categories hidden with the sidebar's Edit. Text without
+/// it leaves what's shown alone.
+const HIDDEN_LINE: &str = "hidden";
+
 /// A Place: a folder added to Live's browser sidebar, from a
 /// `<UserFolderInfo Path="..." DisplayName="..."/>` in `Library.cfg`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -365,9 +372,42 @@ fn parse_places_text(text: &str) -> Option<Vec<(String, String)>> {
     )
 }
 
-/// What travels for `Library.cfg`: the Collection names, then the Places
-/// inside a cloud folder or the User Library, with paths relative to it.
-/// Empty for a file without Collections.
+/// The hidden sidebar items' `Uri`s in shared text; `None` for text from
+/// before they travelled.
+fn parse_hidden_text(text: &str) -> Option<BTreeSet<String>> {
+    let at = text.lines().position(|l| l == HIDDEN_LINE)?;
+    Some(
+        text.lines()
+            .skip(at + 1)
+            .take_while(|l| *l != PLACES_LINE)
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// Every `<LabelInfo .../>` (Collections and the browser's categories): its
+/// bytes in `cfg`, `Uri` and whether it's shown.
+fn label_infos(cfg: &str) -> Vec<(std::ops::Range<usize>, String, bool)> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = cfg[from..].find("<LabelInfo ") {
+        let start = from + at;
+        let Some(len) = cfg[start..].find('>') else {
+            break;
+        };
+        let end = start + len + 1;
+        let elem = &cfg[start..end];
+        if let (Some((_, uri)), Some((_, on))) = (attr(elem, "Uri"), attr(elem, "IsEnabled")) {
+            out.push((start..end, unescape(&uri), on != "false"));
+        }
+        from = end;
+    }
+    out
+}
+
+/// What travels for `Library.cfg`: the Collection names, the sidebar items
+/// hidden with its Edit, then the Places inside a cloud folder or the User
+/// Library, with paths relative to it. Empty for a file without Collections.
 pub fn library_cfg_text(cfg: &str, clouds: &[PlaceRoot]) -> String {
     let names = collection_names(cfg);
     if names.is_empty() {
@@ -375,6 +415,14 @@ pub fn library_cfg_text(cfg: &str, clouds: &[PlaceRoot]) -> String {
     }
     let roots = place_roots(cfg, clouds);
     let mut text = collection_names_text(&names);
+    text.push_str(HIDDEN_LINE);
+    text.push('\n');
+    for (_, uri, shown) in label_infos(cfg) {
+        if !shown {
+            text.push_str(&uri.replace(['\n', '\r'], " "));
+            text.push('\n');
+        }
+    }
     text.push_str(PLACES_LINE);
     text.push('\n');
     for p in places(cfg) {
@@ -386,11 +434,12 @@ pub fn library_cfg_text(cfg: &str, clouds: &[PlaceRoot]) -> String {
     text
 }
 
-/// `cfg` with the Collection names and Places from `text` (as written by
-/// [`library_cfg_text`]). Travelling Places take the incoming order and
-/// names, each pointed at the same folder here; one whose root this machine
-/// lacks is left out ([`places_not_here`] lists it). Places only this
-/// machine has (another drive) stay, after them. Nothing else changes.
+/// `cfg` with the Collection names, what the sidebar shows and the Places
+/// from `text` (as written by [`library_cfg_text`]). Travelling Places take
+/// the incoming order and names, each pointed at the same folder here; one
+/// whose root this machine lacks is left out ([`places_not_here`] lists
+/// it). Places only this machine has (another drive) stay where they were.
+/// Nothing else changes.
 pub fn set_library_cfg(
     cfg: &str,
     text: &str,
@@ -399,14 +448,36 @@ pub fn set_library_cfg(
 ) -> Result<String, String> {
     let names: String = text
         .lines()
-        .take_while(|l| *l != PLACES_LINE)
+        .take_while(|l| *l != PLACES_LINE && *l != HIDDEN_LINE)
         .map(|l| format!("{l}\n"))
         .collect();
-    let cfg = set_collection_names(cfg, &names)?;
+    let mut cfg = set_collection_names(cfg, &names)?;
+    if let Some(hidden) = parse_hidden_text(text) {
+        cfg = set_hidden(&cfg, &hidden);
+    }
     match parse_places_text(text) {
         Some(incoming) => Ok(set_places(&cfg, &incoming, clouds, os)),
         None => Ok(cfg),
     }
+}
+
+/// `cfg` with exactly the sidebar items in `hidden` hidden.
+fn set_hidden(cfg: &str, hidden: &BTreeSet<String>) -> String {
+    let mut out = cfg.to_owned();
+    // From the end, so earlier ranges stay put.
+    for (range, uri, shown) in label_infos(cfg).into_iter().rev() {
+        let want = !hidden.contains(&uri);
+        if want == shown {
+            continue;
+        }
+        if let Some((value, _)) = attr(&cfg[range.clone()], "IsEnabled") {
+            out.replace_range(
+                range.start + value.start..range.start + value.end,
+                if want { "true" } else { "false" },
+            );
+        }
+    }
+    out
 }
 
 fn set_places(cfg: &str, incoming: &[(String, String)], clouds: &[PlaceRoot], os: Os) -> String {

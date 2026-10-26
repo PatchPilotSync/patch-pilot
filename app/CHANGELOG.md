@@ -11,6 +11,10 @@ becomes its release notes, which the app shows when it offers that update
 - Ableton Live's Places now keep in sync too. Add a folder from Dropbox (or another cloud folder, or your User Library) to Places on one machine and it appears on your others, pointing at the same folder there. Places on other drives stay on their own machine.
 - If a Place's folder isn't on this machine yet, Sync & backup's details name it.
 
+### Fixed
+
+- Collections you remove in Live's browser (with Edit) are now removed on your other machines too, and shown again when you bring them back. Before, only their names synced.
+
 ## 0.4.17 - 2026-10-26
 
 ### Fixed
