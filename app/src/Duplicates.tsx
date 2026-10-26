@@ -63,26 +63,26 @@ export function Duplicates() {
 
   const groups = found?.groups ?? [];
   return (
-    <section className="border-t border-line pt-3">
-      <div className="flex items-center gap-3 px-4">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-[11px] font-medium">Duplicate presets</h3>
-          <p className="truncate text-[11px] text-dim">
-            {found === null
-              ? "The same preset saved in more than one folder, matched by contents."
-              : groups.length === 0
-                ? `No duplicates among ${count(found.files, "preset file")}.`
-                : `${count(extra, "extra copy", "extra copies")} · ${size(bytes)} · in ${count(groups.length, "group")}`}
-          </p>
-        </div>
+    <section>
+      {/* A row like the folders around it on This machine, with its buttons at the end. */}
+      <div className="flex h-7 items-center gap-1.5 pl-4 pr-2 hover:bg-sel/60">
+        <span className="w-2.5 shrink-0" aria-hidden="true" />
+        <span className="shrink-0 font-medium">Duplicate presets</span>
+        <span className="ml-1.5 min-w-0 flex-1 truncate text-[11px] text-dim">
+          {found === null
+            ? "The same preset saved in more than one folder, matched by contents"
+            : groups.length === 0
+              ? `No duplicates among ${count(found.files, "preset file")}`
+              : `${count(extra, "extra copy", "extra copies")} · ${size(bytes)} · in ${count(groups.length, "group")}`}
+        </span>
+        <Button variant="link" onClick={find} disabled={busy !== null} className="h-6 shrink-0 px-2">
+          {busy === "find" ? "Looking…" : found ? "Look again" : "Find"}
+        </Button>
         {groups.length > 0 && extra > 0 && (
-          <Button onClick={clean} disabled={busy !== null} className="shrink-0 whitespace-nowrap">
+          <Button onClick={clean} disabled={busy !== null} className="h-6 shrink-0 whitespace-nowrap px-2.5">
             {busy === "clean" ? "Cleaning up…" : `Clean up ${extra}`}
           </Button>
         )}
-        <Button variant="quiet" onClick={find} disabled={busy !== null} className="shrink-0">
-          {busy === "find" ? "Looking…" : found ? "Look again" : "Find"}
-        </Button>
       </div>
       {error && <p className="px-4 pt-1 text-[11px] text-bad">{error}</p>}
       {done && <p className="px-4 pt-1 text-[11px] text-ok">{done}</p>}

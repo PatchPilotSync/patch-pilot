@@ -4,11 +4,16 @@ export function Button({
   variant = "primary",
   className = "",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "quiet" }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** primary: the one main action of a screen or card. link: a secondary action that still moves the work on. quiet: the rest. */
+  variant?: "primary" | "quiet" | "link";
+}) {
   const look =
     variant === "primary"
       ? "bg-accent text-on-accent font-semibold hover:brightness-110"
-      : "text-dim hover:bg-sel hover:text-fg";
+      : variant === "link"
+        ? "text-accent-text hover:bg-sel"
+        : "text-dim hover:bg-sel hover:text-fg";
   return (
     <button
       className={`inline-flex h-7 items-center justify-center rounded-md px-3 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${look} ${className}`}
@@ -89,7 +94,120 @@ export function timeAgo(unixSeconds: number): string {
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 2 * 86400) return "yesterday";
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)} days ago`;
   return new Date(unixSeconds * 1000).toLocaleDateString();
+}
+
+const TONE_DOT = { accent: "bg-accent", warn: "bg-warn", ok: "bg-ok", bad: "bg-bad", dim: "bg-dim" } as const;
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      aria-hidden="true"
+      className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
+    >
+      <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/**
+ * A one-line status on a screen (decision #68): a dot (accent = something to
+ * do, warn = needs a look, ok = all good), one line of text, and at its end
+ * either buttons or a Show/Hide toggle that opens `children` below it.
+ */
+export function Notice({
+  tone = "accent",
+  text,
+  actions,
+  open = false,
+  onToggle,
+  toggle = ["Show", "Hide"],
+  children,
+}: {
+  tone?: keyof typeof TONE_DOT;
+  text: ReactNode;
+  actions?: ReactNode;
+  open?: boolean;
+  /** Makes the line a toggle for `children`. */
+  onToggle?: () => void;
+  toggle?: [closed: string, open: string];
+  children?: ReactNode;
+}) {
+  const line = (
+    <>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">{text}</span>
+    </>
+  );
+  return (
+    <div className="text-xs">
+      <div className="flex min-h-7 items-center gap-2 rounded-[5px] px-2 hover:bg-sel/50">
+        {onToggle ? (
+          <button onClick={onToggle} aria-expanded={open} className="flex h-7 min-w-0 flex-1 items-center gap-2.5 text-left">
+            {line}
+          </button>
+        ) : (
+          <span className="flex h-7 min-w-0 flex-1 items-center gap-2.5">{line}</span>
+        )}
+        {actions}
+        {/* The toggle stays at the line's end, after any buttons, so every Show lines up. */}
+        {onToggle && (
+          <button onClick={onToggle} aria-expanded={open} tabIndex={-1} className="flex h-7 shrink-0 items-center gap-2.5">
+            <span className="text-dim">{open ? toggle[1] : toggle[0]}</span>
+            <Chevron open={open} />
+          </button>
+        )}
+      </div>
+      {open && children && (
+        <div className="mx-2 mb-1 mt-0.5 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5">{children}</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A tool with its own list (Bring over, Big files, Reaper setup): a framed
+ * panel whose header has a title, one short line and its buttons. At most one
+ * primary button per card; the rest are quiet or link.
+ */
+export function Card({
+  title,
+  sub,
+  icon,
+  actions,
+  className = "",
+  children,
+}: {
+  title: ReactNode;
+  sub?: ReactNode;
+  icon?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section className={`rounded-lg border border-line bg-panel px-3 py-2.5 ${className}`}>
+      <header className="flex items-center gap-3">
+        {icon}
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xs font-semibold">{title}</h2>
+          {sub && <p className="truncate text-[11px] text-dim">{sub}</p>}
+        </div>
+        {actions}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/** The small grey heading over a group on a screen ("Machines", "Also on this machine"). */
+export function Label({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <h3 className={`text-[11px] text-dim ${className}`}>{children}</h3>;
 }
 
 /**
@@ -164,15 +282,7 @@ export function Folder({
           aria-expanded={open}
           className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
         >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            aria-hidden="true"
-            className={`shrink-0 text-dim transition-transform ${open ? "rotate-90" : ""}`}
-          >
-            <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <Chevron open={open} />
           <span className="min-w-0 truncate font-medium">{title}</span>
           <span className="tabular-nums text-xs text-dim">{count}</span>
           <span className="flex-1" />

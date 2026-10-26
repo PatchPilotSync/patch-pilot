@@ -16,7 +16,7 @@ import {
 } from "./api";
 import { FolderPicker } from "./BigFiles";
 import { groupByApp, summaryOf } from "./BringOver";
-import { Button, timeAgo } from "./ui";
+import { Button, Notice, timeAgo } from "./ui";
 
 /**
  * Back up everything (decision #67): one line on This machine saying when it
@@ -48,47 +48,52 @@ export function BackupLine({ onError, fresh }: { onError: (e: string) => void; f
     }
   }
 
-  let dot = "bg-ok";
+  let tone: "ok" | "accent" | "warn" = "ok";
   let text: ReactNode;
   if (!view.settings.folder) {
-    dot = "bg-accent";
+    tone = "accent";
     text = fresh
       ? "Back up this machine to a cloud folder, or restore one from a backup."
       : "Back up your templates, scripts, presets and settings to a cloud folder.";
   } else if (!view.dir) {
-    dot = "bg-warn";
+    tone = "warn";
     text = "The backup folder isn't there now (signed out, or not connected).";
   } else if (view.error) {
-    dot = "bg-warn";
+    tone = "warn";
     text = `The last backup didn't finish: ${view.error}`;
   } else if (fresh && !latest && others.length > 0) {
-    dot = "bg-accent";
+    tone = "accent";
     text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Restore it here?`;
   } else if (latest) {
     text = `Backed up ${timeAgo(latest.made_at)} to ${where}${view.settings.auto ? ", after every change" : ""}.`;
   } else {
-    dot = "bg-accent";
+    tone = "accent";
     text = `Not backed up yet. Backups go to ${where}.`;
   }
 
+  const offerRestore = fresh && others.length > 0 && !latest;
   return (
-    <section className="border-b border-line px-4 py-2 text-xs">
-      <div className="flex items-center gap-2">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-dim" title={view.dir ?? undefined}>
+    <Notice
+      tone={tone}
+      text={
+        <span className="text-dim" title={view.dir ?? undefined}>
           <span className="font-medium text-fg">Backup</span> · {text}
         </span>
-        {view.dir && !(fresh && !latest && others.length > 0) && (
-          <Button variant="quiet" onClick={now} disabled={busy || view.running} className="shrink-0">
+      }
+      actions={
+        view.dir &&
+        !(fresh && !latest && others.length > 0) && (
+          <Button variant="link" onClick={now} disabled={busy || view.running} className="h-6 shrink-0 px-2">
             {busy || view.running ? "Backing up…" : "Back up now"}
           </Button>
-        )}
-        <Button variant="quiet" onClick={() => setOpen((o) => !o)} className="shrink-0">
-          {open ? "Hide" : view.settings.folder ? (fresh && others.length > 0 && !latest ? "Restore…" : "Show") : "Set up"}
-        </Button>
-      </div>
-      {open && <Details view={view} onView={setView} onError={onError} />}
-    </section>
+        )
+      }
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
+      toggle={[view.settings.folder ? (offerRestore ? "Restore…" : "Show") : "Set up", "Hide"]}
+    >
+      <Details view={view} onView={setView} onError={onError} />
+    </Notice>
   );
 }
 
@@ -141,7 +146,7 @@ function Details({
 
   if (!view.dir || picking) {
     return (
-      <div className="pl-3.5">
+      <div>
         <FolderPicker
           clouds={view.clouds}
           busy={busy}
@@ -162,7 +167,7 @@ function Details({
 
   const last = view.last;
   return (
-    <div className="mt-1.5 flex flex-col gap-1.5 pl-3.5">
+    <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-dim">
         <label className="flex items-center gap-1.5">
           <input

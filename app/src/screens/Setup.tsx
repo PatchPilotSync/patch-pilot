@@ -21,9 +21,10 @@ import {
 import { RestoreFromBackup } from "../Backup";
 import { BigFiles } from "../BigFiles";
 import { BringOver } from "../BringOver";
+import { ReaperExtras } from "../ReaperExtras";
 import { IgnoreButton, IgnoredToggle, productRules, useIgnores } from "../Ignore";
 import { AppButton } from "./Compare";
-import { Button, Folder, scoreColor, timeAgo, useFolders } from "../ui";
+import { Button, Folder, Label, Notice, scoreColor, timeAgo, useFolders } from "../ui";
 
 interface Props {
   onRescan: () => void;
@@ -242,10 +243,11 @@ function Progress({
       )}
 
       <StepList steps={p.steps} scope="setup" onTick={onTick} actions={actions} />
+      <StepExtras steps={p.steps} onError={onError} />
       <IgnoredToggle ignores={ignores} machine={null} onError={onError} />
 
       <div>
-        <h3 className="pb-0.5 pt-1 text-[11px] text-dim">Templates</h3>
+        <Label className="pb-0.5 pt-1">Templates</Label>
         {p.templates.length === 0 ? (
           <p className="text-xs text-dim">No templates on this machine yet.</p>
         ) : notReady.length === 0 ? (
@@ -287,6 +289,32 @@ function Progress({
 
 const isFinished = (s: SetupStep) => s.status === "done" || s.status === "skipped";
 
+/** The step Bring over and Big files sit in (parity's plan: "Bring over N DAW files ..."). */
+const isBringStep = (s: SetupStep) => s.automatic && s.title.startsWith("Bring over");
+/** ReaPack's and Reaper's folder settings steps, where Reaper setup sits. */
+const isReaperStep = (s: SetupStep) =>
+  s.automatic && (s.title.includes("ReaPack item") || s.title.includes("Reaper folder setting"));
+
+/**
+ * Bring over, Big files and Reaper setup when the checklist has no open step
+ * for them: the "Up to date" line, or files the plan doesn't count. Otherwise
+ * they sit inside their step.
+ */
+export function StepExtras({ steps, onError }: { steps: SetupStep[]; onError: (e: string) => void }) {
+  const open = steps.filter((s) => !isFinished(s));
+  return (
+    <div className="flex flex-col gap-2">
+      {!open.some(isBringStep) && (
+        <>
+          <BringOver onError={onError} />
+          <BigFiles onError={onError} />
+        </>
+      )}
+      {!open.some(isReaperStep) && <ReaperExtras onError={onError} />}
+    </div>
+  );
+}
+
 /**
  * Checklist steps in collapsible groups. A group with steps left starts open;
  * a finished one folds away, unless the user has opened or closed it.
@@ -310,6 +338,8 @@ export function StepList({
     else groups.push([s.group, [s]]);
   }
   const folders = useFolders(`steps.${scope}`, (g) => groups.find(([n]) => n === g)?.[1].some((s) => !isFinished(s)) ?? true);
+  // Reaper setup covers both Reaper steps, so it shows once, in the first.
+  const reaperKey = steps.find((s) => !isFinished(s) && isReaperStep(s))?.key;
   return (
     <div className="-mx-2 flex flex-col">
       {groups.map(([group, ss]) => {
@@ -331,7 +361,7 @@ export function StepList({
             <ol className="flex flex-col pl-4">
               {ss.map((s) => (
                 <li key={s.key}>
-                  <StepRow step={s} onTick={onTick} actions={actions} />
+                  <StepRow step={s} onTick={onTick} actions={actions} reaper={s.key === reaperKey} />
                 </li>
               ))}
             </ol>
@@ -355,7 +385,7 @@ export interface Actions {
   open: (id: string) => void;
   run: (entry: string) => void;
   onError: (e: string) => void;
-  /** Show Bring over inside its step (this machine's own checklist). */
+  /** Show Bring over and Reaper setup inside their steps (this machine's own checklist). */
   bringOver: boolean;
   /** Stop asking for these products on the machine (decision #65). */
   ignore?: (label: string, products: string[]) => void;
@@ -368,10 +398,13 @@ export function StepRow({
   step: s,
   onTick,
   actions,
+  reaper = false,
 }: {
   step: SetupStep;
   onTick: (key: string, done: boolean) => void;
   actions: Actions;
+  /** Show Reaper setup in this step. */
+  reaper?: boolean;
 }) {
   const finished = isFinished(s);
   const mark = MARK[s.status];
@@ -445,10 +478,15 @@ export function StepRow({
             )}
           </ul>
         )}
-        {!finished && actions.bringOver && s.automatic && s.title.startsWith("Bring over") && (
+        {!finished && actions.bringOver && isBringStep(s) && (
           <div className="mt-1.5 flex flex-col gap-2">
             <BringOver onError={actions.onError} />
             <BigFiles onError={actions.onError} />
+          </div>
+        )}
+        {!finished && actions.bringOver && reaper && (
+          <div className="mt-1.5">
+            <ReaperExtras onError={actions.onError} />
           </div>
         )}
         {!finished && s.after.length > 0 && (
@@ -524,14 +562,16 @@ function Report({
   );
 }
 
-/** A slim line on "This machine" offering setup, when this machine isn't at parity yet. */
+/** A line on "This machine" offering setup, when this machine isn't at parity yet. */
 export function SetupOffer({ onOpen }: { onOpen: () => void }) {
   return (
-    <div className="flex shrink-0 items-center gap-3 border-b border-line bg-accent/10 px-4 py-1.5 text-xs">
-      <span className="flex-1">
-        New machine? Patch Pilot can walk you through setting it up to match your Primary Rig.
-      </span>
-      <Button onClick={onOpen}>Set up this machine</Button>
-    </div>
+    <Notice
+      text="New machine? Patch Pilot can walk you through setting it up to match your Primary Rig."
+      actions={
+        <Button onClick={onOpen} className="h-6 shrink-0 px-2.5">
+          Set up this machine
+        </Button>
+      }
+    />
   );
 }
