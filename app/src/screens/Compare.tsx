@@ -9,11 +9,13 @@ import {
   ignoreSuggestions,
   isReapack,
   FORMAT_LABEL,
+  groupSummary,
   openVendorApp,
   planProgress,
   planTick,
   STATE_HINT,
   STATE_LABEL,
+  SUGGESTION_GROUP,
   vaultMatches,
   vaultRun,
   vendorApps,
@@ -26,6 +28,7 @@ import {
   type ParityState,
   type PluginFormat,
   type SetupProgress,
+  type SuggestionGroup,
   type VaultMatch,
   type VendorApp,
 } from "../api";
@@ -841,15 +844,42 @@ function SuggestionsNotice({
   const folders = useFolders("suggestions");
   const rows = data.comparison.rows.filter((r) => data.suggested.includes(r.product_id));
   if (!rows.length) return null;
-  // ReaPack scripts come by the thousand: one row for all of them.
-  const reapack = rows.filter((r) => isReapack(r.product_id));
-  const others = rows.filter((r) => !isReapack(r.product_id));
-  const n = others.length + (reapack.length ? 1 : 0);
-  const first = others[0]?.name ?? reapackLabel(reapack);
+  // By kind, then by unit: a script package or all of ReaPack is one row.
+  const groups = new Map<SuggestionGroup, Map<string, ComparisonRow[]>>();
+  for (const r of rows) {
+    const u = data.suggestion_units[r.product_id] ?? { group: "other", key: r.product_id, label: r.name };
+    const units = groups.get(u.group) ?? new Map<string, ComparisonRow[]>();
+    units.set(u.key, [...(units.get(u.key) ?? []), r]);
+    groups.set(u.group, units);
+  }
+  const order = data.machine.suggestion_groups.map(([g]) => g);
+  const n = data.machine.suggestions;
+  const firstRows = [...(groups.get(order[0])?.values() ?? [])][0] ?? [];
+  const firstLabel = firstRows[0] ? (data.suggestion_units[firstRows[0].product_id]?.label ?? firstRows[0].name) : "";
+  const what = n === 1 ? firstLabel : groupSummary(data.machine.suggestion_groups);
   const where = data.machine.is_this_machine ? "this machine" : data.machine.name;
   const source = data.machine.golden_source;
   const v = data.golden_version;
-  const othersGroups = others.length > FLAT_MAX ? subGroups(others) : null;
+  const unitRow = (key: string, rs: ComparisonRow[]) => {
+    const reapack = isReapack(rs[0].product_id);
+    if (rs.length === 1 && !reapack) return null;
+    return (
+      <li key={key} className="flex h-7 items-center gap-2 rounded-[5px] px-2 hover:bg-sel/50">
+        <span className="min-w-0 flex-1 truncate">
+          {reapack ? reapackLabel(rs) : data.suggestion_units[rs[0].product_id]?.label}
+          <span className="ml-2 text-dim">
+            {reapack ? "scripts, effects and themes; ReaPack installs them" : `${rs.length.toLocaleString()} files`}
+          </span>
+        </span>
+        <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore(rs)} className="h-6 px-2">
+          Ignore
+        </Button>
+        <Button disabled={suggest.busy} onClick={() => suggest.add(rs.map((r) => r.product_id))} className="h-6 px-2.5">
+          Add
+        </Button>
+      </li>
+    );
+  };
   const suggestionRow = (r: ComparisonRow, label?: string) => (
     <li
       key={r.product_id}
@@ -889,8 +919,8 @@ function SuggestionsNotice({
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">
           {source
-            ? `${n === 1 ? `${first} is` : `${n} things are`} new on ${where} since Primary Rig v${v}`
-            : `${n === 1 ? `${first} on ${where} could` : `${n} things on ${where} could`} go into the Primary Rig`}
+            ? `New on ${where} since Primary Rig v${v}: ${what}`
+            : `Could go into the Primary Rig from ${where}: ${what}`}
         </span>
         <span className="shrink-0 text-dim">{open ? "Hide" : "Review"}</span>
         <svg
@@ -935,54 +965,56 @@ function SuggestionsNotice({
             )}
           </div>
           <ul className="-mx-2">
-            {reapack.length > 0 && (
-              <li className="flex h-7 items-center gap-2 rounded-[5px] px-2 hover:bg-sel/50">
-                <span className="min-w-0 flex-1 truncate">
-                  {reapackLabel(reapack)}
-                  <span className="ml-2 text-dim">scripts, effects and themes; ReaPack installs them</span>
-                </span>
-                <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.ignore(reapack)} className="h-6 px-2">
-                  Ignore
-                </Button>
-                <Button
-                  disabled={suggest.busy}
-                  onClick={() => suggest.add(reapack.map((r) => r.product_id))}
-                  className="h-6 px-2.5"
-                >
-                  Add
-                </Button>
-              </li>
-            )}
-            {(othersGroups ?? [["", others] as const]).map(([vendor, rs]) =>
-              othersGroups ? (
-                <li key={vendor}>
+            {order.map((g) => {
+              const units = [...(groups.get(g) ?? new Map<string, ComparisonRow[]>()).entries()];
+              const singles = units.filter(([, rs]) => rs.length === 1 && !isReapack(rs[0].product_id)).map(([, rs]) => rs[0]);
+              const multi = units.filter(([, rs]) => rs.length > 1 || isReapack(rs[0].product_id));
+              const sub = singles.length > FLAT_MAX ? subGroups(singles) : null;
+              const count = data.machine.suggestion_groups.find(([x]) => x === g)?.[1] ?? units.length;
+              return (
+                <li key={g}>
                   <Folder
-                    title={vendor}
-                    count={rs.length}
+                    title={SUGGESTION_GROUP[g][2]}
+                    count={count}
                     className="rounded-[5px] px-2"
-                    open={folders.isOpen(vendor)}
-                    onToggle={() => folders.toggle(vendor)}
+                    open={folders.isOpen(g)}
+                    onToggle={() => folders.toggle(g)}
                   >
-                    {vendor === REAPER_FILES ? (
-                      <FolderTree
-                        node={buildTree(rs, reaperDirs, `files`)}
-                        folders={folders}
-                        indent={22}
-                        renderItems={(items, indent) => (
-                          <ul style={{ paddingLeft: indent - 8 }}>
-                            {items.map((r) => suggestionRow(r, r.name.split("/").pop()))}
-                          </ul>
-                        )}
-                      />
-                    ) : (
-                      <ul className="pl-4">{rs.map((r) => suggestionRow(r))}</ul>
-                    )}
+                    <ul className="pl-4">
+                      {multi.map(([key, rs]) => unitRow(key, rs))}
+                      {sub
+                        ? sub.map(([vendor, rs]) => (
+                            <li key={vendor}>
+                              <Folder
+                                title={vendor}
+                                count={rs.length}
+                                className="rounded-[5px] px-2"
+                                open={folders.isOpen(`${g}/${vendor}`)}
+                                onToggle={() => folders.toggle(`${g}/${vendor}`)}
+                              >
+                                {vendor === REAPER_FILES ? (
+                                  <FolderTree
+                                    node={buildTree(rs, reaperDirs, `${g}/files`)}
+                                    folders={folders}
+                                    indent={22}
+                                    renderItems={(items, indent) => (
+                                      <ul style={{ paddingLeft: indent - 8 }}>
+                                        {items.map((r) => suggestionRow(r, r.name.split("/").pop()))}
+                                      </ul>
+                                    )}
+                                  />
+                                ) : (
+                                  <ul className="pl-4">{rs.map((r) => suggestionRow(r))}</ul>
+                                )}
+                              </Folder>
+                            </li>
+                          ))
+                        : singles.map((r) => suggestionRow(r))}
+                    </ul>
                   </Folder>
                 </li>
-              ) : (
-                rs.map((r) => suggestionRow(r))
-              ),
-            )}
+              );
+            })}
           </ul>
         </div>
       )}

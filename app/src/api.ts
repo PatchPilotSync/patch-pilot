@@ -105,8 +105,36 @@ export interface MachineCard {
   golden_source: boolean;
   profile: { id: string; name: string } | null;
   score: number | null;
-  /** Products here the Primary Rig lacks or has older (not ignored). */
+  /** Things here the Primary Rig lacks or has older (not ignored); a script package or all of ReaPack counts once. */
   suggestions: number;
+  /** The same by kind, in display order. */
+  suggestion_groups: [SuggestionGroup, number][];
+}
+
+export type SuggestionGroup = "plugins" | "apps" | "scripts" | "templates" | "presets" | "themes" | "configs" | "other";
+
+/** What one suggestion counts as: a script with the rest of its folder, all of ReaPack as one. */
+export interface SuggestionUnit {
+  group: SuggestionGroup;
+  key: string;
+  label: string;
+}
+
+export const SUGGESTION_GROUP: Record<SuggestionGroup, [one: string, many: string, title: string]> = {
+  plugins: ["plug-in", "plug-ins", "Plug-ins"],
+  apps: ["app", "apps", "Apps"],
+  scripts: ["script", "scripts", "Scripts"],
+  templates: ["template", "templates", "Templates"],
+  presets: ["preset", "presets", "Presets"],
+  themes: ["theme", "themes", "Themes"],
+  configs: ["setting", "settings", "Settings"],
+  other: ["other thing", "other things", "Other"],
+};
+
+/** "3 plug-ins, 12 scripts and 2 templates". */
+export function groupSummary(groups: [SuggestionGroup, number][]): string {
+  const parts = groups.map(([g, n]) => `${n.toLocaleString()} ${SUGGESTION_GROUP[g][n === 1 ? 0 : 1]}`);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : (parts[0] ?? "");
 }
 
 export interface MachinesView {
@@ -169,6 +197,8 @@ export interface MachineComparison {
   comparison: Comparison;
   /** Product IDs of rows that could go into the Primary Rig, not ignored. */
   suggested: string[];
+  /** What each of `suggested` counts as, by product ID. */
+  suggestion_units: Record<string, SuggestionUnit>;
 }
 
 export type Phase = "foundation" | "vendor_handoff" | "manual";
