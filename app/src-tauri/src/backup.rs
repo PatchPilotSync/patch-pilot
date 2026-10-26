@@ -284,18 +284,21 @@ pub async fn restore_backup(
     let dir = backup_dir(&settings()?).ok_or("Pick the folder your backups are in first.")?;
     let this = this_machine()?;
     let blobs = app_dir()?.join("blobs");
+    let handle = app.clone();
     let report = tauri::async_runtime::spawn_blocking(move || {
         let b = backup::load_backup(&dir, &folder, &stamp)?;
-        let mut store = open(&db_path()?)?;
-        backup::restore(
-            &mut store,
-            &blobs,
-            &this,
-            &b,
-            &keys,
-            vault_root().as_deref(),
-            patchpilot_local::now(),
-        )
+        crate::autosync::restoring(&handle, &b, || {
+            let mut store = open(&db_path()?)?;
+            backup::restore(
+                &mut store,
+                &blobs,
+                &this,
+                &b,
+                &keys,
+                vault_root().as_deref(),
+                patchpilot_local::now(),
+            )
+        })
     })
     .await
     .map_err(|e| e.to_string())??;

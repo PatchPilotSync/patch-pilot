@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use patchpilot_local::FolderWatch;
 use patchpilot_local::autosync::{self, Conflict, Placed, SyncReport};
-use patchpilot_local::backup::{self, backup_dir};
+use patchpilot_local::backup::{self, Backup, backup_dir};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -380,6 +380,27 @@ pub async fn settle_conflict(
     .map_err(|e| e.to_string())??;
     let _ = app.emit("data-changed", ());
     sync_view(app).await
+}
+
+/// Run Sync with's `restore` of another machine's `backup` with no look
+/// running, then note what now matches it as in sync, so a later change on
+/// that machine replaces it here instead of being asked about as an edit.
+pub fn restoring<T>(
+    app: &AppHandle,
+    backup: &Backup,
+    restore: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let state = app.state::<SyncState>();
+    let _one = state.running.lock().map_err(|e| e.to_string())?;
+    let out = restore()?;
+    if enabled() {
+        let app_dir = app_dir()?;
+        let store = open(&db_path()?)?;
+        let mut sync = autosync::load_state(&app_dir);
+        autosync::note_in_sync(&store, &this_machine()?, backup, &mut sync)?;
+        autosync::save_state(&app_dir, &sync)?;
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

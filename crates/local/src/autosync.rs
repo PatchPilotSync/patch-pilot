@@ -715,6 +715,41 @@ pub fn sync_in(
     Ok(report)
 }
 
+/// After files from `backup` (another machine's) were written here some
+/// other way, such as Sync with: every file here that now matches the
+/// backup's copy is in sync with it, so a later change there replaces it
+/// like any synced file instead of being asked about as an edit here.
+pub fn note_in_sync(
+    store: &Store,
+    this: &str,
+    backup: &Backup,
+    state: &mut SyncState,
+) -> Result<(), String> {
+    if backup.machine_id == this {
+        return Ok(());
+    }
+    let machine = store.latest_manifest(this).map_err(|e| e.to_string())?;
+    let mut dirs: HashMap<String, Option<PathBuf>> = HashMap::new();
+    for f in backup.files.iter().filter(|f| syncs(&f.root)) {
+        let dir = dirs
+            .entry(f.root.clone())
+            .or_insert_with(|| bring::root_dir(machine.as_ref(), &f.root))
+            .clone();
+        if hash_here(dir.as_deref(), &f.root, &f.rel).as_ref() != Some(&f.hash) {
+            continue;
+        }
+        let key = f.key().to_lowercase();
+        state
+            .seen
+            .entry(backup.machine_id.clone())
+            .or_default()
+            .insert(key.clone(), f.hash.clone());
+        state.synced.insert(key.clone(), f.hash.clone());
+        state.conflicts.retain(|c| c.key() != key);
+    }
+    Ok(())
+}
+
 fn source<'a>(report: &'a mut SyncReport, id: &str) -> &'a mut SourceSummary {
     let i = report
         .sources
@@ -1387,5 +1422,37 @@ mod tests {
         sync_in(&mut store, &blobs, "pc", &dir, &mut state, 6).unwrap();
         assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums"));
         assert_eq!(read(&pc, COPY).as_deref(), Some("drums"));
+    }
+    #[test]
+    fn files_synced_by_hand_stay_in_sync_after() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac REAPER");
+        let pc = tmp.path().join("PC REAPER");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        let mut store = Store::open_in_memory().unwrap();
+        let mut state = SyncState::default();
+        put(&mac, DRUMS, "drums v1");
+        put(&pc, DRUMS, "drums v1");
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS], 1);
+        scan(&mut store, "pc", "Studio PC", &pc, &[DRUMS], 1);
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
+
+        // Changed on the Mac, and copied here by hand (Sync with).
+        put(&mac, DRUMS, "drums v2");
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS], 3);
+        back_up(&store, "mac", None, &dir, 2_000).unwrap();
+        put(&pc, DRUMS, "drums v2");
+        let b = backup::latest(&backup::subdirs(&dir)[0]).unwrap();
+        note_in_sync(&store, "pc", &b, &mut state).unwrap();
+
+        // The next change on the Mac comes over on its own, not as a choice.
+        put(&mac, DRUMS, "drums v3");
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS], 4);
+        back_up(&store, "mac", None, &dir, 3_000).unwrap();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 5).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (1, 0), "{r:?}");
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums v3"));
     }
 }

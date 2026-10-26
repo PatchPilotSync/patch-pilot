@@ -4,6 +4,14 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.17 - 2026-10-26
+
+### Fixed
+
+- "Sync with" always uses your other machine's latest backup. Before, it kept the backup that was newest when you opened the window, so it could fall several backups behind and bring over older files, such as older Collection names.
+- While Keep Files in Sync is on, "Sync with" offers only each machine's latest backup.
+- Files you bring over with "Sync with" now stay in sync afterwards: your other machine's next change replaces them, instead of being treated as a change you made here.
+
 ## 0.4.16 - 2026-10-26
 
 ### Fixed

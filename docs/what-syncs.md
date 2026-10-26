@@ -40,3 +40,10 @@ machines too, as long as their copy wasn't edited there.
 | Collection tags on samples outside the User Library | Live keeps them beside the samples, in folders Patch Pilot doesn't sync. |
 | Plug-ins tagged into Collections | The tag travels, but Live only shows it once the plug-in is installed; Windows and Mac plug-in names can differ. |
 | Installer Vault index | Restored on purpose from the backup, not synced. |
+
+## Sync with
+
+"Sync with" on the Sync & backup line brings over another machine's latest
+backup by hand, for example right after linking. While syncing is on it only
+offers each machine's latest backup, and what it brings over stays in sync
+afterwards like anything placed on its own (decision #78).
