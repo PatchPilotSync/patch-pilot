@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use patchpilot_core::ItemKind;
+use patchpilot_core::{ItemKind, Manifest, ProductId};
 use serde::{Deserialize, Serialize};
 
 use crate::reapack::is_reapack;
@@ -82,9 +82,34 @@ pub struct SuggestionUnit {
     pub label: String,
 }
 
+/// Reaper files that only work together on one machine
+/// ([`crate::reaper_links::units`]): each linked file's product mapped to the
+/// path of its unit's first file, so a script and the library it loads from
+/// another folder count once. Empty for scans made before links were
+/// recorded; folders alone then decide.
+#[derive(Debug, Clone, Default)]
+pub struct Packages(BTreeMap<ProductId, String>);
+
+impl Packages {
+    pub fn of(m: &Manifest) -> Self {
+        let names: BTreeMap<&ProductId, &str> = m
+            .products
+            .iter()
+            .map(|p| (&p.canonical_id, p.name.as_str()))
+            .collect();
+        Self(
+            crate::reaper_links::units(m)
+                .into_iter()
+                .filter(|(file, unit)| file != unit)
+                .filter_map(|(file, unit)| Some((file, (*names.get(&unit)?).to_owned())))
+                .collect(),
+        )
+    }
+}
+
 /// The [`SuggestionUnit`] a suggestion row belongs to.
-pub fn suggestion_unit(r: &ComparisonRow) -> SuggestionUnit {
-    let (key, label) = unit_of(r);
+pub fn suggestion_unit(r: &ComparisonRow, packages: &Packages) -> SuggestionUnit {
+    let (key, label) = unit_of(r, packages);
     SuggestionUnit {
         group: SuggestionGroup::of(r),
         key,
@@ -95,8 +120,9 @@ pub fn suggestion_unit(r: &ComparisonRow) -> SuggestionUnit {
 /// What counts once among suggestions, and its name: all of ReaPack is one
 /// thing (it installs them itself), and a Reaper script or theme counts with
 /// the rest of its folder, since script packages put many files in one
-/// folder. Other rows count on their own.
-fn unit_of(r: &ComparisonRow) -> (String, String) {
+/// folder (the folder of its package's first file, when [`Packages`] links
+/// it to files elsewhere). Other rows count on their own.
+fn unit_of(r: &ComparisonRow, packages: &Packages) -> (String, String) {
     if is_reapack(&r.product_id) {
         return ("reapack".to_owned(), REAPACK_GROUP.to_owned());
     }
@@ -106,7 +132,8 @@ fn unit_of(r: &ComparisonRow) -> (String, String) {
         // `Scripts/ReaTeam Scripts/Items Editing/foo.lua`. A file right in
         // `Scripts/` is its own unit; a theme's images sit in a folder named
         // like its `.ReaperTheme` file.
-        if let Some((dir, file)) = r.name.rsplit_once('/') {
+        let path = packages.0.get(&r.product_id).unwrap_or(&r.name);
+        if let Some((dir, file)) = path.rsplit_once('/') {
             let (unit, label) = match dir.split_once('/') {
                 Some(_) => (dir.to_owned(), dir.rsplit('/').next().unwrap_or(dir)),
                 None => {
@@ -124,13 +151,14 @@ fn unit_of(r: &ComparisonRow) -> (String, String) {
 /// [`SuggestionUnit`] once. Groups without any are left out.
 pub fn suggestion_summary<'a>(
     rows: impl IntoIterator<Item = &'a ComparisonRow>,
+    packages: &Packages,
 ) -> Vec<(SuggestionGroup, usize)> {
     let mut units: BTreeMap<SuggestionGroup, BTreeSet<String>> = BTreeMap::new();
     for r in rows {
         units
             .entry(SuggestionGroup::of(r))
             .or_default()
-            .insert(unit_of(r).0);
+            .insert(unit_of(r, packages).0);
     }
     units.into_iter().map(|(g, u)| (g, u.len())).collect()
 }
@@ -203,7 +231,7 @@ impl Observed {
             score: c.score,
             gaps: gaps(c).map(|r| (gap_keys(r), gap_sentence(r))).collect(),
             suggestions: suggestions(c)
-                .map(|r| (row_suggestion_key(r), unit_of(r).1))
+                .map(|r| (row_suggestion_key(r), unit_of(r, &Packages::default()).1))
                 .filter(|(k, _)| !ignored.contains(k))
                 .collect(),
         }
@@ -545,7 +573,7 @@ mod tests {
         });
         let c = compare(&golden(), &TargetProfile::default(), &m);
         assert_eq!(
-            suggestion_summary(suggestions(&c)),
+            suggestion_summary(suggestions(&c), &Packages::default()),
             [
                 (SuggestionGroup::Plugins, 1),
                 (SuggestionGroup::Scripts, 3),
@@ -554,5 +582,30 @@ mod tests {
         );
         let names = observe(&m, true, &BTreeSet::new()).suggestions;
         assert!(names.iter().any(|(_, n)| n == "Items Editing"), "{names:?}");
+    }
+
+    #[test]
+    fn files_linked_across_folders_count_once() {
+        let files = [
+            ("reaper-script/tool", "Scripts/Tools/tool.lua"),
+            ("reaper-script/lib", "Scripts/Lib/core.lua"),
+        ];
+        let m = studio(|m| {
+            for (id, rel) in files {
+                add_product(m, id, rel, "1");
+                let item = m.items.last_mut().unwrap();
+                item.path =
+                    patchpilot_core::PortablePath::logical(crate::reaper::REAPER_RESOURCES, rel);
+                let other = files.iter().find(|(_, r)| *r != rel).unwrap().1;
+                item.needs_files = vec![other.to_owned()];
+            }
+        });
+        let c = compare(&golden(), &TargetProfile::default(), &m);
+        let scripts = |p: &Packages| suggestion_summary(suggestions(&c), p);
+        assert_eq!(
+            scripts(&Packages::default()),
+            [(SuggestionGroup::Scripts, 2)]
+        );
+        assert_eq!(scripts(&Packages::of(&m)), [(SuggestionGroup::Scripts, 1)]);
     }
 }

@@ -13,6 +13,7 @@ becomes its release notes, which the app shows when it offers that update
 - One button for all of them: "Bring over all Reaper scripts" in Compare (or "Copy all Reaper scripts here" when you look at another machine), and "All scripts" on the Bring over card, bring every script and ReaPack package at once, each with the files it needs. Anything too large to send is left out and counted.
 - In Bring over, every folder has a checkbox, and ticking a script ticks the files it needs.
 - Compare shows when a script is missing files it needs on a machine.
+- A script that loads files from another folder (a shared library, a theme's images) now counts once among the suggestions for the Primary Rig, together with those files. This needs a rescan with this version on the machine that has them.
 
 ### Fixed
 
