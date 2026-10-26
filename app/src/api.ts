@@ -406,12 +406,23 @@ export interface BackupSet {
   backups: BackupInfo[];
 }
 
+/** A file left out of a backup, and why. */
+export interface SkippedFile {
+  name: string;
+  /** Where it is on this machine. */
+  path: string;
+  /** Its size, when it was too big to back up. */
+  too_big: number | null;
+  /** Why it couldn't be read, otherwise. */
+  error: string | null;
+}
+
 export interface BackupReport {
   copied: number;
   /** Earlier copies moved to Versions. */
   versioned: number;
   files: number;
-  skipped: string[];
+  skipped: SkippedFile[];
   stamp: string | null;
   /** Nothing changed since the last backup. */
   unchanged: boolean;

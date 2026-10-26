@@ -19,6 +19,7 @@ import {
   type FileToBring,
   type RestoreReport,
   type RestoreView,
+  type SkippedFile,
   type SyncConflict,
   type SyncSource,
   type SyncView,
@@ -27,6 +28,7 @@ import { FolderPicker } from "./BigFiles";
 import { GitHubSetup } from "./GitHub";
 import { groupByApp, summaryOf } from "./BringOver";
 import { Button, Notice, timeAgo } from "./ui";
+import { formatSize } from "./screens/VaultTriage";
 
 /**
  * Sync and backup (decisions #67 and #70): one line on This machine. Once a
@@ -422,16 +424,42 @@ function Details({
           {last.unchanged
             ? `Nothing changed since the last backup (${plural(last.files, "file")}).`
             : `Last backup copied ${plural(last.copied, "changed file")}${last.versioned ? ` and kept ${plural(last.versioned, "earlier copy", "earlier copies")}` : ""}.`}
-          {last.skipped.length > 0 && (
-            <span className="text-warn" title={last.skipped.join("\n")}>
-              {" "}
-              {plural(last.skipped.length, "file")} skipped (too big, or couldn't be read).
-            </span>
-          )}
         </p>
       )}
+      {last && last.skipped.length > 0 && <Skipped files={last.skipped} />}
       {sync?.on && <SyncSummary sync={sync} />}
       <Restore sets={view.sets} thisMachine={view.this_machine} onError={onError} />
+    </div>
+  );
+}
+
+/** "2 files left out", opening to say which, why, and what to do. */
+function Skipped({ files }: { files: SkippedFile[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="text-[11px]">
+      <Button variant="link" className="h-5 px-0 text-warn" onClick={() => setOpen(!open)}>
+        {plural(files.length, "file")} left out of the backup {open ? "▾" : "▸"}
+      </Button>
+      {open && (
+        <ul className="mt-1 space-y-1.5">
+          {files.map((f) => (
+            <li key={f.path} className="min-w-0">
+              <div className="truncate font-medium" title={f.path}>
+                {f.name}
+              </div>
+              <div className="truncate text-dim" title={f.path}>
+                {f.path}
+              </div>
+              <div className="text-dim">
+                {f.too_big !== null
+                  ? `Too big to back up (${formatSize(f.too_big)}), so it stays on this machine only. Copy it over yourself if another machine needs it.`
+                  : `Couldn't be read: ${f.error ?? "unknown error"}. Close any app that has it open, then Back up now.`}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
