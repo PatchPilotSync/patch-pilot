@@ -522,10 +522,55 @@ fn stamps(folder: &Path) -> Vec<String> {
 }
 
 fn read_backup(folder: &Path, stamp: &str) -> Option<Backup> {
-    let bytes = std::fs::read(folder.join(BACKUPS).join(format!("{stamp}.json"))).ok()?;
-    let mut b: Backup = serde_json::from_slice(&bytes).ok()?;
-    b.folder = folder.to_owned();
-    Some(b)
+    try_read_backup(folder, stamp, 1).ok()
+}
+
+/// The backup `stamp` in `folder`, or why it can't be read, in words a user
+/// can act on. A cloud app can hold a file it's syncing for a moment
+/// (Dropbox on Windows does) or hand over a half-downloaded one, so a failed
+/// read is tried `tries` times, a short while apart.
+fn try_read_backup(folder: &Path, stamp: &str, tries: u32) -> Result<Backup, String> {
+    let path = folder.join(BACKUPS).join(format!("{stamp}.json"));
+    let mut last = String::new();
+    for attempt in 0..tries.max(1) {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(400 * u64::from(attempt)));
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(format!(
+                    "The backup from {stamp} isn't in the backup folder anymore. Pick another one."
+                ));
+            }
+            Err(e) => {
+                last = format!(
+                    "Can't open the backup from {stamp} yet. Your cloud folder's app is probably \
+                     still downloading or syncing it; try again in a minute. ({e})"
+                );
+                continue;
+            }
+        };
+        match serde_json::from_slice::<Backup>(&bytes) {
+            Ok(mut b) => {
+                b.folder = folder.to_owned();
+                return Ok(b);
+            }
+            // Cut short: the cloud app hasn't finished downloading it.
+            Err(e) if e.is_eof() => {
+                last = format!(
+                    "The backup from {stamp} is still downloading. Try again once your cloud \
+                     folder's app has finished syncing."
+                );
+            }
+            Err(e) => {
+                return Err(format!(
+                    "The backup from {stamp} is damaged, so it can't be used. Pick another one. ({e})"
+                ));
+            }
+        }
+    }
+    Err(last)
 }
 
 /// The newest backup in `folder` that can be read.
@@ -681,8 +726,7 @@ pub fn load_backup(dir: &Path, folder: &str, stamp: &str) -> Result<Backup, Stri
     if !safe_rel(folder) || folder.contains('/') || !is_stamp(stamp) {
         return Err("Not a backup.".into());
     }
-    let b = read_backup(&dir.join(folder), stamp)
-        .ok_or_else(|| format!("Can't read the backup from {stamp}."))?;
+    let b = try_read_backup(&dir.join(folder), stamp, 3)?;
     if b.format > FORMAT_VERSION {
         return Err("That backup was made by a newer Patch Pilot. Update this one first.".into());
     }
@@ -1138,6 +1182,29 @@ mod tests {
         assert!(!safe_rel("Reaper/../../x"));
         assert!(is_stamp(&stamp(0)));
         assert_eq!(stamp(0), "1970-01-01 00.00.00");
+    }
+
+    #[test]
+    fn unreadable_backups_say_why() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backups = tmp.path().join("PC").join(BACKUPS);
+        std::fs::create_dir_all(&backups).unwrap();
+        let err = |stamp: &str| load_backup(tmp.path(), "PC", stamp).unwrap_err();
+
+        assert!(err("2026-10-26 15.44.56").contains("isn't in the backup folder anymore"));
+        // Half downloaded by the cloud app.
+        std::fs::write(
+            backups.join("2026-10-26 15.44.57.json"),
+            br#"{"format": 1, "made_at""#,
+        )
+        .unwrap();
+        assert!(err("2026-10-26 15.44.57").contains("still downloading"));
+        std::fs::write(
+            backups.join("2026-10-26 15.44.58.json"),
+            b"{\"format\": \"one\"}",
+        )
+        .unwrap();
+        assert!(err("2026-10-26 15.44.58").contains("damaged"));
     }
 
     #[test]

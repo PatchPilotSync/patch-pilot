@@ -564,14 +564,28 @@ export function Restore({
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<RestoreReport | null>(null);
+  // Why the chosen backup can't be listed (still downloading, gone, damaged);
+  // shown under it rather than as an error across the window.
+  const [unreadable, setUnreadable] = useState<string | null>(null);
   const chosen = choices.find((c) => c.id === pick);
+  const folder = chosen?.set.folder;
+  const stamp = chosen?.stamp;
 
+  // Keyed on the backup, not `chosen`: the list of backups reloads with every
+  // sync, and a 15 MB backup shouldn't be read again each time.
   const load = useCallback(() => {
-    if (!chosen) return;
-    backupRestoreList(chosen.set.folder, chosen.stamp).then(setList, (e) => onError(String(e)));
-  }, [chosen, onError]);
+    if (folder === undefined || stamp === undefined) return;
+    backupRestoreList(folder, stamp).then(
+      (l) => {
+        setUnreadable(null);
+        setList(l);
+      },
+      (e) => setUnreadable(String(e)),
+    );
+  }, [folder, stamp]);
   useEffect(() => {
     setList(null);
+    setUnreadable(null);
     setSkipped(new Set());
     load();
   }, [load]);
@@ -622,6 +636,14 @@ export function Restore({
           </Button>
         )}
       </div>
+      {unreadable && (
+        <p className="text-[11px] text-warn">
+          {unreadable}{" "}
+          <Button variant="link" onClick={load} className="h-auto p-0 text-[11px]">
+            Try again
+          </Button>
+        </p>
+      )}
       {list && files.length === 0 && !result && (
         <p className="text-[11px] text-ok">This machine already has everything in that backup.</p>
       )}

@@ -195,11 +195,18 @@ export function Tray() {
         <span className="flex-1" />
         {behind ? (
           <>
-            <Button variant="quiet" title="Open the full window" onClick={() => openMainWindow(behind.id)}>
+            <Button
+              variant={behind.is_this_machine ? "quiet" : "primary"}
+              title="Open the full window"
+              onClick={() => openMainWindow(behind.id)}
+            >
               <ExpandIcon />
               Expand
             </Button>
-            <Button onClick={() => openMainWindow(behind.id, true)}>Get Up To Speed</Button>
+            {/* Getting another machine up to speed happens on that machine. */}
+            {behind.is_this_machine && (
+              <Button onClick={() => openMainWindow(behind.id, true)}>Get Up To Speed</Button>
+            )}
           </>
         ) : (
           <Button title="Open the full window" onClick={() => openMainWindow()}>

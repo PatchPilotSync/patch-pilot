@@ -507,7 +507,20 @@ function Diff({
             {refreshing && " · updating…"}
           </p>
         </div>
-        {hasWork && <Button onClick={onPlan}>Get Up To Speed</Button>}
+        {hasWork &&
+          (machine.is_this_machine ? (
+            <Button onClick={onPlan}>Get Up To Speed</Button>
+          ) : (
+            // Installing happens on that machine, so nothing here asks for a click.
+            <div className="flex min-w-0 max-w-80 shrink flex-col items-end gap-0.5 text-right text-[11px] text-dim">
+              <span className="max-w-full truncate" title={`Open Patch Pilot on ${machine.name} to get it up to speed.`}>
+                Get Up To Speed runs on that machine
+              </span>
+              <Button variant="link" onClick={onPlan} className="h-5 px-1.5 text-[11px]">
+                See its checklist
+              </Button>
+            </div>
+          ))}
       </header>
 
       {c.reasons.length > 0 ? (
@@ -850,7 +863,7 @@ function TemplatesNotice({
         </p>
         {anyInGolden && (
           <Button variant="link" onClick={onPlan} className="h-6 shrink-0 px-2">
-            Open Up To Speed
+            {data.machine.is_this_machine ? "Open Up To Speed" : "See its checklist"}
           </Button>
         )}
       </div>
@@ -1510,11 +1523,13 @@ function PlanView({
     <div className="flex flex-col gap-3 px-5 py-4">
       <header className="flex items-center gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">Up To Speed: {name}</h1>
+          <h1 className="truncate text-sm font-semibold">
+            {here ? `Up To Speed: ${name}` : `${name}'s checklist`}
+          </h1>
           <p className="truncate text-xs text-dim">
             {here
               ? "Work down the list. Steps tick themselves off as Patch Pilot sees them done."
-              : `Steps tick themselves off as ${name} finds them done. Bring files over from Patch Pilot there.`}
+              : `To work through it, open Patch Pilot on ${name}. Steps tick themselves off as ${name} finds them done.`}
           </p>
         </div>
         {progress && (
