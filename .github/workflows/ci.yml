@@ -35,6 +35,8 @@ jobs:
         run: cargo test --workspace --locked
       - name: Benchmark (first scan of 500 plug-ins, budget 60 s)
         run: cargo test -p patchpilot-scanner --test bench --locked -- --ignored --nocapture
+      - name: Benchmark (opening a big rig with a long history, budget 5 s)
+        run: cargo test -p patchpilot-local --test bench --locked -- --ignored --nocapture
 
   msrv:
     name: MSRV (rust-version in Cargo.toml)

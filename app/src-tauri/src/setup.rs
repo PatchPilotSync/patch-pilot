@@ -137,12 +137,10 @@ pub(crate) fn start(
         .golden(None)
         .map_err(err)?
         .ok_or("no Primary Rig yet")?;
-    let baseline = store
-        .snapshots(this)
+    let (baseline, _) = store
+        .latest_snapshot(this)
         .map_err(err)?
-        .first()
-        .ok_or("scan this machine first")?
-        .id;
+        .ok_or("scan this machine first")?;
     store.set_machine_profile(this, profile_id).map_err(err)?;
     let state = SetupState {
         machine_id: this.to_owned(),

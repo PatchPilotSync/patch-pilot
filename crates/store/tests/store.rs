@@ -191,6 +191,11 @@ fn history_lists_snapshots_newest_first_with_changes() {
     assert_eq!(oldest.parent_id, None);
     assert_eq!(oldest.added, manifest.items.len() as u64);
     assert_eq!(oldest.removed, 0);
+    assert_eq!(
+        store.latest_snapshot(&id).unwrap(),
+        Some((newest.id, newest.created_at))
+    );
+    assert_eq!(store.latest_snapshot("someone-else").unwrap(), None);
 }
 
 #[test]

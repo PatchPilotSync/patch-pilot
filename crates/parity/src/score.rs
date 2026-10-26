@@ -5,7 +5,7 @@
 //! weight. The score is earned / possible, 0–100. Reasons group the lost
 //! weight so the UI can say "92% · 3 plug-ins your templates need are missing".
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use patchpilot_core::{ItemKind, Manifest, PluginFormat, ProductId, TargetProfile};
 
@@ -100,11 +100,21 @@ pub fn score_machine(
     let mut possible = 0.0;
     // (reason key, product, lost weight)
     let mut losses: Vec<(ReasonKey, &ProductDiff, f64)> = Vec::new();
+    // Each product's kind is its first item's.
+    let mut kinds: HashMap<&ProductId, ItemKind> = HashMap::new();
+    for item in &target.items {
+        if let Some(id) = &item.product_id {
+            kinds.entry(id).or_insert(item.kind);
+        }
+    }
     for p in &diff.products {
         let Some(credit) = credit(p.state) else {
             continue;
         };
-        let kind = product_kind(&target, &p.product_id);
+        let kind = kinds
+            .get(&p.product_id)
+            .copied()
+            .unwrap_or(ItemKind::Plugin);
         let needed = template_deps.contains(&p.product_id);
         let mut w = weights.for_kind(kind);
         if needed {
@@ -163,8 +173,17 @@ pub fn score_machine(
 /// Primary Rig filtered through a target profile.
 pub fn apply_profile(golden: &Manifest, profile: &TargetProfile) -> Manifest {
     let mut target = golden.clone();
+    let products: HashMap<_, _> = golden
+        .products
+        .iter()
+        .rev()
+        .map(|p| (&p.canonical_id, p))
+        .collect();
     target.items.retain(|item| {
-        let product = item.product_id.as_ref().and_then(|id| golden.product(id));
+        let product = item
+            .product_id
+            .as_ref()
+            .and_then(|id| products.get(id).copied());
         profile.includes(item, product)
     });
     let kept: BTreeSet<_> = target
@@ -174,13 +193,6 @@ pub fn apply_profile(golden: &Manifest, profile: &TargetProfile) -> Manifest {
         .collect();
     target.products.retain(|p| kept.contains(&p.canonical_id));
     target
-}
-
-fn product_kind(m: &Manifest, id: &ProductId) -> ItemKind {
-    m.items
-        .iter()
-        .find(|i| i.product_id.as_ref() == Some(id))
-        .map_or(ItemKind::Plugin, |i| i.kind)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

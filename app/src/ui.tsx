@@ -1,4 +1,4 @@
-import { useCallback, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 export function Button({
   variant = "primary",
@@ -40,6 +40,34 @@ export function Mark({ size = 16, className = "" }: { size?: number; className?:
         d="M7 2h2v1h-2zM7 3h2v1h-2zM7 5h2v1h-2zM6 6h4v1h-4zM4 7h8v1h-8zM1 8h14v1h-14zM0 9h1v1h-1zM1 9h6v1h-6zM7 9h2v1h-2zM9 9h6v1h-6zM15 9h1v1h-1zM7 10h2v1h-2zM7 11h2v1h-2zM7 12h2v1h-2zM5 13h6v1h-6zM4 14h1v1h-1zM5 14h2v1h-2zM7 14h2v1h-2zM9 14h2v1h-2zM11 14h1v1h-1z"
       />
     </svg>
+  );
+}
+
+/**
+ * What a window or pane shows while its first data loads, so it's never blank:
+ * the logo, one status line and a moving bar. After a few seconds a second
+ * line says it's still going. `compact` sits at the top of a pane instead of
+ * the middle of a window.
+ */
+export function Loading({ text, compact = false }: { text: string; compact?: boolean }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`flex flex-col items-center gap-3 text-center ${compact ? "px-6 pt-[12vh]" : "h-full justify-center px-6 pb-10"}`}
+    >
+      {!compact && <Mark size={32} className="text-accent-text" />}
+      <p className="text-dim">{text}</p>
+      <div className="pp-loading-bar h-[3px] w-28 overflow-hidden rounded-full bg-track" />
+      <p className={`text-[11px] text-dim transition-opacity duration-500 ${slow ? "opacity-100" : "opacity-0"}`}>
+        Still working. A big rig can take a moment.
+      </p>
+    </div>
   );
 }
 

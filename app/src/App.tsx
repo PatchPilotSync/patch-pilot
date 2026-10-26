@@ -29,7 +29,7 @@ import { Scanning } from "./screens/Scanning";
 import { Setup, SetupOffer } from "./screens/Setup";
 import { Welcome } from "./screens/Welcome";
 import { resetTour, Tour, tourPending } from "./Tour";
-import { Mark } from "./ui";
+import { Loading, Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
 type Tab = "rig" | "compare" | "history" | "vault" | "setup";
@@ -233,7 +233,9 @@ export default function App() {
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-auto">
-        {overview === null ? null : scanning ? (
+        {overview === null ? (
+          <Loading text="Loading your rig…" />
+        ) : scanning ? (
           <Scanning progress={progress} />
         ) : !overview.machine || replay ? (
           <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />

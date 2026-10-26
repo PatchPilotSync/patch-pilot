@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 
 use patchpilot_core::{
-    Confidence, Item, ItemKind, Manifest, Os, PluginFormat, PortablePath, ProductId, TargetProfile,
+    Confidence, Item, ItemKind, Manifest, Os, PluginFormat, PortablePath, Product, ProductId,
+    TargetProfile,
 };
 use serde::Serialize;
 
@@ -82,19 +83,28 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
     let target = apply_profile(&golden, profile);
     let target_files = files_by_path(&target);
     let machine_files = files_by_path(&machine);
+    // Looked up once per row; scanning every item for every row took most of
+    // a second on a big rig.
+    let (target_items, machine_items) = (items_by_product(&target), items_by_product(&machine));
+    let (target_products, machine_products) = (products_by_id(&target), products_by_id(&machine));
+    let golden_products = products_by_id(&golden);
 
     let rows = score
         .diff
         .products
         .iter()
         .map(|d| {
-            let product = target
-                .product(&d.product_id)
-                .or_else(|| machine.product(&d.product_id));
-            let sides = |m: &Manifest| -> Vec<ItemSide> {
-                m.items
+            let in_target = target_products.get(&d.product_id).copied();
+            let product = in_target.or_else(|| machine_products.get(&d.product_id).copied());
+            let target_side = target_items
+                .get(&d.product_id)
+                .map_or(&[][..], Vec::as_slice);
+            let machine_side = machine_items
+                .get(&d.product_id)
+                .map_or(&[][..], Vec::as_slice);
+            let sides = |items: &[&Item]| -> Vec<ItemSide> {
+                items
                     .iter()
-                    .filter(|i| i.product_id.as_ref() == Some(&d.product_id))
                     .map(|i| ItemSide {
                         format: i.format,
                         platform: i.platform,
@@ -104,11 +114,7 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
                     })
                     .collect()
             };
-            let items: Vec<_> = [&target, &machine]
-                .into_iter()
-                .flat_map(|m| m.items.iter())
-                .filter(|i| i.product_id.as_ref() == Some(&d.product_id))
-                .collect();
+            let items: Vec<_> = target_side.iter().chain(machine_side).copied().collect();
             let (works_with, works_with_missing) =
                 works_with(&items, &target_files, &machine_files);
             ComparisonRow {
@@ -126,12 +132,11 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
                     .min_by_key(|c| confidence_rank(*c))
                     .unwrap_or_default(),
                 needed_by_templates: needed.contains(&d.product_id),
-                golden_items: sides(&target),
-                machine_items: sides(&machine),
+                golden_items: sides(target_side),
+                machine_items: sides(machine_side),
                 works_with,
                 works_with_missing,
-                left_out: target.product(&d.product_id).is_none()
-                    && golden.product(&d.product_id).is_some(),
+                left_out: in_target.is_none() && golden_products.contains_key(&d.product_id),
             }
         })
         .collect();
@@ -143,6 +148,28 @@ pub fn compare(golden: &Manifest, profile: &TargetProfile, machine: &Manifest) -
         templates: template_readiness(&machine),
         unresolved: score.diff.unresolved.len(),
     }
+}
+
+type ItemsByProduct<'a> = HashMap<&'a ProductId, Vec<&'a Item>>;
+
+/// Each product's items, in manifest order.
+fn items_by_product(m: &Manifest) -> ItemsByProduct<'_> {
+    let mut by: ItemsByProduct<'_> = HashMap::new();
+    for item in &m.items {
+        if let Some(id) = &item.product_id {
+            by.entry(id).or_default().push(item);
+        }
+    }
+    by
+}
+
+/// Products by ID; the first wins, like [`Manifest::product`].
+fn products_by_id(m: &Manifest) -> HashMap<&ProductId, &Product> {
+    m.products
+        .iter()
+        .rev()
+        .map(|p| (&p.canonical_id, p))
+        .collect()
 }
 
 /// Items at a logical path, by `root/rel` lowercased.

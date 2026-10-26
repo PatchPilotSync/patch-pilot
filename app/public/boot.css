@@ -1,0 +1,53 @@
+/* Painted before the app's script and styles load, so a window never flashes
+   white or sits empty (index.html). Colours match --pp-canvas, --pp-dim and
+   --pp-accent-text in src/index.css. A file rather than an inline <style>, so
+   the CSP needs no hash for it. */
+
+#root {
+  height: 100%;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #ffffff;
+  color: #6e6e73;
+  font: 12.5px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+#boot {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-bottom: 40px;
+  box-sizing: border-box;
+}
+#boot svg {
+  color: #0a64f0;
+}
+/* Same place and size as <Loading>'s bar and its hidden "still working"
+   line, so nothing jumps when the app takes over. */
+#boot .bar {
+  width: 112px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #e8e8ed;
+}
+#boot .line {
+  height: 16.5px;
+}
+@media (prefers-color-scheme: dark) {
+  html,
+  body {
+    background: #1e1e22;
+    color: #a1a1a8;
+  }
+  #boot svg {
+    color: #6aa5ff;
+  }
+  #boot .bar {
+    background: #3a3a40;
+  }
+}

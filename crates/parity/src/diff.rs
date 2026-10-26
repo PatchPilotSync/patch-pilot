@@ -5,7 +5,7 @@
 //! `product_id` (identity resolution); items without one are reported as
 //! unresolved rather than guessed at.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use patchpilot_core::{Item, Manifest, Os, PluginFormat, ProductId};
 
@@ -68,11 +68,18 @@ pub fn diff_manifests(golden: &Manifest, machine: &Manifest) -> ManifestDiff {
     let golden_by = by_product(golden);
     let machine_by = by_product(machine);
 
+    // The Primary Rig's name first, like `golden.product(id).or_else(..)`.
+    let names: HashMap<&ProductId, &str> = golden
+        .products
+        .iter()
+        .chain(&machine.products)
+        .rev()
+        .map(|p| (&p.canonical_id, p.name.as_str()))
+        .collect();
     let name_of = |id: &ProductId| {
-        golden
-            .product(id)
-            .or_else(|| machine.product(id))
-            .map_or_else(|| id.to_string(), |p| p.name.clone())
+        names
+            .get(id)
+            .map_or_else(|| id.to_string(), |n| (*n).to_owned())
     };
 
     let mut products = Vec::new();
