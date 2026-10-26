@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.20 - 2026-10-26
+
+### New
+
+- Reaper shortcuts from a PC now work on a Mac. Reaper already turns Ctrl into Cmd, Alt into Option and Win into Control, but macOS keeps a few Cmd shortcuts for itself (Cmd+H, Cmd+Space, Cmd+Tab, Cmd+Shift+3/4/5 and more). On a Mac those now move to the same key with Control, and back again on a PC. Turn it off under Sync & backup, Choose what syncs, Reaper. It also lists shortcuts on keys a Mac doesn't have, like Insert.
+
 ## 0.4.19 - 2026-10-26
 
 ### New
