@@ -14,7 +14,8 @@ You know the moment: you open a project on the laptop and half the chain is red 
 - **One setup to aim for.** Pick your best machine as the Primary Rig. Every other machine is measured against it.
 - **Know what to fix first.** A simple to-do list tells you what to install, in the right order.
 - **Nothing to babysit.** It sits quietly in your menu bar or system tray and notices changes on its own.
-- **Safe by design.** It only looks at what's installed. It never opens your plug-ins, changes your DAW settings, copies licensed software or runs installers behind your back.
+- **Your files follow you.** New templates, scripts and presets on one machine show up on the others by themselves, through your own Dropbox, OneDrive, Google Drive or iCloud folder.
+- **Safe by design.** It never opens your plug-ins, copies licensed software, deletes your files or runs installers behind your back, and anything it puts on a machine can be undone.
 
 ## How it works
 
@@ -36,15 +37,16 @@ You know the moment: you open a project on the laptop and half the chain is red 
 - **Get Up To Speed** — a step-by-step checklist to bring a machine back in line.
 - **Live machine linking** — link your Mac and PC with a short code and Compare updates live. What your machines share is end-to-end encrypted, so nobody else can read it, not even us.
 - **Always on, barely there** — opens when your computer starts, waits in the tray or menu bar, and rescans by itself when you add or update a plug-in. It uses next to no CPU while it waits.
-- **Snapshots** — every change to a machine is saved, so you can see what changed and when.
+- **Keep files in sync** — new and changed Reaper templates, FX chains, scripts and themes, Ableton User Library files and plug-in presets reach your other machines on their own through your cloud folder. Deletions and settings never sync by themselves, and if a file changed on two machines, you choose which copy to keep.
+- **Backup and restore** — every template, script, setting and preset backed up to your cloud folder, with every earlier version kept; restore onto any machine.
+- **Installer Vault** — keep your installers in one place on your own drive, ready for the next machine.
+- **Snapshots and History** — every change to a machine is saved, and anything Patch Pilot changed can be undone.
 - **Automatic updates** — when a new version is out, the app shows you what's new and installs it only when you click.
 - **Light and dark** — follows your system setting.
 
-**Coming soon:** the **Installer Vault**, to keep your installers in one place on your own drive, and Ableton Live support.
-
 ## What Patch Pilot is not
 
-It's not a backup tool, a cloud drive or a license manager, and it never moves plug-ins or sample libraries between machines. It tells you what each machine needs; you stay in control of what gets installed.
+It's not a cloud drive or a license manager, and it never moves plug-ins or sample libraries between machines: only your own small files, like templates and presets. It tells you what each machine needs; you stay in control of what gets installed.
 
 ## Status
 

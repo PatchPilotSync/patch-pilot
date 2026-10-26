@@ -28,9 +28,21 @@ interface Props {
   onMakeGolden: () => void;
   onReport: () => void;
   onError: (e: string) => void;
+  /** When the tray asked to set up syncing; opens the Sync & backup line. */
+  syncSetupAt?: number;
 }
 
-export function Rig({ overview, setupOffer, warnings, busy, onRescan, onMakeGolden, onReport, onError }: Props) {
+export function Rig({
+  overview,
+  setupOffer,
+  warnings,
+  busy,
+  onRescan,
+  onMakeGolden,
+  onReport,
+  onError,
+  syncSetupAt,
+}: Props) {
   const { machine, inventory: inv, golden } = overview;
   const [grouping, setGrouping] = useState<Grouping>("vendor");
   const [query, setQuery] = useState("");
@@ -103,7 +115,7 @@ export function Rig({ overview, setupOffer, warnings, busy, onRescan, onMakeGold
       {/* One line each, in one place: what this machine is to the Primary Rig, then anything to do. */}
       <div className="flex flex-col border-b border-line px-2 py-1.5">
         <GoldenLine golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
-        <BackupLine onError={onError} fresh={!golden} />
+        <BackupLine onError={onError} fresh={!golden} openAt={syncSetupAt} />
         {setupOffer}
         {/* Errors here surface where the files are listed, on Up To Speed. */}
         <BigFiles onError={() => {}} compact />

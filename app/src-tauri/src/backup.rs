@@ -82,8 +82,8 @@ fn vault_root() -> Option<PathBuf> {
     app_dir().ok().and_then(|d| VaultSettings::load(&d).root)
 }
 
-fn auto_back_up(app: &AppHandle) {
-    if settings().is_ok_and(|s| s.auto) {
+pub(crate) fn auto_back_up(app: &AppHandle) {
+    if settings().is_ok_and(|s| s.backs_up_on_change()) {
         let _ = run(app);
     }
 }
@@ -179,6 +179,15 @@ pub async fn set_backup_folder(
         ..settings()?
     };
     backup::save_settings(&app_dir()?, &settings)?;
+    // One cloud folder for everything: big files go through it too, unless
+    // this machine already picked a folder for them.
+    let mut transfers = transfer::load_settings(&app_dir()?);
+    if transfers.folder.is_none() && settings.folder.is_some() {
+        transfers.service = settings.service.clone();
+        transfers.folder = settings.folder.clone();
+        transfer::save_settings(&app_dir()?, &transfers)?;
+        crate::transfer::rewatch(&app);
+    }
     let _ = app.emit(BACKUP_CHANGED, ());
     backup_view(app).await
 }

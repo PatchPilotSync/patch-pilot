@@ -67,6 +67,18 @@ pub struct BackupSettings {
     /// Back up after every scan that found a change.
     #[serde(default)]
     pub auto: bool,
+    /// Keep files in sync (decision #70): back up after every change, and
+    /// place new and changed files from linked machines' backups here.
+    #[serde(default)]
+    pub keep_in_sync: bool,
+}
+
+impl BackupSettings {
+    /// Back up after every scan that found a change: asked for, or needed
+    /// to keep files in sync.
+    pub fn backs_up_on_change(&self) -> bool {
+        self.auto || self.keep_in_sync
+    }
 }
 
 pub fn load_settings(app_dir: &Path) -> BackupSettings {
@@ -109,7 +121,7 @@ pub struct BackedUpFile {
 }
 
 impl BackedUpFile {
-    fn key(&self) -> String {
+    pub fn key(&self) -> String {
         format!("{}/{}", self.root, self.rel)
     }
 }
@@ -439,7 +451,7 @@ fn machine_folder(dir: &Path, id: &str, name: &str) -> Result<PathBuf, String> {
     Ok(folder)
 }
 
-fn subdirs(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn subdirs(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|e| {
             e.flatten()
@@ -477,7 +489,7 @@ fn read_backup(folder: &Path, stamp: &str) -> Option<Backup> {
 }
 
 /// The newest backup in `folder` that can be read.
-fn latest(folder: &Path) -> Option<Backup> {
+pub(crate) fn latest(folder: &Path) -> Option<Backup> {
     stamps(folder)
         .iter()
         .rev()
@@ -697,7 +709,7 @@ pub fn restore_profile(store: &Store, this: &str) -> Result<TargetProfile, Strin
 /// The bytes `backup` held for `f`, checked against its hash: in the
 /// `Versions` folder of the first later backup that replaced it, else in
 /// `Files`. `None` while the cloud app hasn't downloaded it.
-fn bytes_of(backup: &Backup, f: &BackedUpFile) -> Option<Vec<u8>> {
+pub(crate) fn bytes_of(backup: &Backup, f: &BackedUpFile) -> Option<Vec<u8>> {
     if !safe_rel(&f.path) {
         return None;
     }
@@ -1067,6 +1079,7 @@ mod tests {
             service: Some("dropbox".into()),
             folder: Some(tmp.path().to_owned()),
             auto: true,
+            keep_in_sync: false,
         };
         save_settings(tmp.path(), &s).unwrap();
         assert_eq!(load_settings(tmp.path()), s);

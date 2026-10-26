@@ -7,13 +7,14 @@ import { Button } from "./ui";
 
 type Mode = { kind: "choose" } | { kind: "show"; code: string } | { kind: "enter" } | { kind: "done"; text: string };
 
-/** A dot and a word for the top bar: live, offline or not linked yet. */
+/** A dot and a word for the top bar: linked, offline or not linked yet. Says "linked", not
+ * "sync", so it isn't confused with keeping files in sync (decision #70). */
 export function SyncBadge({ status, onClick }: { status: SyncStatus | null; onClick: () => void }) {
   const [dot, label] = !status?.linked
     ? ["bg-dim", "Link a machine"]
     : status.online
-      ? ["bg-ok", "Live sync on"]
-      : ["bg-warn", "Sync offline"];
+      ? ["bg-ok", "Machines linked"]
+      : ["bg-warn", "Link offline"];
   return (
     <button
       onClick={onClick}

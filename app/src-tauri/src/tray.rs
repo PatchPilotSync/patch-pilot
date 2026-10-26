@@ -56,8 +56,21 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         crate::alerts::enabled(),
         None::<&str>,
     )?;
+    // Keep files in sync (decision #70) through the cloud folder.
+    let sync = CheckMenuItem::with_id(
+        app,
+        "sync",
+        "Keep Files in Sync",
+        true,
+        crate::autosync::enabled(),
+        None::<&str>,
+    )?;
+    app.manage(SyncItem(sync.clone()));
     let quit = MenuItem::with_id(app, "quit", "Quit Patch Pilot", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &updates, &replay, &at_login, &alerts, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&open, &updates, &replay, &at_login, &alerts, &sync, &quit],
+    )?;
 
     TrayIconBuilder::with_id(ID)
         .icon(Image::from_bytes(ICON)?)
@@ -89,6 +102,15 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             "alerts" => {
                 crate::alerts::set_enabled(alerts.is_checked().unwrap_or(true));
                 let _ = alerts.set_checked(crate::alerts::enabled());
+            }
+            "sync" => {
+                let on = sync.is_checked().unwrap_or(false);
+                if crate::autosync::set_enabled(app, on).is_err() {
+                    // No cloud folder yet: pick one in the app.
+                    show_main(app);
+                    let _ = app.emit_to(MAIN, "set-up-sync", ());
+                }
+                refresh_sync_check(app);
             }
             "quit" => app.exit(0),
             _ => {}
@@ -128,6 +150,16 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         });
     }
     Ok(())
+}
+
+/// The tray menu's "Keep Files in Sync" item, to keep its tick current.
+struct SyncItem(CheckMenuItem<tauri::Wry>);
+
+/// Make the tray's "Keep Files in Sync" tick match the setting.
+pub fn refresh_sync_check(app: &AppHandle) {
+    if let Some(item) = app.try_state::<SyncItem>() {
+        let _ = item.0.set_checked(crate::autosync::enabled());
+    }
 }
 
 fn toggle_popover(app: &AppHandle, icon: Rect) {

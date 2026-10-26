@@ -2,6 +2,7 @@
 //! the Rust crates; keep them thin and put logic in `crates/`.
 
 mod alerts;
+mod autosync;
 mod background;
 mod backup;
 mod bring;
@@ -66,6 +67,7 @@ pub fn run() {
             vault::setup(app);
             transfer::setup(app);
             backup::setup(app);
+            autosync::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -120,6 +122,9 @@ pub fn run() {
             backup::back_up_now,
             backup::backup_restore_list,
             backup::restore_backup,
+            autosync::sync_view,
+            autosync::set_keep_in_sync,
+            autosync::settle_conflict,
             duplicates::find_duplicates,
             duplicates::clean_up_duplicates,
             catalog::updates,

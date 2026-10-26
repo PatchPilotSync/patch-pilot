@@ -235,7 +235,7 @@ Tray/menu-bar app + Cmd/Ctrl+K palette. Three-pane window (Machines · Diff · D
 
 ## 22. 12-month roadmap
 
-_Updated 2026-10-24 to match what is built and what the founders have asked for since the original plan; the original table is kept at the end of this section. Work has run well ahead of the month numbers, and live sync between machines came forward from M9 because linking a Mac and a PC by export file was too clumsy to use._
+_Updated 2026-10-26 to match what is built and what the founders have asked for since the original plan; the original table is kept at the end of this section. Work has run well ahead of the month numbers, and live sync between machines came forward from M9 because linking a Mac and a PC by export file was too clumsy to use._
 
 Status: **Shipped** = in a published release. **On main** = merged, goes out in the next release. **In progress** = being built now. **Not started** = in the plan, nobody is working on it yet.
 
@@ -261,7 +261,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 |---|---|---|
 | Up To Speed | Rename the button to "Get up to speed" | In progress (in review) |
 | Bring over | One click to bring Reaper templates, FX chains, scripts, themes, toolbars and keymaps from a linked machine, grouped by app; whole folders from Compare, and scripts, ReaPack packages, JSFX and themes always with every file they need (#62) | In progress |
-| Ignore | Ignore anything Bring over, Get Up To Speed or a suggestion asks for (a file, folder, package, app, step or category), on this machine or every machine; it leaves the score and every count, and "N ignored" brings it back (#65) | In progress |
+| Ignore | Ignore anything Bring over, Get Up To Speed or a suggestion asks for (a file, folder, package, app, step or category), on this machine or every machine; it leaves the score and every count, and "N ignored" brings it back (#65) | Shipped (v0.4.3) |
 | Ableton | Bring over Collections, User Library, templates and Options.txt; check racks and sets for missing plug-ins | In progress |
 | Safety | Snapshots before every write, with rollback | In progress |
 | Reaper | ReaPack restore and path remap between Windows and macOS | In progress |
@@ -271,8 +271,9 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Primary Rig | "Propose this to Primary Rig" from any machine, and alerts when a machine drifts | In progress |
 | Catalog | Plug-in catalog service and update alerts | In progress |
 | Presets | Find presets in the top 30 vendors' preset locations; bring them over to linked machines (files up to 1.9 MB) | In progress |
-| Presets | Find the same preset saved in several folders and clean up the extra copies, undoable from History (#66) | In progress |
-| Backup | Back up every tracked template, script, theme, setting, preset and the Installer Vault index to a cloud folder, incrementally with every earlier version kept; restore onto any machine, also a fresh one from Set up | In progress |
+| Presets | Find the same preset saved in several folders and clean up the extra copies, undoable from History (#66) | Shipped (v0.4.3) |
+| Backup | Back up every tracked template, script, theme, setting, preset and the Installer Vault index to a cloud folder, incrementally with every earlier version kept; restore onto any machine, also a fresh one from Set up | Shipped (v0.4.4) |
+| Sync | Keep files in sync: new and changed templates, scripts and presets reach every linked machine on their own through the cloud folder picked in the tour; never deletes or overwrites an edit, conflicts ask, every placement undoable, tray switch (#70) | On main |
 
 ### Not started
 
