@@ -33,7 +33,8 @@ use patchpilot_store::{SnapshotInfo, SnapshotReason, Store, StoreError};
 
 pub use anonymize::anonymize;
 pub use watch::{
-    FolderWatch, app_folders, watch_folder_flat, watch_folders, watch_folders_flat, watched_folders,
+    FolderWatch, app_folders, settings_files, watch_files, watch_folder_flat, watch_folders,
+    watch_folders_flat, watched_folders,
 };
 
 /// What to scan besides the defaults.

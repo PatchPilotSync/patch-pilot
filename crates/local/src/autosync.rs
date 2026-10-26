@@ -108,6 +108,8 @@ pub struct Placed {
     pub new: usize,
     /// Files renamed or moved here because they were there.
     pub renamed: usize,
+    /// What the files written are ("Collection names", "Template"), each once.
+    pub kinds: Vec<String>,
     pub restore_point: Option<i64>,
 }
 
@@ -669,12 +671,16 @@ pub fn sync_in(
                 let src = source(&mut report, &from.machine_id);
                 src.placed += w.written;
                 src.renamed += w.removed;
+                let mut kinds: Vec<String> = offers.iter().map(|o| o.file.kind.clone()).collect();
+                kinds.sort();
+                kinds.dedup();
                 report.placed.push(Placed {
                     machine_name: from.machine_name.clone(),
                     app,
                     files: w.written,
                     new,
                     renamed: w.removed,
+                    kinds,
                     restore_point: w.restore_point,
                 });
             }
@@ -900,6 +906,7 @@ mod tests {
         let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
         assert_eq!(r.files_placed(), 1, "{r:?}");
         assert_eq!(r.placed[0].new, 1);
+        assert_eq!(r.placed[0].kinds, ["FX chain"]);
         assert_eq!(read(&pc, VOCAL).as_deref(), Some("vocal"));
         assert_eq!(read(&pc, KEYS).as_deref(), Some("[keys] same"));
         assert_eq!(r.new_conflicts, 0);
@@ -1235,6 +1242,7 @@ mod tests {
         back_up(&store, "mac", None, &dir, 2_000).unwrap();
         let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
         assert_eq!((r.files_placed(), r.new_conflicts), (1, 0), "{r:?}");
+        assert_eq!(r.placed[0].kinds, ["Collection names"]);
         let now = read(&pc, LIBRARY_CFG).unwrap();
         assert!(now.contains(r#"Uri="color:colors=1" DisplayName="Kicks""#));
         assert!(now.contains("D:/Dropbox/Music/Ableton/User Library"));

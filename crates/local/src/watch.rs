@@ -16,27 +16,51 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use patchpilot_core::Os;
 use patchpilot_scanner::{ADAPTERS, SystemDirs, default_roots};
 
-/// Reaper resource subfolders holding the templates a scan reads (#37).
-const REAPER_TEMPLATE_DIRS: [&str; 5] = [
+/// Reaper resource subfolders holding the templates a scan reads (#37), and
+/// FX presets and toolbar icons (#77).
+const REAPER_TEMPLATE_DIRS: [&str; 7] = [
     "TrackTemplates",
     "ProjectTemplates",
     "FXChains",
     "Scripts",
     "ColorThemes",
+    "presets",
+    "Data/toolbar_icons",
 ];
+
+/// Reaper's settings files a scan shares (#53, #77). They sit at the top of
+/// the resource folder, where `reaper.ini` changes all the time, so they are
+/// watched by name (see [`settings_files`]).
+const REAPER_SETTINGS_FILES: [&str; 4] = [
+    "reaper-kb.ini",
+    "reaper-menu.ini",
+    "reaper-mouse.ini",
+    "reaper-themeconfig.ini",
+];
+
+/// Live's settings files a scan shares: the Collection names and
+/// `Options.txt`. Live writes its log beside them all the time, so they are
+/// watched by name too.
+const ABLETON_SETTINGS_FILES: [&str; 2] = ["Library.cfg", "Options.txt"];
 
 /// User Library subfolders holding what a scan shares. Not `Samples/`
 /// (Live writes freezes there), nor the preferences folder (Live writes its
-/// log there all the time); `Options.txt` changes are picked up by the next
-/// scan.
-const ABLETON_WATCHED_DIRS: [&str; 6] = [
+/// log there all the time; its settings files are watched by name).
+const ABLETON_WATCHED_DIRS: [&str; 8] = [
     "Templates",
     "Presets",
     "Defaults",
     "Clips",
     "Grooves",
     "Ableton Folder Info",
+    "Tunings",
+    "Remote Scripts",
 ];
+
+/// `rel` (`/`-separated) below `dir`.
+fn below(dir: &Path, rel: &str) -> PathBuf {
+    rel.split('/').fold(dir.to_owned(), |p, part| p.join(part))
+}
 
 /// The folders a standard scan reads that exist right now: every default
 /// plug-in folder, Reaper's template folders and the Ableton User Library's
@@ -48,7 +72,7 @@ pub fn watched_folders() -> Vec<PathBuf> {
     };
     let mut folders: Vec<PathBuf> = default_roots(&dirs).into_iter().map(|r| r.path).collect();
     if let Some(reaper) = crate::default_reaper_dir(os, &dirs) {
-        folders.extend(REAPER_TEMPLATE_DIRS.map(|d| reaper.join(d)));
+        folders.extend(REAPER_TEMPLATE_DIRS.map(|d| below(&reaper, d)));
     }
     if let Some(lib) = crate::default_ableton_dirs(os, &dirs).user_library {
         folders.extend(ABLETON_WATCHED_DIRS.map(|d| lib.join(d)));
@@ -68,6 +92,28 @@ pub fn watched_folders() -> Vec<PathBuf> {
 }
 
 const START_MENU_PROGRAMS: &str = r"Microsoft\Windows\Start Menu\Programs";
+
+/// The settings files a standard scan reads that live in folders too busy
+/// to watch whole: Reaper's key map, menus, mouse modifiers and theme
+/// adjuster settings, and Live's `Library.cfg` and `Options.txt`. Watch them
+/// with [`watch_files`]. Files not there yet are included, so the first one
+/// saved is seen.
+pub fn settings_files() -> Vec<PathBuf> {
+    let (Some(os), Some(dirs)) = (Os::current(), SystemDirs::from_env()) else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    if let Some(reaper) = crate::default_reaper_dir(os, &dirs).filter(|d| d.is_dir()) {
+        files.extend(REAPER_SETTINGS_FILES.map(|f| reaper.join(f)));
+    }
+    if let Some(prefs) = crate::default_ableton_dirs(os, &dirs)
+        .prefs
+        .filter(|d| d.is_dir())
+    {
+        files.extend(ABLETON_SETTINGS_FILES.map(|f| prefs.join(f)));
+    }
+    files
+}
 
 /// Where vendor apps and licensing tools are installed, to watch one level
 /// deep: a new Native Access or iLok License Manager shows up there, while
@@ -142,6 +188,47 @@ pub fn watch_folder_flat(
     watch_folders_flat(vec![folder], quiet, on_change)
 }
 
+/// Watch single `files` in folders that also hold files that change all the
+/// time: only a change to one of them (by name, without case) counts.
+/// [`FolderWatch::folders`] lists the files whose folder is watched.
+pub fn watch_files(
+    files: Vec<PathBuf>,
+    quiet: Duration,
+    on_change: impl FnMut() + Send + 'static,
+) -> notify::Result<FolderWatch> {
+    let names: Vec<String> = files
+        .iter()
+        .filter_map(|f| f.file_name())
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .collect();
+    let mut folders: Vec<PathBuf> = files
+        .iter()
+        .filter_map(|f| f.parent())
+        .map(Path::to_owned)
+        .collect();
+    folders.sort();
+    folders.dedup();
+    let wanted = move |e: &Event| {
+        e.paths.iter().any(|p| {
+            p.file_name()
+                .is_some_and(|n| names.contains(&n.to_string_lossy().to_lowercase()))
+        })
+    };
+    let mut watch = watch_filtered(
+        folders,
+        RecursiveMode::NonRecursive,
+        quiet,
+        wanted,
+        on_change,
+    )?;
+    let watched = std::mem::take(&mut watch.folders);
+    watch.folders = files
+        .into_iter()
+        .filter(|f| f.parent().is_some_and(|p| watched.iter().any(|w| w == p)))
+        .collect();
+    Ok(watch)
+}
+
 /// [`watch_folder_flat`] for several folders, e.g. [`app_folders`].
 pub fn watch_folders_flat(
     folders: Vec<PathBuf>,
@@ -157,10 +244,21 @@ fn watch(
     quiet: Duration,
     on_change: impl FnMut() + Send + 'static,
 ) -> notify::Result<FolderWatch> {
+    watch_filtered(folders, mode, quiet, |_| true, on_change)
+}
+
+/// [`watch`], counting only the events `wanted` keeps.
+fn watch_filtered(
+    folders: Vec<PathBuf>,
+    mode: RecursiveMode,
+    quiet: Duration,
+    wanted: impl Fn(&Event) -> bool + Send + 'static,
+    on_change: impl FnMut() + Send + 'static,
+) -> notify::Result<FolderWatch> {
     let (tx, rx) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
         // Reads (our own scans included) aren't changes.
-        if event.is_ok_and(|e| !matches!(e.kind, EventKind::Access(_))) {
+        if event.is_ok_and(|e| !matches!(e.kind, EventKind::Access(_)) && wanted(&e)) {
             let _ = tx.send(());
         }
     })?;
@@ -264,6 +362,45 @@ mod tests {
         drop(watch);
         write(&root.join("after"));
         assert!(rx.recv_timeout(Duration::from_secs(2)).is_err());
+    }
+
+    #[test]
+    fn settings_files_are_watched_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let watch = watch_files(
+            vec![root.join("Library.cfg"), root.join("missing").join("x.ini")],
+            Duration::from_millis(300),
+            move || tx.send(()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(watch.folders, [root.join("Library.cfg")]);
+        thread::sleep(Duration::from_millis(300));
+
+        // Live's log, beside it, doesn't count.
+        for _ in 0..3 {
+            write(&root.join("Log.txt"));
+        }
+        assert!(rx.recv_timeout(Duration::from_millis(1500)).is_err());
+        write(&root.join("Library.cfg"));
+        rx.recv_timeout(Duration::from_secs(20))
+            .expect("a change to Library.cfg is reported");
+    }
+
+    #[test]
+    fn watched_settings_files_are_the_shared_ones() {
+        use patchpilot_parity::ableton::prefs_label;
+        use patchpilot_parity::reaper::resource_kind;
+        for f in REAPER_SETTINGS_FILES {
+            assert!(
+                resource_kind(f).is_some_and(|k| k.needs_reaper_closed()),
+                "{f}"
+            );
+        }
+        for f in ABLETON_SETTINGS_FILES {
+            assert!(prefs_label(f).is_some(), "{f}");
+        }
     }
 
     fn write(path: &Path) {

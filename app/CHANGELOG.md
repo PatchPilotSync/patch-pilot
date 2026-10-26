@@ -4,6 +4,14 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.16 - 2026-10-26
+
+### Fixed
+
+- Renaming an Ableton Collection (or changing Reaper shortcuts, menus or mouse modifiers) now reaches your other machines within a minute. Before, Patch Pilot didn't notice the change until something else changed, or until it restarted.
+- After files come over, the Sync & backup line says what came over and from where, for example "Synced 1 Ableton file (Collection names) from Studio PC", instead of only "nothing changed since the last backup", which was about this machine's own backup.
+- While Ableton Live or Reaper is open, the Sync & backup line says the changes are waiting for you to close it.
+
 ## 0.4.15 - 2026-10-26
 
 ### New
