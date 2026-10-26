@@ -4,6 +4,14 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.15 - 2026-10-26
+
+### New
+
+- Keep Files in Sync now carries your settings too: Reaper shortcuts and custom actions, menus and toolbars, mouse modifiers and theme adjuster settings, and Ableton Live's Collection names and Options.txt. Settings change only while that app is closed; until then they wait and come over once you close it.
+- Rename or move a template, script, preset or rack on one machine and it's renamed on your others too, instead of leaving a copy under the old name. If you edited that file on the other machine, your edit stays. Undo it in History.
+- Also kept in sync now: Reaper toolbar icons and FX presets saved in Reaper's preset menu, and Live tunings and control surface scripts.
+
 ## 0.4.14 - 2026-10-26
 
 ### Fixed
