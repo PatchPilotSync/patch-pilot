@@ -8,6 +8,8 @@ import {
   onBackupChanged,
   onSyncChanged,
   restoreBackup,
+  revealPath,
+  SHOW_IN_FOLDER,
   setBackupAuto,
   setBackupFolder,
   setKeepInSync,
@@ -432,7 +434,7 @@ function Details({
             : `Last backup copied ${plural(last.copied, "changed file")}${last.versioned ? ` and kept ${plural(last.versioned, "earlier copy", "earlier copies")}` : ""}.`}
         </p>
       )}
-      {last && last.skipped.length > 0 && <Skipped files={last.skipped} />}
+      {last && last.skipped.length > 0 && <Skipped files={last.skipped} onError={onError} />}
       {sync?.on && <SyncSummary sync={sync} />}
       <Restore sets={view.sets} thisMachine={view.this_machine} onError={onError} />
     </div>
@@ -440,7 +442,7 @@ function Details({
 }
 
 /** "2 files left out", opening to say which, why, and what to do. */
-function Skipped({ files }: { files: SkippedFile[] }) {
+function Skipped({ files, onError }: { files: SkippedFile[]; onError: (e: string) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="text-[11px]">
@@ -454,8 +456,17 @@ function Skipped({ files }: { files: SkippedFile[] }) {
               <div className="truncate font-medium" title={f.path}>
                 {f.name}
               </div>
-              <div className="truncate text-dim" title={f.path}>
-                {f.path}
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 truncate text-dim" title={f.path}>
+                  {f.path}
+                </span>
+                <Button
+                  variant="link"
+                  className="h-5 shrink-0 px-0"
+                  onClick={() => revealPath(f.path).catch((e) => onError(String(e)))}
+                >
+                  {SHOW_IN_FOLDER}
+                </Button>
               </div>
               <div className="text-dim">
                 {f.too_big !== null

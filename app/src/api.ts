@@ -62,6 +62,11 @@ export interface Progress {
 }
 
 export const appVersion = () => invoke<AppVersion>("app_version");
+
+/** Show a file selected in Finder or Explorer. */
+export const revealPath = (path: string) => invoke<void>("reveal_path", { path });
+/** The label for revealPath's button on this OS. */
+export const SHOW_IN_FOLDER = /Mac/i.test(navigator.userAgent) ? "Show in Finder" : "Show in Explorer";
 export const overview = () => invoke<Overview>("overview");
 export const scanMachine = (name: string | null) =>
   invoke<ScanReport>("scan_machine", { name });
