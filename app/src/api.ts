@@ -237,7 +237,7 @@ export const ignoreSuggestions = (items: { product: string; version: string | nu
 export const unignoreSuggestions = (items: { product: string; version: string | null }[]) =>
   invoke<void>("unignore_suggestions", { items });
 
-// Ignore (decision #65): src-tauri/src/compare.rs and patchpilot_local::ignore.
+// Ignore (decision #66): src-tauri/src/compare.rs and patchpilot_local::ignore.
 
 /** What an ignore hides: a product, a path (`ROOT/rel`, `**` for a folder) or a vendor. */
 export type Matcher = { product: string } | { path_glob: string } | { vendor: string };
@@ -706,3 +706,46 @@ export const undoPreview = (id: number) => invoke<FilePreview[]>("undo_preview",
 export const undoChange = (id: number) => invoke<HistoryView>("undo_change", { id });
 export const goBackPlan = (snapshotId: number) => invoke<GoBackPlan>("go_back_plan", { snapshotId });
 export const goBack = (snapshotId: number) => invoke<HistoryView>("go_back", { snapshotId });
+
+// Duplicate presets (decision #66); mirrors patchpilot_local::duplicates.
+
+/** Where a copy lives, best place to keep first. */
+export type PlaceKind = "standard" | "daw" | "personal" | "loose";
+
+export interface DuplicateCopy {
+  path: string;
+  /** "Serum presets", "Reaper FX chains", "Downloads". */
+  place: string;
+  kind: PlaceKind;
+  mtime: number | null;
+}
+
+export interface DuplicateGroup {
+  hash: string;
+  name: string;
+  size: number;
+  /** The suggested copy to keep comes first. */
+  copies: DuplicateCopy[];
+}
+
+export interface Duplicates {
+  /** Largest waste first. */
+  groups: DuplicateGroup[];
+  /** Preset files looked at. */
+  files: number;
+  places: string[];
+}
+
+export interface CleanUp {
+  removed: number;
+  freed: number;
+  /** Copies left alone: changed since the search, or the kept copy is gone. */
+  skipped: string[];
+  restore_point: number | null;
+}
+
+/** Look for the same preset in several folders on this machine. */
+export const findDuplicates = () => invoke<Duplicates>("find_duplicates");
+/** Remove the extra copies as one restore point (History can undo it), then rescan. */
+export const cleanUpDuplicates = (choices: { keep: string; remove: string[] }[]) =>
+  invoke<CleanUp>("clean_up_duplicates", { choices });
