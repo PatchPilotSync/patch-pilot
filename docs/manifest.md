@@ -28,7 +28,7 @@ user-owned files that may sync), `size`, `mtime` (Unix seconds),
 `needs_files` (other files this one needs beside it to work, as `/`-separated
 paths below the same logical root, sorted and unique: the rest of its ReaPack
 package, the files a script loads, a JSFX's imports, a theme's images; they
-travel together, #61).
+travel together, #62).
 
 Reaper templates are `daw_asset` items under the `REAPER_RESOURCES` root, one
 product each (`reaper-template/<path slug>`, vendor `REAPER`), portable and

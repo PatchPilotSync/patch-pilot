@@ -102,7 +102,7 @@ pub fn read_registry(db: &Path) -> Result<Vec<Package>, String> {
 
 /// The files of each installed package in ReaPack's `registry.db`, as paths
 /// below the resource folder, so a package's files travel together
-/// (decision #61). A missing file or an unknown format means none.
+/// (decision #62). A missing file or an unknown format means none.
 pub fn read_package_files(resource_dir: &Path) -> Vec<Vec<String>> {
     let db = registry_path(resource_dir);
     if !db.is_file() {

@@ -151,7 +151,7 @@ pub struct FileToBring {
     pub too_large: bool,
     /// Its product, to find it from the comparison's rows.
     pub product_id: Option<ProductId>,
-    /// Other files in this list it needs beside it to work (decision #61),
+    /// Other files in this list it needs beside it to work (decision #62),
     /// as `root/rel` keys: they are brought over with it.
     pub needs: Vec<String>,
     /// It, or a file it needs, can't travel, so it would arrive incomplete:
@@ -379,7 +379,7 @@ fn same_here(source: &Manifest, f: &FileToBring, dir: &Path) -> bool {
     if hash(&(shared.view)(dir, &f.rel, bytes.clone())) == f.hash || hash(&bytes) == f.hash {
         return true;
     }
-    // A key map from a build before #61 has the source's own paths in it.
+    // A key map from a build before #62 has the source's own paths in it.
     if f.root != REAPER_RESOURCES || resource_kind(&f.rel) != Some(ResourceKind::KeyMap) {
         return false;
     }
@@ -450,7 +450,7 @@ pub fn adapt_for_here(
         Err(e) => return e.into_bytes(),
     };
     let here = dir.to_string_lossy();
-    // Shared portably since #61; older builds shared their own paths.
+    // Shared portably since #62; older builds shared their own paths.
     let text = remap_key_map(&text, KEY_MAP_ROOT, Os::Macos, &here, os);
     match golden.machine.path_map.roots.get(REAPER_RESOURCES) {
         Some(from) => remap_key_map(&text, from, golden.machine.os, &here, os),
@@ -957,7 +957,7 @@ mod tests {
         std::fs::create_dir_all(here.join("Scripts")).unwrap();
         std::fs::write(here.join("Scripts/a.lua"), "same").unwrap();
         let win = r"C:\Users\j\AppData\Roaming\REAPER";
-        // A key map from a Primary Rig scanned before #61, with its own paths.
+        // A key map from a Primary Rig scanned before #62, with its own paths.
         let kb = format!("SCR 4 0 RS1 \"Custom: a.lua\" \"{win}\\Scripts\\a.lua\"\n");
         let os = this_os();
         let sep = os.separator();

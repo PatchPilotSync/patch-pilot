@@ -1,7 +1,7 @@
 import { fileKey, type BringResult, type FileToBring } from "./api";
 
 /**
- * Files that only work together (decision #61): a script and the files it
+ * Files that only work together (decision #62): a script and the files it
  * loads, a ReaPack package, a theme and its images. Ticking one ticks what it
  * needs; unticking one unticks what needs it, so nothing arrives half there.
  */

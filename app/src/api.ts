@@ -165,7 +165,7 @@ export interface ComparisonRow {
   needed_by_templates: boolean;
   golden_items: ItemSide[];
   machine_items: ItemSide[];
-  /** Other files this one needs beside it to work (decision #61): paths below its root. */
+  /** Other files this one needs beside it to work (decision #62): paths below its root. */
   works_with: string[];
   /** Those of `works_with` the machine has no copy of. */
   works_with_missing: string[];
@@ -252,7 +252,7 @@ export interface FileToBring {
   too_large: boolean;
   /** Its product, to match it with comparison rows. */
   product_id: string | null;
-  /** Keys (`root/rel`) of other listed files it needs beside it to work; they come with it (decision #61). */
+  /** Keys (`root/rel`) of other listed files it needs beside it to work; they come with it (decision #62). */
   needs: string[];
   /** It, or a file it needs, can't travel, so it isn't brought over. */
   incomplete: boolean;

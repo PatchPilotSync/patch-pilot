@@ -285,7 +285,7 @@ fn default_reaper_dir(os: Os, dirs: &SystemDirs) -> Option<PathBuf> {
 
 /// Add Reaper templates under `dir` as items that require their plug-ins,
 /// plus the scripts, themes and ReaPack package files Bring over shares
-/// (#45), each with the files it needs (#61). Returns how many
+/// (#45), each with the files it needs (#62). Returns how many
 /// templates were added.
 pub fn add_templates(manifest: &mut Manifest, dir: &Path) -> usize {
     use patchpilot_parity::reaper::{REAPER_RESOURCES, resource_items};

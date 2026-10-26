@@ -1,4 +1,4 @@
-//! Which of Reaper's files only work together (decision #61): a script and
+//! Which of Reaper's files only work together (decision #62): a script and
 //! the files it loads, a JSFX and its imports, a theme and its image folder,
 //! every file of one ReaPack package. Found at scan time on the machine that
 //! has the files and stored as [`Item::needs_files`], so another machine can

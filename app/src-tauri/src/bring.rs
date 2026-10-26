@@ -1,7 +1,7 @@
 //! Bring over (decision #45): the Primary Rig's templates, scripts and themes
 //! that this machine lacks, fetched from the relay and written as a restore
 //! point History can undo. A file comes with every file it needs, or not at
-//! all (decision #61), and can also come from another linked machine.
+//! all (decision #62), and can also come from another linked machine.
 //! What to bring and how it's written live in `patchpilot_local::bring`.
 
 use std::collections::{BTreeMap, BTreeSet};

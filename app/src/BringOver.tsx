@@ -6,7 +6,7 @@ import { Badge, Button, buildTree, Folder, FolderTree, isConflictCopy, treeItems
 /**
  * Bring over (decision #45): the Primary Rig's templates, scripts and themes
  * this machine lacks, grouped by app. One click brings the ticked ones over,
- * each with every file it needs (decision #61); anything replaced is backed
+ * each with every file it needs (decision #62); anything replaced is backed
  * up first. Loads its own list, so any screen about this machine can show it.
  */
 export function BringOver({ onError }: { onError: (e: string) => void }) {

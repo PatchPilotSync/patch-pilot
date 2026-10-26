@@ -210,7 +210,7 @@ pub struct Item {
     /// Other files this one needs beside it to work, as `/`-separated paths
     /// below the same logical root, sorted and unique: the rest of its ReaPack
     /// package, the files a script loads, a theme's image folder. They travel
-    /// with it when it is brought over (decision #61).
+    /// with it when it is brought over (decision #62).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub needs_files: Vec<String>,
 }

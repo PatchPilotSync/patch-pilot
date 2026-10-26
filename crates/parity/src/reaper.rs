@@ -232,7 +232,7 @@ pub enum ResourceKind {
     Menus,
     /// A file under `Effects/` that a ReaPack package installed (JSFX and
     /// their imports). Reaper's own effects live there too and come with
-    /// Reaper, so only package files are tracked (decision #61).
+    /// Reaper, so only package files are tracked (decision #62).
     Effect,
     /// A file under `Data/` that a ReaPack package installed.
     ScriptData,
@@ -471,7 +471,7 @@ pub fn template_items(
 /// [`template_items`], plus the `Effects/` and `Data/` files of ReaPack
 /// `packages` (each a list of paths below the resource folder), and each
 /// file's [`Item::needs_files`]: what it loads, and the rest of its package
-/// (decision #61).
+/// (decision #62).
 pub fn resource_items(
     resource_dir: &Path,
     os: Os,

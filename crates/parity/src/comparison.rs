@@ -46,7 +46,7 @@ pub struct ComparisonRow {
     pub golden_items: Vec<ItemSide>,
     pub machine_items: Vec<ItemSide>,
     /// Other files this one needs beside it to work, directly or through
-    /// others (decision #61), as paths below its root. Empty for most rows.
+    /// others (decision #62), as paths below its root. Empty for most rows.
     pub works_with: Vec<String>,
     /// Those of `works_with` the machine has no copy of.
     pub works_with_missing: Vec<String>,

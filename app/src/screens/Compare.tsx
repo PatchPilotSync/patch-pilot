@@ -1181,7 +1181,7 @@ interface BringHere {
 /**
  * Looking at this machine, files come from the Primary Rig; looking at
  * another linked machine, they're copied from it. Either way each file comes
- * with every file it needs (decision #61).
+ * with every file it needs (decision #62).
  */
 function useBringHere(machine: MachineCard | null, refresh: unknown, onError: (e: string) => void): BringHere {
   const from = machine && !machine.is_this_machine ? machine.id : undefined;
