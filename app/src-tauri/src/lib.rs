@@ -12,6 +12,7 @@ mod report;
 mod rig;
 mod setup;
 mod sync;
+mod transfer;
 mod tray;
 mod vault;
 
@@ -61,6 +62,7 @@ pub fn run() {
             alerts::setup(app);
             catalog::setup(app);
             vault::setup(app);
+            transfer::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -102,6 +104,9 @@ pub fn run() {
             reaper::fix_reaper_folders,
             bring::files_to_bring,
             bring::bring_files,
+            transfer::transfer_view,
+            transfer::set_transfer_folder,
+            transfer::send_big_files,
             catalog::updates,
             report::rig_report_preview,
             report::save_rig_report,
