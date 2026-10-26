@@ -1,4 +1,4 @@
-//! Advanced: sync with GitHub (decision #72). Instead of a cloud folder, the
+//! Advanced: sync with GitHub (decision #73). Instead of a cloud folder, the
 //! backup and keep-in-sync folder (decisions #67 and #70) is a copy in
 //! app-data that Patch Pilot pushes to and pulls from a private GitHub repo
 //! the user picks. Backup, restore and keeping files in sync work on that

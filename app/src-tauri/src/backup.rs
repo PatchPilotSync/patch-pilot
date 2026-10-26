@@ -100,7 +100,7 @@ fn run(app: &AppHandle) -> Result<BackupReport, String> {
         }
         s.running = true;
     }
-    // With GitHub, the backup goes on to the repo (decision #72).
+    // With GitHub, the backup goes on to the repo (decision #73).
     let result = back_up().and_then(|r| {
         crate::github::sync_now(app)
             .map(|_| r)

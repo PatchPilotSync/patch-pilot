@@ -1,4 +1,4 @@
-//! Advanced: sync with GitHub (decision #72). Signing in (GitHub's device
+//! Advanced: sync with GitHub (decision #73). Signing in (GitHub's device
 //! sign-in, or a pasted token in builds without an OAuth app), picking or
 //! making a private repo, and GitHub's REST API for
 //! `patchpilot_local::github::sync`, which keeps the backup folder's copy in

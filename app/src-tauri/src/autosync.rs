@@ -150,7 +150,7 @@ fn sync_now(app: &AppHandle) -> Result<Option<SyncReport>, String> {
     let Some(dir) = sync_dir() else {
         return Ok(None);
     };
-    // With GitHub, bring the copy up to date first (decision #72).
+    // With GitHub, bring the copy up to date first (decision #73).
     crate::github::sync_now(app)?;
     let db = db_path()?;
     if !db.exists() {

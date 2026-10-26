@@ -13,7 +13,7 @@ import {
 import { Button, inputClass } from "./ui";
 
 /**
- * Advanced: sync with GitHub (decision #72), in place of the cloud folder
+ * Advanced: sync with GitHub (decision #73), in place of the cloud folder
  * picker. Sign in once, then pick or name a private repo; backups and
  * keeping files in sync go through it from then on. `onUsed` runs once the
  * repo is in use; `onCancel` goes back to the cloud folders.

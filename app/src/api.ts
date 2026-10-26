@@ -422,7 +422,7 @@ export interface BackupView {
   settings: BackupSettings;
   /** The Patch Pilot Backup folder in use, if the folder picked is there. */
   dir: string | null;
-  /** "owner/name" while backups and syncing go through a GitHub repo (decision #72). */
+  /** "owner/name" while backups and syncing go through a GitHub repo (decision #73). */
   github: string | null;
   /** The big-file folder, offered first when picking. */
   transfer_folder: string | null;
@@ -455,7 +455,7 @@ export const restoreBackup = (folder: string, stamp: string, keys: string[]) =>
   invoke<RestoreReport>("restore_backup", { folder, stamp, keys });
 export const onBackupChanged = (f: () => void): Promise<UnlistenFn> => listen("backup-changed", f);
 
-// Advanced: sync with GitHub (decision #72); mirrors src-tauri/src/github.rs and patchpilot_local::github.
+// Advanced: sync with GitHub (decision #73); mirrors src-tauri/src/github.rs and patchpilot_local::github.
 
 export interface GitHubReport {
   /** Files from other machines brought in, or taken out. */
