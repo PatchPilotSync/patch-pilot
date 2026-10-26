@@ -96,7 +96,12 @@ pub async fn undo_preview(id: i64) -> Result<Vec<FilePreview>, String> {
 #[tauri::command]
 pub async fn undo_change(app: AppHandle, id: i64) -> Result<HistoryView, String> {
     let (mut store, machine, blobs) = context()?.ok_or(NOT_SCANNED)?;
+    let label = store.restore_point(id).map_err(err)?.map(|p| p.label);
     restore::undo(&mut store, &blobs, id, patchpilot_local::now()).map_err(apply_err)?;
+    // Undoing a move of this Mac's shortcuts turns the setting the other way.
+    if let (Some(label), Ok(dir)) = (label, crate::sync::app_dir()) {
+        patchpilot_local::mac_keys::after_undo(&dir, &label)?;
+    }
     let _ = app.emit("data-changed", ());
     history_view(&store, &machine)
 }

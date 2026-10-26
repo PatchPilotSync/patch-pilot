@@ -485,13 +485,18 @@ fn same_here(source: &Manifest, f: &FileToBring, dir: &Path) -> bool {
 /// others get it: the file itself, or for a settings file only its shareable
 /// part, as scans and backups hash it. `None` when there's no file.
 pub fn shared_hash(dir: &Path, root: &str, rel: &str) -> Option<ContentHash> {
+    Some(patchpilot_sync::content_hash(&shared_copy(dir, root, rel)?))
+}
+
+/// The copy of `rel` below `dir` (where `root` is here) as others get it,
+/// as [`shared_hash`] hashes it. `None` when there's no file.
+pub fn shared_copy(dir: &Path, root: &str, rel: &str) -> Option<Vec<u8>> {
     let path = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
     let bytes = std::fs::read(path).ok()?;
-    let bytes = match shared_root(root) {
+    Some(match shared_root(root) {
         Some(shared) => (shared.view)(dir, rel, bytes),
         None => bytes,
-    };
-    Some(patchpilot_sync::content_hash(&bytes))
+    })
 }
 
 /// Whether writing `incoming` (another machine's shared copy of `rel` below
@@ -557,8 +562,9 @@ pub struct WriteReport {
 
 /// A file from the Primary Rig made right for this machine before it is
 /// written: script paths in Reaper's key map that point into Primary Rig's
-/// resource folder are moved to this machine's (`dir`). Anything else is
-/// returned as it came.
+/// resource folder are moved to this machine's (`dir`), and on a Mac that
+/// keeps them so, shortcuts macOS keeps for itself move to Control. Anything
+/// else is returned as it came.
 pub fn adapt_for_here(
     golden: &Manifest,
     root: &str,
@@ -579,9 +585,15 @@ pub fn adapt_for_here(
     let here = dir.to_string_lossy();
     // Shared portably since #62; older builds shared their own paths.
     let text = remap_key_map(&text, KEY_MAP_ROOT, Os::Macos, &here, os);
-    match golden.machine.path_map.roots.get(REAPER_RESOURCES) {
+    let text = match golden.machine.path_map.roots.get(REAPER_RESOURCES) {
         Some(from) => remap_key_map(&text, from, golden.machine.os, &here, os),
         None => text,
+    };
+    // Shortcuts macOS keeps for itself move to Control (decision #81).
+    if os == Os::Macos && patchpilot_parity::reaper_keys::mac_form() {
+        patchpilot_parity::reaper_keys::for_mac(&text)
+    } else {
+        text
     }
     .into_bytes()
 }

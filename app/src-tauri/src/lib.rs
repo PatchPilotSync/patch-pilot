@@ -11,6 +11,7 @@ mod compare;
 mod duplicates;
 mod github;
 mod history;
+mod mac_keys;
 mod reaper;
 mod report;
 mod rig;
@@ -73,6 +74,7 @@ pub fn run() {
         .manage(tray::LastHidden::default())
         .setup(|app| {
             let app = app.handle();
+            mac_keys::setup(app);
             sync::setup(app);
             alerts::setup(app);
             catalog::setup(app);
@@ -141,6 +143,8 @@ pub fn run() {
             autosync::settle_conflict,
             autosync::sync_look_now,
             autosync::sync_prefs_view,
+            mac_keys::mac_keys_view,
+            mac_keys::set_mac_keys,
             autosync::set_sync_kind,
             github::github_view,
             github::github_sign_in,

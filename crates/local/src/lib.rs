@@ -15,6 +15,7 @@ pub mod github;
 pub mod gitpack;
 pub mod golden;
 pub mod ignore;
+pub mod mac_keys;
 pub mod open;
 pub mod reaper_extras;
 pub mod restore;

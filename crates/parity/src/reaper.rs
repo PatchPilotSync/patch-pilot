@@ -652,11 +652,18 @@ pub fn resource_items(
 pub const KEY_MAP_ROOT: &str = "<REAPER_RESOURCES>";
 
 /// A key map with paths under `dir` (this machine's resource folder, on
-/// `os`) written as [`KEY_MAP_ROOT`] paths. Not UTF-8: unchanged.
+/// `os`) written as [`KEY_MAP_ROOT`] paths, and on a Mac that keeps its
+/// shortcuts moved for macOS, moved back to the Windows form
+/// ([`crate::reaper_keys`]). Not UTF-8: unchanged.
 pub fn portable_key_map(bytes: Vec<u8>, dir: &Path, os: Os) -> Vec<u8> {
     match String::from_utf8(bytes) {
         Ok(text) => {
-            remap_key_map(&text, &dir.to_string_lossy(), os, KEY_MAP_ROOT, Os::Macos).into_bytes()
+            let text = remap_key_map(&text, &dir.to_string_lossy(), os, KEY_MAP_ROOT, Os::Macos);
+            if os == Os::Macos && crate::reaper_keys::mac_form() {
+                crate::reaper_keys::for_mac(&text).into_bytes()
+            } else {
+                text.into_bytes()
+            }
         }
         Err(e) => e.into_bytes(),
     }

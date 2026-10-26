@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   backUpNow,
   githubOpen,
+  macKeysView,
+  setMacKeys,
+  type MacKeysView,
   backupRestoreList,
   backupView,
   fileKey,
@@ -639,6 +642,7 @@ function SyncChoices({ onError }: { onError: (e: string) => void }) {
                     </label>
                   ))}
               </div>
+              {app === "Reaper" && <MacShortcuts onError={onError} />}
             </section>
           ))}
           <p className="text-dim">
@@ -646,6 +650,68 @@ function SyncChoices({ onError }: { onError: (e: string) => void }) {
             with still have them.
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Reaper shortcuts on a Mac (decision #81). Reaper already reads a PC's Ctrl,
+ * Alt and Win as Cmd, Option and Control; this setting moves the few Cmd
+ * shortcuts macOS keeps for itself to Control. On a PC it only explains.
+ */
+function MacShortcuts({ onError }: { onError: (e: string) => void }) {
+  const [view, setView] = useState<MacKeysView | null>(null);
+  useEffect(() => {
+    macKeysView().then(setView, (e) => onError(String(e)));
+  }, [onError]);
+  if (!view) return null;
+  const { moved, missing } = view.shortcuts;
+
+  async function toggle(on: boolean) {
+    setView((v) => v && { ...v, on });
+    try {
+      setView(await setMacKeys(on));
+    } catch (e) {
+      onError(String(e));
+    }
+  }
+
+  const list = moved.map(([from, to, n]) => `${from} → ${to}${n > 1 ? ` (${n})` : ""}`).join(", ");
+  return (
+    <div className="mt-1.5 flex flex-col gap-0.5 text-dim">
+      {view.here ? (
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            className="accent-accent"
+            checked={view.on}
+            onChange={(e) => toggle(e.target.checked)}
+          />
+          Move shortcuts macOS keeps for itself to Control
+        </label>
+      ) : (
+        <p className="font-medium text-fg">Shortcuts on a Mac</p>
+      )}
+      <p>
+        Reaper on a Mac reads a PC's Ctrl as Cmd, Alt as Option and Win as Control, so most shortcuts work as they are.
+        A few Cmd shortcuts belong to macOS (Cmd+H hides Reaper, Cmd+Space opens Spotlight, Cmd+Shift+3 takes a
+        screenshot), so {view.here ? "they move" : "each Mac moves them"} to the same key with Control, and back again
+        when they go to a PC.
+      </p>
+      {moved.length > 0 && (
+        <p>
+          {view.here ? (view.on ? "Moved here: " : "Would move: ") : "In this key map: "}
+          {list}.
+        </p>
+      )}
+      {view.waiting && <p className="text-warn">Waiting for Reaper to close to change its shortcuts.</p>}
+      {missing.length > 0 && (
+        <p>
+          {missing.map(([key, n]) => `${n} on ${key}`).join(", ")}: {missing.length === 1 ? "a key" : "keys"} Mac
+          keyboards don't have. Give {missing.reduce((a, [, n]) => a + n, 0) === 1 ? "it" : "them"} another key in
+          Reaper's Actions list.
+        </p>
       )}
     </div>
   );
