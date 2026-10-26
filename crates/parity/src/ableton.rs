@@ -323,8 +323,17 @@ fn place_roots(cfg: &str, clouds: &[PlaceRoot]) -> Vec<PlaceRoot> {
 
 /// `path` as it travels: `{Dropbox}/Samples/Breaks`, below the most specific
 /// root that holds it (case aside), or `None` for a folder only this machine
-/// has, such as one on another drive.
+/// has, such as one on another drive. A cloud folder goes before the User
+/// Library, which may be inside one on this machine and not on another.
 fn portable_place(path: &str, roots: &[PlaceRoot]) -> Option<String> {
+    let (library, clouds): (Vec<PlaceRoot>, Vec<PlaceRoot>) = roots
+        .iter()
+        .cloned()
+        .partition(|r| r.name == USER_LIBRARY_PLACES);
+    below_root(path, &clouds).or_else(|| below_root(path, &library))
+}
+
+fn below_root(path: &str, roots: &[PlaceRoot]) -> Option<String> {
     let path = norm(path);
     let lower = path.to_lowercase();
     roots

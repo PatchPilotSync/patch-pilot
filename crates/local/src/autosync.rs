@@ -514,6 +514,18 @@ pub fn sync_in(
                 state.conflicts.retain(|c| c.key() != key);
                 continue;
             }
+            // Live's Library.cfg shares only part of itself: a copy that
+            // would change nothing here is in sync with it, whatever its hash.
+            if key == library_cfg
+                && let (Some(h), Some(d)) = (&here, &here_dir)
+                && let Some(bytes) = backup::bytes_of(o.backup, o.held)
+                && !bring::would_change(d, &o.file.root, &o.file.rel, bytes)
+            {
+                mark(state);
+                state.synced.insert(key.clone(), h.clone());
+                state.conflicts.retain(|c| c.key() != key);
+                continue;
+            }
             if i != newest {
                 // An older copy from another machine: the newest one decides.
                 mark(state);
@@ -703,7 +715,12 @@ pub fn sync_in(
                         .entry(o.backup.machine_id.clone())
                         .or_default()
                         .insert(key.clone(), o.held.hash.clone());
-                    state.synced.insert(key.clone(), o.held.hash.clone());
+                    // What's here now: a settings file merged into this
+                    // machine's own may not hash as the other's copy.
+                    let now_here = hash_here(Some(&here_dir), &root, &o.file.rel);
+                    state
+                        .synced
+                        .insert(key.clone(), now_here.unwrap_or_else(|| o.held.hash.clone()));
                     state.conflicts.retain(|c| c.key() != key);
                 }
                 for r in &moves {
@@ -1440,6 +1457,80 @@ mod tests {
         // Both now share the same, so the next look finds nothing to do.
         let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 5).unwrap();
         assert_eq!((r.files_placed(), r.new_conflicts), (0, 0), "{r:?}");
+        crate::TEST_CLOUDS.with(|c| *c.borrow_mut() = None);
+    }
+
+    #[test]
+    fn a_library_cfg_that_would_change_nothing_here_is_in_sync() {
+        use patchpilot_parity::ableton::{ABLETON_PREFS, LIBRARY_CFG, PlaceRoot};
+        if crate::apps::ableton_live_running() {
+            return;
+        }
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/parity/ableton/prefs-mac/Live 12.1.5/Library.cfg");
+        let cfg = std::fs::read_to_string(fixture).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac Live");
+        let pc = tmp.path().join("PC Live");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        let mac_dropbox = tmp
+            .path()
+            .join("Dropbox")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let clouds = |c: Option<&str>| {
+            crate::TEST_CLOUDS.with(|t| {
+                *t.borrow_mut() = Some(
+                    c.map(|path| PlaceRoot {
+                        name: "Dropbox".into(),
+                        path: path.into(),
+                    })
+                    .into_iter()
+                    .collect(),
+                )
+            })
+        };
+        // The Mac has a Place in Dropbox; the PC has no Dropbox to put it in.
+        let with_place = cfg.replace(
+            "</UserFolderInfoList>",
+            &format!(
+                "\t<UserFolderInfo Id=\"101\" Path=\"{mac_dropbox}/Breaks\" DisplayName=\"Breaks 2\" IconName=\"\" />\n\t\t</UserFolderInfoList>"
+            ),
+        );
+        put(&mac, LIBRARY_CFG, &with_place);
+        put(&pc, LIBRARY_CFG, &cfg);
+        let mut store = Store::open_in_memory().unwrap();
+        let rels: &[&str] = &[LIBRARY_CFG];
+        scan_roots(
+            &mut store,
+            "mac",
+            "MacBook",
+            &[(ABLETON_PREFS, &mac, rels)],
+            1,
+        );
+        scan_roots(
+            &mut store,
+            "pc",
+            "Studio PC",
+            &[(ABLETON_PREFS, &pc, rels)],
+            1,
+        );
+        clouds(Some(&mac_dropbox));
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        clouds(None);
+        let mut state = SyncState::default();
+        state.synced.insert(
+            library_cfg_key(),
+            hash_here(Some(&pc), ABLETON_PREFS, LIBRARY_CFG).unwrap(),
+        );
+        state.seen.insert("mac".into(), BTreeMap::new());
+        state.version = STATE_VERSION;
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 2).unwrap();
+        // Nothing to write and nothing to ask: only the Place, which can't come.
+        assert_eq!((r.files_placed(), r.new_conflicts), (0, 0), "{r:?}");
+        assert_eq!(read(&pc, LIBRARY_CFG).unwrap(), cfg);
+        assert_eq!(r.missing_places, ["Breaks 2"]);
         crate::TEST_CLOUDS.with(|c| *c.borrow_mut() = None);
     }
 

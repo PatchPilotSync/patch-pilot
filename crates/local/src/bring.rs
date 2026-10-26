@@ -494,6 +494,21 @@ pub fn shared_hash(dir: &Path, root: &str, rel: &str) -> Option<ContentHash> {
     Some(patchpilot_sync::content_hash(&bytes))
 }
 
+/// Whether writing `incoming` (another machine's shared copy of `rel` below
+/// `root`, at `dir` here) would change the file here, once merged as it would
+/// be: a settings file shares only part of itself, and the same part can
+/// look different from each machine (Places on drives only one has).
+pub fn would_change(dir: &Path, root: &str, rel: &str, incoming: Vec<u8>) -> bool {
+    let Some(shared) = shared_root(root) else {
+        return true;
+    };
+    let path = rel.split('/').fold(dir.to_owned(), |p, part| p.join(part));
+    let Ok(current) = std::fs::read(path) else {
+        return true;
+    };
+    (shared.merge)(rel, Some(&current), incoming).is_ok_and(|merged| merged != current)
+}
+
 /// The DAW that must be closed before `rel` below `root` is written (CLAUDE.md
 /// rule 5), if any.
 pub fn needs_closed(root: &str, rel: &str) -> Option<Daw> {
