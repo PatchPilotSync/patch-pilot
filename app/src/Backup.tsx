@@ -5,36 +5,59 @@ import {
   backupView,
   fileKey,
   onBackupChanged,
+  onSyncChanged,
   restoreBackup,
   setBackupAuto,
   setBackupFolder,
+  setKeepInSync,
+  settleConflict,
+  syncView,
   type BackupSet,
   type BackupView,
   type FileToBring,
   type RestoreReport,
   type RestoreView,
+  type SyncConflict,
+  type SyncView,
 } from "./api";
 import { FolderPicker } from "./BigFiles";
 import { groupByApp, summaryOf } from "./BringOver";
 import { Button, Notice, timeAgo } from "./ui";
 
 /**
- * Back up everything (decision #67): one line on This machine saying when it
- * last backed up and where, with Back up now; Show opens the folder, the
- * automatic switch and Restore. On a fresh machine that finds another
- * machine's backup, the line offers to restore it.
+ * Sync and backup (decisions #67 and #70): one line on This machine. Once a
+ * cloud folder is picked, new and changed templates, scripts and presets keep
+ * themselves in sync with linked machines through it, and every change is
+ * backed up there. Show opens the folder, the switches and Restore. On a
+ * fresh machine that finds another machine's backup, the line offers to
+ * restore it. `openAt` opens the line (the tray's Keep Files in Sync with no
+ * folder picked yet).
  */
-export function BackupLine({ onError, fresh }: { onError: (e: string) => void; fresh: boolean }) {
+export function BackupLine({
+  onError,
+  fresh,
+  openAt,
+}: {
+  onError: (e: string) => void;
+  fresh: boolean;
+  openAt?: number;
+}) {
   const [view, setView, load] = useBackupView(onError);
+  const [sync, setSync] = useSyncView(onError, view);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (openAt) setOpen(true);
+  }, [openAt]);
 
-  if (!view) return null;
+  if (!view || !sync) return null;
 
   const mine = view.sets.find((s) => s.machine_id === view.this_machine);
   const others = view.sets.filter((s) => s.machine_id !== view.this_machine && s.backups.length > 0);
   const where = placeName(view);
   const latest = mine?.backups[0];
+  const syncing = view.settings.keep_in_sync;
+  const offerRestore = fresh && others.length > 0 && !latest;
 
   async function now() {
     setBusy(true);
@@ -53,46 +76,137 @@ export function BackupLine({ onError, fresh }: { onError: (e: string) => void; f
   if (!view.settings.folder) {
     tone = "accent";
     text = fresh
-      ? "Back up this machine to a cloud folder, or restore one from a backup."
-      : "Back up your templates, scripts, presets and settings to a cloud folder.";
+      ? "Keep your files in sync through a cloud folder, or restore them from a backup."
+      : "Keep templates, scripts and presets in sync between your machines through a cloud folder.";
   } else if (!view.dir) {
     tone = "warn";
-    text = "The backup folder isn't there now (signed out, or not connected).";
+    text = "The cloud folder isn't there now (signed out, or not connected).";
   } else if (view.error) {
     tone = "warn";
     text = `The last backup didn't finish: ${view.error}`;
-  } else if (fresh && !latest && others.length > 0) {
+  } else if (offerRestore) {
     tone = "accent";
     text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Restore it here?`;
+  } else if (syncing) {
+    const waiting = sync.last?.waiting ?? [];
+    if (waiting.length > 0) tone = "warn";
+    text =
+      sync.linked === 0
+        ? `Backed up to ${where}. Link another machine to keep files in sync with it.`
+        : waiting.length > 0
+          ? `New files are waiting: ${waiting.join("; ")}. Trying again shortly.`
+          : `In sync through ${where}${latest ? `, backed up ${timeAgo(latest.made_at)}` : ""}.`;
   } else if (latest) {
-    text = `Backed up ${timeAgo(latest.made_at)} to ${where}${view.settings.auto ? ", after every change" : ""}.`;
+    text = `Backed up ${timeAgo(latest.made_at)} to ${where}${view.settings.auto ? ", after every change" : ""}. Syncing is off.`;
   } else {
     tone = "accent";
     text = `Not backed up yet. Backups go to ${where}.`;
   }
 
-  const offerRestore = fresh && others.length > 0 && !latest;
+  return (
+    <>
+      <Notice
+        tone={tone}
+        text={
+          <span className="text-dim" title={view.dir ?? undefined}>
+            <span className="font-medium text-fg">Sync &amp; backup</span> · {text}
+          </span>
+        }
+        actions={
+          // Backups run on their own while syncing; the button is for by-hand backups.
+          view.dir &&
+          !syncing &&
+          !offerRestore && (
+            <Button variant="link" onClick={now} disabled={busy || view.running} className="h-6 shrink-0 px-2">
+              {busy || view.running ? "Backing up…" : "Back up now"}
+            </Button>
+          )
+        }
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+        toggle={[view.settings.folder ? (offerRestore ? "Restore…" : "Show") : "Set up", "Hide"]}
+      >
+        <Details view={view} onView={setView} sync={sync} onSync={setSync} onError={onError} />
+      </Notice>
+      <Conflicts sync={sync} onSync={setSync} onError={onError} />
+    </>
+  );
+}
+
+/** Whether files are kept in sync, reloaded when that or the backup changes. */
+function useSyncView(onError: (e: string) => void, backup: BackupView | null) {
+  const [view, setView] = useState<SyncView | null>(null);
+  const load = useCallback(() => {
+    syncView().then(setView, (e) => onError(String(e)));
+  }, [onError]);
+  useEffect(() => {
+    load();
+    const unlisten = onSyncChanged(load);
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [load, backup]);
+  return [view, setView] as const;
+}
+
+/**
+ * Files changed here and on another machine: nothing is replaced until the
+ * user picks a copy, and no conflicted-copy files are made. The other copy
+ * stays in that machine's backup folder meanwhile.
+ */
+function Conflicts({
+  sync,
+  onSync,
+  onError,
+}: {
+  sync: SyncView;
+  onSync: (v: SyncView) => void;
+  onError: (e: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const list = sync.conflicts;
+  if (list.length === 0) return null;
+
+  async function settle(c: SyncConflict, theirs: boolean) {
+    setBusy(true);
+    try {
+      onSync(await settleConflict(c, theirs));
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const machines = [...new Set(list.map((c) => c.machine_name))];
   return (
     <Notice
-      tone={tone}
-      text={
-        <span className="text-dim" title={view.dir ?? undefined}>
-          <span className="font-medium text-fg">Backup</span> · {text}
-        </span>
-      }
-      actions={
-        view.dir &&
-        !(fresh && !latest && others.length > 0) && (
-          <Button variant="link" onClick={now} disabled={busy || view.running} className="h-6 shrink-0 px-2">
-            {busy || view.running ? "Backing up…" : "Back up now"}
-          </Button>
-        )
-      }
+      tone="warn"
+      text={`${plural(list.length, "file")} changed here and on ${machines.length === 1 ? machines[0] : "another machine"}. Pick which copy to keep.`}
       open={open}
       onToggle={() => setOpen((o) => !o)}
-      toggle={[view.settings.folder ? (offerRestore ? "Restore…" : "Show") : "Set up", "Hide"]}
     >
-      <Details view={view} onView={setView} onError={onError} />
+      <ul className="flex flex-col">
+        {list.map((c) => (
+          <li key={`${c.machine_id}/${c.root}/${c.rel}`} className="flex items-center gap-2 py-0.5 text-xs">
+            <span className="min-w-0 flex-1 truncate" title={c.rel}>
+              {c.rel.slice(c.rel.lastIndexOf("/") + 1)}
+              <span className="text-dim"> · {c.kind}</span>
+            </span>
+            <Button variant="link" className="h-6 shrink-0 px-2" disabled={busy} onClick={() => settle(c, true)}>
+              Use {c.machine_name}&apos;s
+            </Button>
+            <Button variant="quiet" className="h-6 shrink-0 px-2" disabled={busy} onClick={() => settle(c, false)}>
+              Keep this one
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-[11px] text-dim">
+        Using the other copy saves this one first, so History can undo it. Keeping this one sends it to your other
+        machines.
+      </p>
     </Notice>
   );
 }
@@ -123,10 +237,15 @@ export function RestoreFromBackup({ onError }: { onError: (e: string) => void })
 function Details({
   view,
   onView,
+  sync,
+  onSync,
   onError,
 }: {
   view: BackupView;
   onView: (v: BackupView) => void;
+  /** Absent in Set up's restore, which only restores. */
+  sync?: SyncView;
+  onSync?: (v: SyncView) => void;
   onError: (e: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
@@ -144,6 +263,33 @@ function Details({
     }
   }
 
+  // Picking the first folder here turns syncing on: that's what it's for.
+  async function choose(service: string | null, folder: string | null) {
+    const first = !view.settings.folder;
+    await act(
+      setBackupFolder(service, folder).then(async (v) => {
+        if (first && sync && onSync && v.dir) {
+          onSync(await setKeepInSync(true));
+          return backupView();
+        }
+        return v;
+      }),
+    );
+  }
+
+  async function toggleSync(on: boolean) {
+    if (!onSync) return;
+    setBusy(true);
+    try {
+      onSync(await setKeepInSync(on));
+      onView(await backupView());
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!view.dir || picking) {
     return (
       <div>
@@ -152,14 +298,9 @@ function Details({
           busy={busy}
           missing={view.settings.folder !== null && !view.dir}
           preferred={view.settings.folder ?? view.transfer_folder}
-          onChoose={(service, folder) => act(setBackupFolder(service, folder))}
+          onChoose={choose}
           onCancel={view.dir ? () => setPicking(false) : undefined}
-          hint={
-            <>
-              Pick where backups go. Patch Pilot keeps them in a <span className="font-medium">Patch Pilot Backup</span>{" "}
-              folder there, one folder per machine, and never deletes them.
-            </>
-          }
+          hint={sync ? <SyncHint /> : <BackupHint />}
         />
       </div>
     );
@@ -169,16 +310,31 @@ function Details({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-dim">
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            className="accent-accent"
-            checked={view.settings.auto}
-            disabled={busy}
-            onChange={(e) => act(setBackupAuto(e.target.checked))}
-          />
-          Back up after every scan that finds a change
-        </label>
+        {sync && (
+          <label className="flex items-center gap-1.5" title="Settings, deletions and plug-ins never sync on their own.">
+            <input
+              type="checkbox"
+              className="accent-accent"
+              checked={view.settings.keep_in_sync}
+              disabled={busy}
+              onChange={(e) => toggleSync(e.target.checked)}
+            />
+            Keep new and changed files in sync with linked machines
+          </label>
+        )}
+        {/* Syncing backs up after every change anyway. */}
+        {!view.settings.keep_in_sync && (
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              className="accent-accent"
+              checked={view.settings.auto}
+              disabled={busy}
+              onChange={(e) => act(setBackupAuto(e.target.checked))}
+            />
+            Back up after every scan that finds a change
+          </label>
+        )}
         <span className="min-w-0 flex-1 truncate" title={view.dir}>
           {view.dir}
         </span>
@@ -199,8 +355,43 @@ function Details({
           )}
         </p>
       )}
+      {sync?.on && <SyncSummary sync={sync} />}
       <Restore sets={view.sets} thisMachine={view.this_machine} onError={onError} />
     </div>
+  );
+}
+
+function BackupHint() {
+  return (
+    <>
+      Pick where backups go. Patch Pilot keeps them in a <span className="font-medium">Patch Pilot Backup</span> folder
+      there, one folder per machine, and never deletes them.
+    </>
+  );
+}
+
+/** What picking a folder for syncing does, in the line above the picker. */
+export function SyncHint() {
+  return (
+    <>
+      Which cloud service do you use? Pick the same one on each machine. New and changed templates, scripts and presets
+      go through a <span className="font-medium">Patch Pilot Backup</span> folder there and land on your other machines
+      on their own.
+    </>
+  );
+}
+
+function SyncSummary({ sync }: { sync: SyncView }) {
+  const placed = sync.last?.placed ?? [];
+  const n = placed.reduce((a, p) => a + p.files, 0);
+  return (
+    <p className="text-[11px] text-dim">
+      {n > 0
+        ? `Last brought in ${plural(n, "file")} from ${[...new Set(placed.map((p) => p.machine_name))].join(", ")}; History can undo it.`
+        : "Files deleted on one machine stay on the others, and settings (key maps, Live's preferences) only come over when you bring them."}
+      {(sync.last?.downloading ?? 0) > 0 && ` ${plural(sync.last!.downloading, "file")} still downloading.`}
+      {sync.error && <span className="text-warn"> {sync.error}</span>}
+    </p>
   );
 }
 

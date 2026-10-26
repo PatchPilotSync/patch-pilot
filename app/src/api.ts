@@ -384,6 +384,8 @@ export interface BackupSettings {
   folder: string | null;
   /** Back up after every scan that finds a change. */
   auto: boolean;
+  /** Keep files in sync with linked machines (decision #70); backs up after every change too. */
+  keep_in_sync: boolean;
 }
 
 export interface BackupInfo {
@@ -450,6 +452,54 @@ export const backupRestoreList = (folder: string, stamp: string) =>
 export const restoreBackup = (folder: string, stamp: string, keys: string[]) =>
   invoke<RestoreReport>("restore_backup", { folder, stamp, keys });
 export const onBackupChanged = (f: () => void): Promise<UnlistenFn> => listen("backup-changed", f);
+
+// Keep files in sync (decision #70); mirrors src-tauri/src/autosync.rs and patchpilot_local::autosync.
+
+/** A file changed here and on another machine since they were last in sync. */
+export interface SyncConflict {
+  app: string;
+  kind: string;
+  root: string;
+  rel: string;
+  machine_id: string;
+  machine_name: string;
+  theirs: string;
+  changed_at: number;
+}
+
+export interface SyncPlaced {
+  machine_name: string;
+  app: string;
+  files: number;
+  /** New here, rather than a newer copy. */
+  new: number;
+  restore_point: number | null;
+}
+
+export interface SyncReport {
+  placed: SyncPlaced[];
+  new_conflicts: number;
+  /** Why files are waiting, e.g. "Ableton Live is open". */
+  waiting: string[];
+  /** Files the cloud app hasn't downloaded yet. */
+  downloading: number;
+}
+
+export interface SyncView {
+  on: boolean;
+  folder_ready: boolean;
+  /** Other machines linked to this one. */
+  linked: number;
+  conflicts: SyncConflict[];
+  last: SyncReport | null;
+  error: string | null;
+}
+
+export const syncView = () => invoke<SyncView>("sync_view");
+export const setKeepInSync = (on: boolean) => invoke<SyncView>("set_keep_in_sync", { on });
+export const settleConflict = (c: SyncConflict, theirs: boolean) =>
+  invoke<SyncView>("settle_conflict", { root: c.root, rel: c.rel, machineId: c.machine_id, theirs });
+export const onSyncChanged = (f: () => void): Promise<UnlistenFn> => listen("sync-changed", f);
 
 export const STATE_LABEL: Record<ParityState, string> = {
   missing: "Missing",

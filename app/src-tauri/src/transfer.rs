@@ -62,7 +62,7 @@ fn settings() -> Result<TransferSettings, String> {
     Ok(transfer::load_settings(&app_dir()?))
 }
 
-fn rewatch(app: &AppHandle) {
+pub(crate) fn rewatch(app: &AppHandle) {
     let dir = settings().ok().as_ref().and_then(transfer_dir);
     let state = app.state::<Watch>();
     let Ok(mut slot) = state.0.lock() else {

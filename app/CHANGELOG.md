@@ -4,6 +4,19 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### New
+
+- Keep your files in sync. Pick your cloud folder (Dropbox, OneDrive, Google Drive, iCloud Drive or any folder) in the tour or on This machine, and new or changed Reaper templates, FX chains, scripts and themes, Ableton User Library files and plug-in presets reach your other linked machines on their own the next time Patch Pilot runs there. A quiet notification says what came in, and History can undo it.
+- It's careful: files deleted on one machine stay on the others, settings like key maps never sync on their own, ignored files stay out, and Ableton files wait until Live is closed. If a file changed on two machines, Patch Pilot keeps both as they are and asks which copy you want, with no "conflicted copy" files.
+- "Keep Files in Sync" in the tray menu turns it off and on.
+
+### Improved
+
+- The top bar now says "Machines linked" instead of "Live sync on", so it isn't mixed up with syncing files.
+- One cloud folder for everything: picking it for syncing also sets it for big files.
+
 ## 0.4.5 - 2026-10-26
 
 ### New

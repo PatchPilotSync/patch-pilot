@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { backupView, setBackupFolder, setKeepInSync, type BackupView } from "./api";
+import { FolderPicker } from "./BigFiles";
 import { Badge, Button, Mark, ScoreBar, scoreColor } from "./ui";
 
 // The first-run tutorial (decision #36): a short, skippable card that explains
@@ -46,7 +48,7 @@ interface Step {
 const STEPS: Step[] = [
   {
     title: "Every rig, ready for the session",
-    body: "Patch Pilot keeps your studio, laptop and travel machines in step, so a project that opens on one opens on all of them. It only reads what's installed: nothing is loaded, changed or copied, and what your machines share is end-to-end encrypted.",
+    body: "Patch Pilot keeps your studio, laptop and travel machines in step, so a project that opens on one opens on all of them. It reads what's installed without loading or changing it, never copies plug-ins, and what your machines share is end-to-end encrypted.",
     art: <MachinesArt />,
   },
   {
@@ -61,8 +63,13 @@ const STEPS: Step[] = [
   },
   {
     title: "Get up to speed",
-    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license. Templates, scripts and themes come over from the Primary Rig in one click.",
+    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license. Templates, scripts and themes come over in one click, or on their own once syncing is on.",
     art: <ChecklistArt />,
+  },
+  {
+    title: "Keep your files in sync",
+    body: <SyncStep />,
+    art: <SyncArt />,
   },
   {
     title: `Lives in your ${TRAY}`,
@@ -70,7 +77,7 @@ const STEPS: Step[] = [
       <>
         Click the plane in the {TRAY} for every machine's score. Expand, or double-click the popover, to open this
         window. It opens when your computer starts and rescans on its own when plug-in folders change; each change is
-        saved as a snapshot, and History lets you go back.
+        saved as a snapshot, and History lets you go back. Keep Files in Sync in its menu turns syncing off and on.
         <span className="mt-2 block">
           The Vault tab keeps the installers you download in a folder you choose, ready for your next machine.
         </span>
@@ -146,6 +153,66 @@ export function Tour({ onClose }: { onClose: () => void }) {
         </footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * Onboarding asks which cloud service the user has (decision #70): picking
+ * its folder turns on syncing, so new templates, scripts and presets reach
+ * every machine through it with no clicks.
+ */
+function SyncStep() {
+  const [view, setView] = useState<BackupView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    backupView().then(setView, () => {});
+  }, []);
+
+  async function choose(service: string | null, folder: string | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      await setBackupFolder(service, folder);
+      await setKeepInSync(true);
+      setView(await backupView());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const intro =
+    "New scripts, templates and presets on any machine reach the others on their own through your cloud folder. History can undo each one; plug-ins and settings never sync on their own.";
+  if (view?.dir && view.settings.keep_in_sync) {
+    const cloud = view.clouds.find((c) => c.path === view.settings.folder)?.name ?? "your folder";
+    return (
+      <>
+        {intro}
+        <span className="mt-2 block text-ok">
+          ✓ Syncing through {cloud}. Turn it off in the {TRAY} menu, or change it on This machine.
+        </span>
+      </>
+    );
+  }
+  return (
+    <>
+      {intro}
+      {view && (
+        <span className="mt-2 block">
+          <FolderPicker
+            clouds={view.clouds}
+            busy={busy}
+            missing={false}
+            preferred={view.settings.folder ?? view.transfer_folder}
+            onChoose={choose}
+            hint="Which cloud service do you use? Pick the same one on each machine."
+          />
+        </span>
+      )}
+      {error && <span className="mt-1 block text-warn">{error}</span>}
+    </>
   );
 }
 
@@ -261,6 +328,31 @@ function ChecklistArt() {
           <span className={done ? "text-dim line-through" : ""}>{label}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function SyncArt() {
+  return (
+    <div className="flex items-center gap-3" aria-hidden="true">
+      <Chip>
+        <Dot tone="ok" /> MacBook
+      </Chip>
+      <span className="text-dim">→</span>
+      <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-line bg-panel">
+        <svg width="26" height="18" viewBox="0 0 26 18" fill="none" className="text-accent-text">
+          <path
+            d="M7 17 H20 A5 5 0 0 0 20.5 7 A7 7 0 0 0 7.2 5.5 A5.8 5.8 0 0 0 7 17 Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+      <span className="text-dim">→</span>
+      <Chip>
+        <Dot tone="ok" /> Studio PC
+      </Chip>
     </div>
   );
 }

@@ -38,6 +38,7 @@ export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [view, setView] = useState<MachinesView | null>(null);
   const [tab, setTab] = useState<Tab>("rig");
+  const [syncSetupAt, setSyncSetupAt] = useState<number | undefined>();
   const [progress, setProgress] = useState<Progress | null>(null);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -107,6 +108,11 @@ export default function App() {
     const vaultCount = () => vaultStatus().then((v) => setVaultCount(v.inbox.length), () => {});
     vaultCount();
     const unlistenVault = onVaultChanged(vaultCount);
+    // The tray's Keep Files in Sync, before a cloud folder is picked.
+    const unlistenSyncSetup = listen("set-up-sync", () => {
+      setTab("rig");
+      setSyncSetupAt(Date.now());
+    });
     const unlistenReplay = listen("replay-first-run", () => {
       resetTour();
       setReplay(true);
@@ -119,6 +125,7 @@ export default function App() {
       unlistenChanged.then((f) => f());
       unlistenVault.then((f) => f());
       unlistenReplay.then((f) => f());
+      unlistenSyncSetup.then((f) => f());
       unlistenProgress.then((f) => f());
       unlistenSync.then((f) => f());
       unlistenDrop.then((f) => f());
@@ -248,6 +255,7 @@ export default function App() {
             onMakeGolden={golden}
             onReport={() => setReporting(true)}
             onError={onError}
+            syncSetupAt={syncSetupAt}
           />
         )}
       </div>
