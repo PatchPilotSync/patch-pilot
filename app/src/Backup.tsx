@@ -411,13 +411,19 @@ function Details({
             </Button>
           </span>
         ) : (
-          <span className="min-w-0 flex-1 truncate" title={view.dir}>
+          <span className="min-w-48 flex-1 truncate" title={view.dir}>
             {view.dir}
           </span>
         )}
         <Button variant="quiet" className="h-6 px-2" onClick={() => setPicking(true)}>
           {view.github ? "Change" : "Change folder"}
         </Button>
+        {/* Advanced (decision #73): in view once a folder is picked, not only behind Change folder. */}
+        {!view.github && (
+          <Button variant="quiet" className="h-6 px-2" title="Advanced: sync through a private GitHub repo instead" onClick={() => setAdvanced(true)}>
+            Use GitHub…
+          </Button>
+        )}
       </div>
       {last && (
         <p className="text-[11px] text-dim">
