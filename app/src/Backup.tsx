@@ -596,13 +596,16 @@ export function Restore({
   othersOnly?: boolean;
   onError: (e: string) => void;
 }) {
+  // A machine's latest backup is picked by "latest", not its stamp, so the
+  // pick moves on to each newer backup as it arrives. While syncing only the
+  // latest is offered: an older one would bring back what has since changed.
   const choices = useMemo(
     () =>
       sets
         .filter((s) => !othersOnly || s.machine_id !== thisMachine)
         .flatMap((s) =>
-          s.backups.map((b, i) => ({
-            id: `${s.folder}\n${b.stamp}`,
+          s.backups.slice(0, othersOnly ? 1 : undefined).map((b, i) => ({
+            id: `${s.folder}\n${i === 0 ? "latest" : b.stamp}`,
             set: s,
             stamp: b.stamp,
             label: `${s.machine_id === thisMachine ? "This machine" : s.machine_name} · ${when(b.made_at)}${i === 0 ? " (latest)" : ""} · ${plural(b.files, "file")}`,
@@ -620,7 +623,8 @@ export function Restore({
   // Why the chosen backup can't be listed (still downloading, gone, damaged);
   // shown under it rather than as an error across the window.
   const [unreadable, setUnreadable] = useState<string | null>(null);
-  const chosen = choices.find((c) => c.id === pick);
+  // A backup that's gone (or a list that has just appeared) falls back to the default.
+  const chosen = choices.find((c) => c.id === pick) ?? first;
   const folder = chosen?.set.folder;
   const stamp = chosen?.stamp;
 
@@ -672,7 +676,7 @@ export function Restore({
         <select
           aria-label="Backup to sync with"
           className="h-6 min-w-0 flex-1 rounded-[5px] border border-line bg-panel px-1.5 text-[11px]"
-          value={pick}
+          value={chosen?.id ?? ""}
           onChange={(e) => {
             setPick(e.target.value);
             setResult(null);
