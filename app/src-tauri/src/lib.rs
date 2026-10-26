@@ -97,6 +97,7 @@ pub fn run() {
             compare::unignore_suggestions,
             compare::ignore_items,
             compare::unignore,
+            compare::ignore_list,
             history::history,
             history::undo_preview,
             history::undo_change,

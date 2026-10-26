@@ -258,12 +258,13 @@ pub async fn update_golden_from(app: AppHandle, machine: String) -> Result<u32, 
 }
 
 /// "Ignore" in Compare, Get Up To Speed or Bring over: leave what `rules`
-/// match out of `machine`'s target (or every machine's), so it stops being
-/// asked for and counted. Syncs to linked machines.
+/// match out of `machine`'s target (this machine's when `None`, or every
+/// machine's), so it stops being asked for and counted. Syncs to linked
+/// machines.
 #[tauri::command]
 pub async fn ignore_items(
     app: AppHandle,
-    machine: String,
+    machine: Option<String>,
     label: String,
     rules: Vec<Matcher>,
     every_machine: bool,
@@ -271,7 +272,7 @@ pub async fn ignore_items(
     let mut store = existing_store()?.ok_or("no saved scans yet")?;
     patchpilot_local::ignore::ignore(
         &mut store,
-        &machine,
+        &machine_or_this(machine)?,
         &label,
         rules,
         every_machine,
@@ -281,13 +282,36 @@ pub async fn ignore_items(
     Ok(())
 }
 
-/// Take back an ignore (by its key) on `machine`: it is asked for again.
+/// Take back an ignore (by its key) on `machine` (this one when `None`):
+/// it is asked for again.
 #[tauri::command]
-pub async fn unignore(app: AppHandle, machine: String, key: String) -> Result<(), String> {
+pub async fn unignore(app: AppHandle, machine: Option<String>, key: String) -> Result<(), String> {
     let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    let machine = machine_or_this(machine)?;
     patchpilot_local::ignore::unignore(&mut store, &machine, &key, patchpilot_local::now())?;
     changed_here(&app, &store);
     Ok(())
+}
+
+/// The ignores in force on `machine` (this one when `None`), newest first.
+#[tauri::command]
+pub async fn ignore_list(machine: Option<String>) -> Result<Vec<IgnoreView>, String> {
+    let Some(store) = existing_store()? else {
+        return Ok(Vec::new());
+    };
+    let golden = store.golden(None).map_err(err)?;
+    patchpilot_local::ignore::views(
+        &store,
+        &machine_or_this(machine)?,
+        golden.as_ref().map(|g| &g.manifest),
+    )
+}
+
+fn machine_or_this(machine: Option<String>) -> Result<String, String> {
+    match machine {
+        Some(m) => Ok(m),
+        None => this_machine()?.ok_or_else(|| "scan this machine first".to_owned()),
+    }
 }
 
 /// Offer ignored suggestions for the Primary Rig again, on every linked machine.

@@ -1,4 +1,4 @@
-//! Ignore (decision #61): what the user doesn't want on a machine, from Bring
+//! Ignore (decision #65): what the user doesn't want on a machine, from Bring
 //! over, Get Up To Speed or Compare. Stored per machine (or for every linked
 //! machine) in the store and synced in bundles; [`Store::target_for`] leaves
 //! it out of the machine's target, so the score, the plan, Bring over and
