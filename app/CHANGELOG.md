@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.8 - 2026-10-26
+
+### Improved
+
+- This machine is shorter: the whole plug-in list now sits in one "All plug-ins" folder, closed at first, like Preset folders and Vendor apps. Open it for the vendor folders, By format and the filter. Patch Pilot remembers whether you left it open.
+
 ## 0.4.7 - 2026-10-26
 
 ### Improved
