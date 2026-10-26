@@ -377,15 +377,18 @@ pub fn add_ableton(manifest: &mut Manifest, dirs: &AbletonDirs) -> usize {
 
 /// Known third-party preset folders that exist on this machine.
 pub fn preset_folders(os: Os) -> Vec<patchpilot_parity::presets::PresetFolder> {
-    use patchpilot_parity::presets::{PresetBases, find_preset_folders};
+    patchpilot_parity::presets::find_preset_folders(os, &preset_bases(os))
+}
+
+/// This machine's folders that preset folders are found under.
+pub(crate) fn preset_bases(os: Os) -> patchpilot_parity::presets::PresetBases {
     let var = |k: &str| std::env::var(k).unwrap_or_default();
-    let bases = PresetBases::standard(
+    patchpilot_parity::presets::PresetBases::standard(
         os,
         &home_dir().unwrap_or_default(),
         &var("APPDATA"),
         &var("ProgramData"),
-    );
-    find_preset_folders(os, &bases)
+    )
 }
 
 /// Add preset folders as items, each under its own logical root. Returns how

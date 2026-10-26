@@ -1,5 +1,6 @@
 //! Bring over (decision #45): copy the Primary Rig's user-owned files, such as
-//! Reaper templates, FX chains, scripts and themes, onto this machine. Never plug-ins (CLAUDE.md
+//! Reaper templates, FX chains, scripts and themes, and plug-in presets
+//! (decision #63), onto this machine. Never plug-ins (CLAUDE.md
 //! rule 2), never silently: the user picks the files, anything replaced is
 //! backed up to app-data first, and each file is staged and renamed into place.
 //!
@@ -15,6 +16,7 @@ use patchpilot_parity::ableton::{
     user_library_label,
 };
 use patchpilot_parity::apply_profile;
+use patchpilot_parity::presets::{self, ROOT_PREFIX, is_preset_file, is_preset_root};
 use patchpilot_parity::reaper::{
     REAPER_RESOURCES, ResourceKind, portable_key_map, reaper_resource_dir, resource_kind,
 };
@@ -109,6 +111,21 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         daw: Some(Daw::Ableton),
         closed_daw: |_| None,
     },
+    // Plug-in presets (decision #63): this one entry stands for every
+    // `PRESETS_<VENDOR>` root. Plug-ins read a preset when it is opened, so
+    // writing them while a DAW runs is safe.
+    SharedRoot {
+        root: ROOT_PREFIX,
+        app: "Presets",
+        kind: |rel| presets::is_shareable_file(rel).then_some("Preset"),
+        // Each vendor has its own place: see `root_dir`.
+        default_dir: || None,
+        guard: || Ok(()),
+        view: |_, _, bytes| bytes,
+        merge: |_, _, incoming| Ok(incoming),
+        daw: None,
+        closed_daw: |_| None,
+    },
 ];
 
 /// The OS paths here are spelled for (macOS's `/` where neither applies, as
@@ -118,16 +135,35 @@ fn this_os() -> Os {
 }
 
 fn shared_root(root: &str) -> Option<&'static SharedRoot> {
-    SHARED_ROOTS.iter().find(|r| r.root == root)
+    SHARED_ROOTS
+        .iter()
+        .find(|r| r.root == root || (r.root == ROOT_PREFIX && is_preset_root(root)))
 }
 
-/// The shared root and label of a path, if Bring over handles it.
-fn classify(path: &PortablePath) -> Option<(&'static SharedRoot, &str, &'static str)> {
+/// The shared root, logical root, path and label of a path, if Bring over
+/// handles it.
+fn classify(path: &PortablePath) -> Option<(&'static SharedRoot, &str, &str, &'static str)> {
     let PortablePath::Logical { root, rel } = path else {
         return None;
     };
     let shared = shared_root(root)?;
-    Some((shared, rel, (shared.kind)(rel)?))
+    Some((shared, root, rel, (shared.kind)(rel)?))
+}
+
+/// What identifies a file's copy: its content hash, or for a preset file
+/// too big to hash (it can't travel anyway), its size.
+fn copy_hash(item: &Item) -> Option<ContentHash> {
+    item.content_hash.clone().or_else(|| {
+        let size = item
+            .size
+            .filter(|s| *s > MAX_FILE_BYTES && is_preset_file(item))?;
+        Some(size_only_hash(size))
+    })
+}
+
+/// The stand-in hash of a file known only by its size.
+pub fn size_only_hash(size: u64) -> ContentHash {
+    patchpilot_sync::content_hash(format!("size-only:{size}").as_bytes())
 }
 
 /// One file Primary Rig has that this machine lacks or has a different copy of.
@@ -192,12 +228,12 @@ pub fn shared_files(machine: &Manifest) -> Vec<SharedFile> {
         .iter()
         .filter(|i| i.size.is_some_and(|s| s <= MAX_FILE_BYTES))
         .filter_map(|i| {
-            let (shared, rel, _) = classify(&i.path)?;
+            let (_, root, rel, _) = classify(&i.path)?;
             let path = machine.machine.path_map.resolve(&i.path)?;
             Some(SharedFile {
                 hash: i.content_hash.clone()?,
                 path: PathBuf::from(path),
-                root: shared.root.to_owned(),
+                root: root.to_owned(),
                 rel: rel.to_owned(),
             })
         })
@@ -209,6 +245,10 @@ pub fn shared_files(machine: &Manifest) -> Vec<SharedFile> {
 /// files it needs. `machine` is `None` before this machine's first scan.
 /// Another linked machine's latest scan, with the default profile, works as
 /// `golden` too.
+///
+/// Presets come only from folders the profile keeps, only where this machine
+/// has a place for them, and from the other OS only when both lay them out
+/// the same way.
 pub fn files_to_bring(
     golden: &Manifest,
     profile: &TargetProfile,
@@ -219,15 +259,39 @@ pub fn files_to_bring(
     // Paths compare case-insensitively (NTFS and APFS both are). When both
     // Primary Rig slots have a file, prefer this OS's.
     let key = |root: &str, rel: &str| (root.to_owned(), rel.to_ascii_lowercase());
+    // Preset folders the profile keeps, by root, with the folder's name.
+    let preset_folders: BTreeMap<&str, &str> = target
+        .items
+        .iter()
+        .filter(|i| presets::is_preset_item(i))
+        .filter_map(|i| match &i.path {
+            PortablePath::Logical { root, rel } if rel.is_empty() => {
+                let name = target.product(i.product_id.as_ref()?)?.name.as_str();
+                Some((root.as_str(), name))
+            }
+            _ => None,
+        })
+        .collect();
+    let placeable = |root: &str| {
+        machine.is_some_and(|m| m.machine.path_map.roots.contains_key(root))
+            || os.is_none_or(|os| presets::is_vendor_root(root, os))
+    };
     let mut wanted: BTreeMap<(String, String), (Os, &Item)> = BTreeMap::new();
     for item in &target.items {
-        let Some((shared, rel, _)) = classify(&item.path) else {
+        let Some((_, root, rel, _)) = classify(&item.path) else {
             continue;
         };
-        if item.content_hash.is_none() {
+        if copy_hash(item).is_none() {
             continue;
         }
-        let k = key(shared.root, rel);
+        if is_preset_file(item)
+            && (!preset_folders.contains_key(root)
+                || !placeable(root)
+                || (!item.platform_portable && os.is_some_and(|os| os != item.platform)))
+        {
+            continue;
+        }
+        let k = key(root, rel);
         let better = match wanted.get(&k) {
             None => true,
             Some((have, _)) => Some(*have) != os && Some(item.platform) == os,
@@ -236,29 +300,31 @@ pub fn files_to_bring(
             wanted.insert(k, (item.platform, item));
         }
     }
-    let here: BTreeMap<(String, String), &ContentHash> = machine
+    let here: BTreeMap<(String, String), ContentHash> = machine
         .into_iter()
         .flat_map(|m| &m.items)
         .filter_map(|i| {
-            let (shared, rel, _) = classify(&i.path)?;
-            Some((key(shared.root, rel), i.content_hash.as_ref()?))
+            let (_, root, rel, _) = classify(&i.path)?;
+            Some((key(root, rel), copy_hash(i)?))
         })
         .collect();
 
     let mut out: Vec<FileToBring> = wanted
         .into_iter()
         .filter_map(|(k, (_, item))| {
-            let hash = item.content_hash.clone()?;
+            let hash = copy_hash(item)?;
             let replaces = match here.get(&k) {
-                Some(h) if **h == hash => return None,
+                Some(h) if *h == hash => return None,
                 Some(_) => true,
                 None => false,
             };
-            let (shared, rel, kind) = classify(&item.path)?;
+            let (shared, root, rel, kind) = classify(&item.path)?;
+            // Presets group by their folder: "FabFilter presets".
+            let kind = preset_folders.get(root).copied().unwrap_or(kind);
             Some(FileToBring {
                 app: shared.app.to_owned(),
                 kind: kind.to_owned(),
-                root: shared.root.to_owned(),
+                root: root.to_owned(),
                 rel: rel.to_owned(),
                 too_large: item.size.is_some_and(|s| s > MAX_FILE_BYTES),
                 size: item.size,
@@ -269,7 +335,7 @@ pub fn files_to_bring(
                 needs: item
                     .needs_files
                     .iter()
-                    .map(|n| format!("{}/{n}", shared.root))
+                    .map(|n| format!("{root}/{n}"))
                     .collect(),
                 incomplete: false,
             })
@@ -404,6 +470,10 @@ fn same_here(source: &Manifest, f: &FileToBring, dir: &Path) -> bool {
 pub fn root_dir(machine: Option<&Manifest>, root: &str) -> Option<PathBuf> {
     if let Some(dir) = machine.and_then(|m| m.machine.path_map.roots.get(root)) {
         return Some(PathBuf::from(dir));
+    }
+    if is_preset_root(root) {
+        let os = Os::current()?;
+        return presets::default_dir(root, os, &crate::preset_bases(os));
     }
     (shared_root(root)?.default_dir)()
 }
@@ -847,6 +917,168 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("reaper.ini"));
         assert!(!reaper.exists());
+    }
+
+    #[test]
+    fn presets_come_from_kept_folders_and_the_same_layout() {
+        use patchpilot_core::{Product, ProductId};
+        // A preset folder item and its files, as the scan lists them.
+        let folder = |os: Os, id: &str, root: &str, name: &str, files: &[(&str, &str, bool)]| {
+            let mut items = vec![Item {
+                kind: ItemKind::Folder,
+                product_id: Some(ProductId(format!("presets/{id}"))),
+                path: PortablePath::logical(root, ""),
+                ..template(os, "x", "folder")
+            }];
+            for (rel, body, portable) in files {
+                items.push(Item {
+                    path: PortablePath::logical(root, *rel),
+                    platform_portable: *portable,
+                    ..template(os, rel, body)
+                });
+            }
+            let product = Product {
+                canonical_id: ProductId(format!("presets/{id}")),
+                vendor: String::new(),
+                name: name.into(),
+            };
+            (product, items)
+        };
+        let mut golden = manifest(Os::Windows, r"C:\R", Vec::new());
+        for (p, items) in [
+            folder(
+                Os::Windows,
+                "fabfilter",
+                "PRESETS_FABFILTER",
+                "FabFilter presets",
+                &[
+                    ("Pro-Q 4/Air.ffp", "air", true),
+                    ("Pro-C 2/Glue.ffp", "glue", true),
+                ],
+            ),
+            folder(
+                Os::Windows,
+                "u-he",
+                "PRESETS_U_HE",
+                "u-he presets",
+                &[("Diva.data/Presets/Diva/Bass.h2p", "bass", false)],
+            ),
+            folder(
+                Os::Windows,
+                "standard-acme",
+                "PRESETS_STANDARD_ACME",
+                "Acme presets",
+                &[("Verb/Hall.vstpreset", "hall", true)],
+            ),
+        ] {
+            golden.products.push(p);
+            golden.items.extend(items);
+        }
+        let mut big = golden.items[1].clone();
+        big.path = PortablePath::logical("PRESETS_FABFILTER", "Pro-Q 4/Huge.ffp");
+        big.content_hash = None;
+        big.size = Some(MAX_FILE_BYTES * 3);
+        golden.items.push(big);
+
+        let mut mac = manifest(Os::Macos, "/R", Vec::new());
+        mac.items.push(Item {
+            path: PortablePath::logical("PRESETS_FABFILTER", "pro-c 2/glue.ffp"),
+            ..template(Os::Macos, "x", "glue")
+        });
+        let list = files_to_bring(&golden, &TargetProfile::default(), Some(&mac));
+        let got: Vec<_> = list
+            .iter()
+            .map(|f| {
+                (
+                    f.app.as_str(),
+                    f.kind.as_str(),
+                    f.root.as_str(),
+                    f.rel.as_str(),
+                    f.too_large,
+                )
+            })
+            .collect();
+        // Glue is here already; u-he lays its presets out differently per OS;
+        // Acme's standard folder isn't on this Mac yet, so there's no place for it.
+        assert_eq!(
+            got,
+            [
+                (
+                    "Presets",
+                    "FabFilter presets",
+                    "PRESETS_FABFILTER",
+                    "Pro-Q 4/Air.ffp",
+                    false
+                ),
+                (
+                    "Presets",
+                    "FabFilter presets",
+                    "PRESETS_FABFILTER",
+                    "Pro-Q 4/Huge.ffp",
+                    true
+                ),
+            ]
+        );
+        // Once the Mac has Acme's folder, its VST3 preset can come over.
+        mac.machine.path_map.roots.insert(
+            "PRESETS_STANDARD_ACME".into(),
+            "/Users/a/Library/Audio/Presets/Acme".into(),
+        );
+        let list = files_to_bring(&golden, &TargetProfile::default(), Some(&mac));
+        assert!(
+            list.iter()
+                .any(|f| f.rel == "Verb/Hall.vstpreset" && f.kind == "Acme presets")
+        );
+        // The same big file (by size) on the Mac isn't listed again.
+        let mut big_here = golden.items.last().unwrap().clone();
+        big_here.platform = Os::Macos;
+        mac.items.push(big_here);
+        let list = files_to_bring(&golden, &TargetProfile::default(), Some(&mac));
+        assert!(!list.iter().any(|f| f.too_large));
+        // Big files never go up to the relay.
+        assert!(
+            shared_files(&golden)
+                .iter()
+                .all(|f| !f.rel.contains("Huge"))
+        );
+    }
+
+    #[test]
+    fn presets_are_written_and_unsafe_paths_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("FabFilter").join("Presets");
+        let mut store = Store::open_in_memory().unwrap();
+        let blobs = tmp.path().join("blobs");
+        for bad in ["../Air.ffp", "Pro-Q 4/plugin.dll", ".hidden/x.ffp"] {
+            let err = write_files(
+                &mut store,
+                &blobs,
+                "m1",
+                "x",
+                "PRESETS_FABFILTER",
+                &dir,
+                &[(bad.into(), b"x".to_vec())],
+                1,
+            );
+            assert!(err.is_err(), "{bad}");
+        }
+        let report = write_files(
+            &mut store,
+            &blobs,
+            "m1",
+            "Brought over 1 preset",
+            "PRESETS_FABFILTER",
+            &dir,
+            &[("Pro-Q 4/Air.ffp".into(), b"air".to_vec())],
+            1,
+        )
+        .unwrap();
+        assert_eq!(report.written, 1);
+        assert_eq!(
+            std::fs::read(dir.join("Pro-Q 4").join("Air.ffp")).unwrap(),
+            b"air"
+        );
+        assert!(report.restore_point.is_some());
     }
 
     #[test]

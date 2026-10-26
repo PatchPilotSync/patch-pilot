@@ -16,6 +16,10 @@
 //!
 //! Paths come from vendors' documentation; a folder that doesn't exist is
 //! simply skipped.
+//!
+//! Each file in a folder is also an item of its own (no product, so the
+//! comparison still shows one row per folder), with its content hash, so
+//! Bring over can carry presets to a linked machine (decision #63).
 
 use std::path::{Path, PathBuf};
 
@@ -29,6 +33,18 @@ const HASH_LIMIT: u64 = 1024 * 1024;
 const MAX_HASHED_FILES: usize = 5000;
 /// Never walk more files than this in one folder.
 const MAX_FILES: usize = 50_000;
+/// Preset files up to this size get a content hash of their own. Bigger ones
+/// can't travel over the link (about 2 MB per file), so only their size is
+/// recorded.
+const FILE_HASH_LIMIT: u64 = 2_000_000;
+/// Never list more preset files than this across all folders, so the
+/// manifest stays small enough for the relay. Folders past
+/// [`MAX_HASHED_FILES`] aren't listed file by file either.
+const MAX_LISTED_FILES: usize = 10_000;
+/// Logical roots of preset folders start with this.
+pub const ROOT_PREFIX: &str = "PRESETS_";
+/// Compiled code is never listed or written, wherever it sits (CLAUDE.md rule 2).
+const NEVER_SHARED_EXT: [&str; 8] = ["dll", "dylib", "so", "exe", "app", "msi", "pkg", "dmg"];
 
 /// Where a preset folder lives, relative to a per-user or shared base.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -291,16 +307,24 @@ pub fn find_preset_folders(os: Os, bases: &PresetBases) -> Vec<PresetFolder> {
     out
 }
 
-/// One item (and product) per folder, with a content hash of its files.
+/// One item (and product) per folder, with a content hash of its files,
+/// followed by one product-less item per file in it (see [`is_preset_file`]).
 /// Empty folders are left out.
 pub fn preset_items(folders: &[PresetFolder], os: Os) -> (Vec<Product>, Vec<Item>) {
     let mut products = Vec::new();
     let mut items = Vec::new();
+    let mut listed = 0;
     for f in folders {
         let Some(summary) = summarize(&f.path) else {
             continue;
         };
         products.push(f.product.clone());
+        let files = if listed + summary.files.len() <= MAX_LISTED_FILES {
+            listed += summary.files.len();
+            summary.files
+        } else {
+            Vec::new()
+        };
         items.push(Item {
             kind: ItemKind::Folder,
             product_id: Some(f.product.canonical_id.clone()),
@@ -321,8 +345,99 @@ pub fn preset_items(folders: &[PresetFolder], os: Os) -> (Vec<Product>, Vec<Item
             requires: Vec::new(),
             needs_files: Vec::new(),
         });
+        let standard = f.root.starts_with(&root_name("standard-"));
+        items.extend(files.into_iter().map(|file| {
+            Item {
+                kind: ItemKind::DawAsset,
+                product_id: None,
+                format: None,
+                platform: os,
+                arch: None,
+                version: None,
+                // A VST3 preset in the standard folder sits in the same place on
+                // both OSes; the AU presets beside it on a Mac are Mac-only.
+                platform_portable: f.portable || (standard && is_vst3_preset(&file.rel)),
+                path: PortablePath::logical(f.root.clone(), file.rel),
+                content_hash: file
+                    .hash
+                    .map(|h| format!("blake3:{h}").try_into().expect("valid hash")),
+                size: Some(file.size),
+                mtime: file.mtime,
+                confidence: Confidence::High,
+                requires: Vec::new(),
+                needs_files: Vec::new(),
+            }
+        }));
     }
     (products, items)
+}
+
+/// One file in a preset folder: an item at `PRESETS_<VENDOR>/<rel>` with no
+/// product. The comparison counts the folder, not its files; Bring over
+/// carries the files.
+pub fn is_preset_file(item: &Item) -> bool {
+    item.product_id.is_none()
+        && matches!(&item.path, PortablePath::Logical { root, rel }
+            if is_preset_root(root) && !rel.is_empty())
+}
+
+pub fn is_preset_root(root: &str) -> bool {
+    root.starts_with(ROOT_PREFIX)
+}
+
+/// True for a `/`-separated path below a preset folder that may be listed
+/// and written: no parent or hidden parts, no compiled code. Checked before
+/// writing a file that came from another machine.
+pub fn is_shareable_file(rel: &str) -> bool {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let safe = parts
+        .iter()
+        .all(|p| !p.is_empty() && !p.starts_with('.') && !p.contains(['\\', ':']));
+    let name = parts[parts.len() - 1].to_ascii_lowercase();
+    let ext = Path::new(&name)
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned());
+    safe && !matches!(name.as_str(), "thumbs.db" | "desktop.ini")
+        && !ext.is_some_and(|e| NEVER_SHARED_EXT.contains(&e.as_str()))
+}
+
+fn is_vst3_preset(rel: &str) -> bool {
+    rel.to_ascii_lowercase().ends_with(".vstpreset")
+}
+
+/// True when `root` is a vendor folder from [`LOCATIONS`] with a place on `os`.
+pub fn is_vendor_root(root: &str, os: Os) -> bool {
+    LOCATIONS.iter().any(|l| {
+        root_name(l.id) == root
+            && match os {
+                Os::Macos => l.macos.is_some(),
+                Os::Windows => l.windows.is_some(),
+            }
+    })
+}
+
+/// Where preset folder `root` belongs on this machine when its scan didn't
+/// find it: the vendor's documented place, or for the standard folder, a
+/// subfolder there whose name matches. `None` when it can't be told.
+pub fn default_dir(root: &str, os: Os, bases: &PresetBases) -> Option<PathBuf> {
+    if let Some(loc) = LOCATIONS.iter().find(|l| root_name(l.id) == root) {
+        let at = match os {
+            Os::Macos => loc.macos,
+            Os::Windows => loc.windows,
+        }?;
+        return bases.join(at);
+    }
+    let standard = bases.join(standard_folder(os))?;
+    std::fs::read_dir(standard)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.is_dir()
+                && p.file_name().is_some_and(|n| {
+                    root_name(&format!("standard-{}", slug(&n.to_string_lossy()))) == root
+                })
+        })
 }
 
 /// Where a preset folder lives on `os`, for people: `Documents\Kilohearts`,
@@ -376,10 +491,21 @@ struct Summary {
     hash: String,
     size: u64,
     mtime: Option<i64>,
+    /// Each file, for folders up to [`MAX_HASHED_FILES`] files.
+    files: Vec<FileSummary>,
+}
+
+struct FileSummary {
+    rel: String,
+    size: u64,
+    mtime: Option<i64>,
+    /// BLAKE3 hex of the contents, up to [`FILE_HASH_LIMIT`].
+    hash: Option<String>,
 }
 
 /// Hash of the folder's files: relative path, then content (or size, for big
-/// files and big folders). `None` for a folder without files.
+/// files and big folders), and each file's own hash. `None` for a folder
+/// without files.
 fn summarize(dir: &Path) -> Option<Summary> {
     let mut files: Vec<(String, PathBuf, std::fs::Metadata)> = walkdir::WalkDir::new(dir)
         .follow_links(false)
@@ -406,6 +532,7 @@ fn summarize(dir: &Path) -> Option<Summary> {
     let mut h = blake3::Hasher::new();
     let mut size = 0;
     let mut mtime = None;
+    let mut listed = Vec::new();
     for (rel, path, meta) in &files {
         size += meta.len();
         let modified = meta
@@ -416,24 +543,34 @@ fn summarize(dir: &Path) -> Option<Summary> {
         mtime = mtime.max(modified);
         h.update(rel.as_bytes());
         h.update(b"\0");
-        let content = (hash_contents && meta.len() <= HASH_LIMIT)
+        let file_hash = (hash_contents && meta.len() <= FILE_HASH_LIMIT)
             .then(|| std::fs::read(path).ok())
-            .flatten();
-        match content {
-            Some(bytes) => {
+            .flatten()
+            .map(|bytes| blake3::hash(&bytes));
+        match file_hash.filter(|_| meta.len() <= HASH_LIMIT) {
+            Some(hash) => {
                 h.update(b"c");
-                h.update(blake3::hash(&bytes).as_bytes());
+                h.update(hash.as_bytes());
             }
             None => {
                 h.update(b"s");
                 h.update(&meta.len().to_le_bytes());
             }
         }
+        if hash_contents && is_shareable_file(rel) {
+            listed.push(FileSummary {
+                rel: rel.clone(),
+                size: meta.len(),
+                mtime: modified,
+                hash: file_hash.map(|h| h.to_hex().to_string()),
+            });
+        }
     }
     Some(Summary {
         hash: h.finalize().to_hex().to_string(),
         size,
         mtime,
+        files: listed,
     })
 }
 
@@ -452,7 +589,7 @@ fn is_junk(p: &Path) -> bool {
 }
 
 fn root_name(id: &str) -> String {
-    format!("PRESETS_{}", id.to_ascii_uppercase().replace('-', "_"))
+    format!("{ROOT_PREFIX}{}", id.to_ascii_uppercase().replace('-', "_"))
 }
 
 fn slug(s: &str) -> String {
@@ -466,6 +603,7 @@ fn slug(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use patchpilot_core::ContentHash;
 
     fn write(path: &Path, content: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -532,12 +670,114 @@ mod tests {
         let (products, items) = preset_items(&folders, Os::Macos);
         // The empty Vital folder is left out.
         assert_eq!(products.len(), 3);
-        let fab = &items[0];
+        let folders: Vec<&Item> = items.iter().filter(|i| !is_preset_file(i)).collect();
+        let fab = folders[0];
         assert_eq!(fab.kind, ItemKind::Folder);
         assert_eq!(fab.path, PortablePath::logical("PRESETS_FABFILTER", ""));
         assert!(fab.platform_portable);
         assert_eq!(fab.size, Some(3));
-        assert!(!items[2].platform_portable);
+        assert!(!folders[2].platform_portable);
+
+        // Each file follows its folder, with its own hash.
+        let files: Vec<_> = items
+            .iter()
+            .filter(|i| is_preset_file(i))
+            .map(|i| (&i.path, i.platform_portable))
+            .collect();
+        assert_eq!(
+            files,
+            [
+                (
+                    &PortablePath::logical("PRESETS_FABFILTER", "Pro-Q 4/Air.ffp"),
+                    true
+                ),
+                (
+                    &PortablePath::logical("PRESETS_U_HE", "Diva/Bass.h2p"),
+                    false
+                ),
+                (
+                    &PortablePath::logical("PRESETS_STANDARD_ACME", "Verb/Hall.aupreset"),
+                    false
+                ),
+            ]
+        );
+        assert_eq!(
+            items[1].content_hash.clone().unwrap(),
+            ContentHash::try_from(format!("blake3:{}", blake3::hash(b"air").to_hex())).unwrap()
+        );
+    }
+
+    #[test]
+    fn big_files_get_no_hash_and_code_is_never_listed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let dir = home.join("Library/Audio/Presets/Acme");
+        write(&dir.join("Verb/Hall.vstpreset"), "hall");
+        write(&dir.join("Verb/Hall.aupreset"), "hall");
+        write(&dir.join("Verb/helper.dylib"), "code");
+        std::fs::write(
+            dir.join("Verb/Big.vstpreset"),
+            vec![0u8; FILE_HASH_LIMIT as usize + 1],
+        )
+        .unwrap();
+        let folders = find_preset_folders(Os::Macos, &mac_bases(home));
+        let (_, items) = preset_items(&folders, Os::Macos);
+        let files: Vec<_> = items
+            .iter()
+            .filter(|i| is_preset_file(i))
+            .map(|i| match &i.path {
+                PortablePath::Logical { rel, .. } => {
+                    (rel.as_str(), i.content_hash.is_some(), i.platform_portable)
+                }
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(
+            files,
+            [
+                ("Verb/Big.vstpreset", false, true),
+                ("Verb/Hall.aupreset", true, false),
+                ("Verb/Hall.vstpreset", true, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn shareable_files_stay_inside_the_folder() {
+        assert!(is_shareable_file("Pro-Q 4/Air.ffp"));
+        assert!(is_shareable_file("Bass.fxp"));
+        for bad in [
+            "../x.ffp",
+            "a/../../x",
+            ".hidden/x",
+            "a/Thumbs.db",
+            "a/b.dll",
+            "a\\b",
+            "C:/x",
+            "",
+        ] {
+            assert!(!is_shareable_file(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn default_dirs_follow_the_vendor_and_the_standard_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let bases = mac_bases(home);
+        assert_eq!(
+            default_dir("PRESETS_FABFILTER", Os::Macos, &bases),
+            Some(home.join("Documents").join("FabFilter").join("Presets"))
+        );
+        assert_eq!(
+            default_dir("PRESETS_STANDARD_ACME", Os::Macos, &bases),
+            None
+        );
+        std::fs::create_dir_all(home.join("Library/Audio/Presets/Acme")).unwrap();
+        assert_eq!(
+            default_dir("PRESETS_STANDARD_ACME", Os::Macos, &bases),
+            Some(home.join("Library/Audio/Presets/Acme"))
+        );
     }
 
     #[test]
