@@ -6,6 +6,14 @@ becomes its release notes, which the app shows when it offers that update
 
 ## 0.4.8 - 2026-10-26
 
+### New
+
+- Advanced: sync with GitHub. Under This machine → Sync & backup, you can keep backups and synced files in a private GitHub repo instead of a cloud folder. Every change is kept in the repo's history.
+
+### Improved
+
+- This machine opens shorter: your whole plug-in list now sits in one All plug-ins folder (with its count, vendors and any updates in the header), like Preset folders and Vendor apps. Open it once and it stays open.
+
 ### Fixed
 
 - The first launch after an update could show "index snapshot_items_item already exists" and leave Compare greyed out until Patch Pilot was restarted. Your data was never affected.
