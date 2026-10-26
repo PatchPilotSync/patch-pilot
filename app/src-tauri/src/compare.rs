@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use patchpilot_core::{Bundle, Os};
 use patchpilot_local::up_to_speed::{PlanStart, load_up_to_speed, save_up_to_speed};
 use patchpilot_parity::{
-    Comparison, ComparisonRow, Plan, SetupProgress, SuggestionGroup, SuggestionUnit, compare,
-    plan_still_covers, suggestion_key, up_to_speed,
+    Comparison, ComparisonRow, Packages, Plan, SetupProgress, SuggestionGroup, SuggestionUnit,
+    compare, plan_still_covers, suggestion_key, up_to_speed,
 };
 use patchpilot_store::{GoldenImport, Store};
 use serde::Serialize;
@@ -296,7 +296,10 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
             match (&golden, store.latest_manifest(&info.id).map_err(err)?) {
                 (Some(g), Some(scan)) => {
                     let c = compare(&g.manifest, &profile.clone().unwrap_or_default(), &scan);
-                    (Some(c.score), suggestion_groups(&c, &ignored))
+                    (
+                        Some(c.score),
+                        suggestion_groups(&c, &ignored, &Packages::of(&scan)),
+                    )
                 }
                 _ => (None, Vec::new()),
             };
@@ -345,12 +348,13 @@ pub(crate) fn comparison(
     );
     let ignored = patchpilot_local::golden::ignored_keys(store)?;
     let suggested = suggested(&comparison, &ignored);
-    let suggestion_groups = suggestion_groups(&comparison, &ignored);
+    let packages = Packages::of(&scan);
+    let suggestion_groups = suggestion_groups(&comparison, &ignored, &packages);
     let suggestion_units = open_suggestions(&comparison, &ignored)
         .map(|r| {
             (
                 r.product_id.0.clone(),
-                patchpilot_parity::suggestion_unit(r),
+                patchpilot_parity::suggestion_unit(r, &packages),
             )
         })
         .collect();
@@ -378,8 +382,12 @@ pub(crate) fn comparison(
 }
 
 /// Suggestions by kind, each script package or ReaPack counted once.
-fn suggestion_groups(c: &Comparison, ignored: &BTreeSet<String>) -> Vec<(SuggestionGroup, usize)> {
-    patchpilot_parity::suggestion_summary(open_suggestions(c, ignored))
+fn suggestion_groups(
+    c: &Comparison,
+    ignored: &BTreeSet<String>,
+    packages: &Packages,
+) -> Vec<(SuggestionGroup, usize)> {
+    patchpilot_parity::suggestion_summary(open_suggestions(c, ignored), packages)
 }
 
 fn suggested(c: &Comparison, ignored: &BTreeSet<String>) -> Vec<String> {

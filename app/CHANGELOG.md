@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### Improved
+
+- A script that loads files from another folder (a shared library, a theme's images) now counts once among the suggestions for the Primary Rig, together with those files. This needs a rescan with this version on the machine that has them.
+
 ## 0.4.1 - 2026-10-26
 
 ### Improved

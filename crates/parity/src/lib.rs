@@ -27,7 +27,7 @@ mod version;
 pub use comparison::{Comparison, ComparisonRow, ItemSide, compare};
 pub use diff::{ManifestDiff, ParityState, ProductDiff, diff_manifests, format_available_on};
 pub use drift::{
-    Alert, Observed, Seen, SuggestionGroup, SuggestionUnit, alerts, gaps, suggestion_key,
+    Alert, Observed, Packages, Seen, SuggestionGroup, SuggestionUnit, alerts, gaps, suggestion_key,
     suggestion_summary, suggestion_unit, suggestions,
 };
 pub use golden::{ProposeError, find_product, propose_to_golden};
