@@ -483,6 +483,23 @@ export interface SyncReport {
   waiting: string[];
   /** Files the cloud app hasn't downloaded yet. */
   downloading: number;
+  /** Each other machine's latest backup, as this machine sees it. */
+  sources: SyncSource[];
+  looked_at: number;
+}
+
+export interface SyncSource {
+  machine_id: string;
+  machine_name: string;
+  made_at: number;
+  /** Files in it that sync (not settings). */
+  files: number;
+  same: number;
+  placed: number;
+  to_choose: number;
+  downloading: number;
+  /** False for a machine not linked to this one: its backup is left alone. */
+  linked: boolean;
 }
 
 export interface SyncView {
@@ -496,6 +513,7 @@ export interface SyncView {
 }
 
 export const syncView = () => invoke<SyncView>("sync_view");
+export const syncLookNow = () => invoke<SyncView>("sync_look_now");
 export const setKeepInSync = (on: boolean) => invoke<SyncView>("set_keep_in_sync", { on });
 export const settleConflict = (c: SyncConflict, theirs: boolean) =>
   invoke<SyncView>("settle_conflict", { root: c.root, rel: c.rel, machineId: c.machine_id, theirs });

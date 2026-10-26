@@ -113,6 +113,33 @@ pub struct SyncReport {
     pub waiting: Vec<String>,
     /// Files whose copy the cloud app hasn't downloaded yet.
     pub downloading: usize,
+    /// What each machine's latest backup in the folder holds for this one,
+    /// so the app can say why nothing came over.
+    pub sources: Vec<SourceSummary>,
+    /// When it looked, Unix seconds.
+    pub looked_at: i64,
+}
+
+/// One machine's latest backup, as this machine sees it. Mirrored in
+/// `app/src/api.ts`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct SourceSummary {
+    pub machine_id: String,
+    pub machine_name: String,
+    /// The backup's time, Unix seconds.
+    pub made_at: i64,
+    /// Files in it that sync (not settings).
+    pub files: usize,
+    /// Of those, already the same here.
+    pub same: usize,
+    /// Brought here this time.
+    pub placed: usize,
+    /// Waiting for the user to pick a copy.
+    pub to_choose: usize,
+    /// Not downloaded by the cloud app yet.
+    pub downloading: usize,
+    /// False for a machine not linked to this one: its backup is left alone.
+    pub linked: bool,
 }
 
 impl SyncReport {
@@ -170,16 +197,59 @@ pub fn sync_in(
         .filter(|id| id != this)
         .collect();
     let profile = backup::restore_profile(store, this)?;
-    let backups: Vec<Backup> = backup::subdirs(dir)
+    // The machine the Primary Rig was last made from: the reference when two
+    // machines first meet with different copies of a file.
+    let primary = store
+        .golden(None)
+        .map_err(|e| e.to_string())?
+        .and_then(|g| g.info.source_machine_id);
+    let mut report = SyncReport {
+        looked_at: now,
+        ..SyncReport::default()
+    };
+    let mut backups: Vec<Backup> = Vec::new();
+    for b in backup::subdirs(dir)
         .iter()
         .filter_map(|f| backup::latest(f))
-        .filter(|b| linked.contains(&b.machine_id) && b.format <= FORMAT_VERSION)
-        .collect();
+    {
+        if b.machine_id == this || b.format > FORMAT_VERSION {
+            continue;
+        }
+        let ok = linked.contains(&b.machine_id);
+        report.sources.push(SourceSummary {
+            machine_id: b.machine_id.clone(),
+            machine_name: b.machine_name.clone(),
+            made_at: b.made_at,
+            files: b.files.iter().filter(|f| syncs(&f.root, &f.rel)).count(),
+            linked: ok,
+            ..SourceSummary::default()
+        });
+        if ok {
+            backups.push(b);
+        }
+    }
     // Machines unlinked since are forgotten.
     state.seen.retain(|id, _| linked.contains(id));
     state.conflicts.retain(|c| linked.contains(&c.machine_id));
+    // Copies that differed before the machines ever synced were asked about
+    // before 0.4.8; the Primary Rig's machine now decides them, so look again.
+    if let Some(p) = &primary {
+        let first_meet: Vec<Conflict> = state
+            .conflicts
+            .iter()
+            .filter(|c| (&c.machine_id == p || p == this) && !state.synced.contains_key(&c.key()))
+            .cloned()
+            .collect();
+        for c in first_meet {
+            if let Some(seen) = state.seen.get_mut(&c.machine_id) {
+                seen.remove(&c.key());
+            }
+            state
+                .conflicts
+                .retain(|x| !(x.key() == c.key() && x.machine_id == c.machine_id));
+        }
+    }
 
-    let mut report = SyncReport::default();
     let mut dirs: HashMap<String, Option<PathBuf>> = HashMap::new();
     let mut root_dir = |root: &str| {
         dirs.entry(root.to_owned())
@@ -279,16 +349,25 @@ pub fn sync_in(
                 mark(state);
                 continue;
             }
+            let from_primary = primary.as_deref() == Some(o.backup.machine_id.as_str());
+            let this_primary = primary.as_deref() == Some(this);
             let place = match (&here, &synced) {
                 // New here, or deleted here and since changed there.
                 (None, None) => true,
                 (None, Some(_)) => seen_before,
                 // Not edited here since the last sync, and changed there.
                 (Some(h), Some(s)) => h == s && seen_before,
-                (Some(_), None) => false,
+                // Different before the two machines ever synced it: the
+                // Primary Rig's machine is the reference, so its copy comes
+                // here and others' copies don't go to it.
+                (Some(_), None) => from_primary,
             };
+            let keep_here = matches!((&here, &synced), (Some(_), None)) && this_primary;
             if place {
                 take = Some(o);
+            } else if let (true, Some(h)) = (keep_here, &here) {
+                mark(state);
+                state.synced.insert(key.clone(), h.clone());
             } else if here.is_some() {
                 // Edited both here and there (or never synced): ask.
                 state
@@ -330,6 +409,12 @@ pub fn sync_in(
     }
     let held_back = bring::blocked(&list, &missing);
     report.downloading = missing.len() + held_back.len();
+    for o in &chosen {
+        let k = o.file.key();
+        if missing.contains(&k) || held_back.contains(&k) {
+            source(&mut report, &o.backup.machine_id).downloading += 1;
+        }
+    }
 
     let mut groups: BTreeMap<(String, String, String), Vec<&Offer>> = BTreeMap::new();
     for o in &chosen {
@@ -383,6 +468,7 @@ pub fn sync_in(
                     state.synced.insert(key.clone(), o.held.hash.clone());
                     state.conflicts.retain(|c| c.key() != key);
                 }
+                source(&mut report, &from.machine_id).placed += w.written;
                 report.placed.push(Placed {
                     machine_name: from.machine_name.clone(),
                     app,
@@ -397,8 +483,38 @@ pub fn sync_in(
         }
     }
     report.placed.retain(|p| p.files > 0);
+    for src in &mut report.sources {
+        let Some(b) = backups.iter().find(|b| b.machine_id == src.machine_id) else {
+            continue;
+        };
+        let seen = state.seen.get(&b.machine_id);
+        src.same = b
+            .files
+            .iter()
+            .filter(|f| syncs(&f.root, &f.rel))
+            .filter(|f| {
+                let key = f.key().to_lowercase();
+                seen.and_then(|s| s.get(&key)) == Some(&f.hash)
+                    && state.synced.get(&key) == Some(&f.hash)
+            })
+            .count();
+        src.to_choose = state
+            .conflicts
+            .iter()
+            .filter(|c| c.machine_id == b.machine_id)
+            .count();
+    }
     report.waiting = waiting.into_iter().collect();
     Ok(report)
+}
+
+fn source<'a>(report: &'a mut SyncReport, id: &str) -> &'a mut SourceSummary {
+    let i = report
+        .sources
+        .iter()
+        .position(|s| s.machine_id == id)
+        .expect("every backup read has a summary");
+    &mut report.sources[i]
 }
 
 /// Settle a conflict on `root/rel` with `machine_id`: take that machine's
@@ -573,7 +689,13 @@ mod tests {
 
         // Nothing new: nothing done.
         let again = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 3).unwrap();
-        assert_eq!(again, SyncReport::default());
+        assert_eq!((again.files_placed(), again.new_conflicts), (0, 0));
+        let src = &again.sources[0];
+        assert_eq!(
+            (src.machine_name.as_str(), src.files, src.same, src.linked),
+            ("MacBook", 2, 2, true),
+            "settings aren't counted"
+        );
 
         // Changed on the Mac: replaces the PC's untouched copy.
         put(&mac, DRUMS, "drums v2");
@@ -725,5 +847,63 @@ mod tests {
         let r = sync_in(&mut store, &tmp.path().join("b"), "pc", &dir, &mut state, 2).unwrap();
         assert_eq!(r.files_placed(), 0);
         assert!(read(&pc, VOCAL).is_none());
+    }
+
+    #[test]
+    fn the_primary_rigs_machine_is_the_reference_when_machines_first_meet() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pc = tmp.path().join("PC REAPER");
+        let mac = tmp.path().join("Mac REAPER");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        let mut store = Store::open_in_memory().unwrap();
+        // The PC is the Primary Rig; the MacBook has an older copy.
+        put(&pc, DRUMS, "drums new");
+        put(&mac, DRUMS, "drums old");
+        put(&mac, VOCAL, "mac only");
+        scan(&mut store, "pc", "Studio PC", &pc, &[DRUMS, VOCAL], 1);
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS, VOCAL], 1);
+        let primary = store.latest_manifest("pc").unwrap().unwrap();
+        store.save_golden(&primary, Some("pc"), None, 2).unwrap();
+        back_up(&store, "pc", None, &dir, 1_000).unwrap();
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+
+        // The MacBook takes the PC's copy without asking.
+        let mut mac_state = SyncState::default();
+        let r = sync_in(&mut store, &blobs, "mac", &dir, &mut mac_state, 3).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (1, 0), "{r:?}");
+        assert_eq!(read(&mac, DRUMS).as_deref(), Some("drums new"));
+
+        // The PC keeps its own copy, and takes the MacBook's new file.
+        let mut pc_state = SyncState::default();
+        let r = sync_in(&mut store, &blobs, "pc", &dir, &mut pc_state, 4).unwrap();
+        assert_eq!((r.files_placed(), r.new_conflicts), (1, 0), "{r:?}");
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums new"));
+        assert_eq!(read(&pc, VOCAL).as_deref(), Some("mac only"));
+    }
+
+    #[test]
+    fn first_meeting_conflicts_from_before_are_settled_by_the_primary_rig() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pc = tmp.path().join("PC REAPER");
+        let mac = tmp.path().join("Mac REAPER");
+        let dir = tmp.path().join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        let mut store = Store::open_in_memory().unwrap();
+        put(&pc, DRUMS, "drums new");
+        put(&mac, DRUMS, "drums old");
+        scan(&mut store, "pc", "Studio PC", &pc, &[DRUMS], 1);
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS], 1);
+        back_up(&store, "pc", None, &dir, 1_000).unwrap();
+        // No Primary Rig yet: asked, as 0.4.6 did.
+        let mut state = SyncState::default();
+        let r = sync_in(&mut store, &blobs, "mac", &dir, &mut state, 2).unwrap();
+        assert_eq!(r.new_conflicts, 1);
+        // Once the PC is the Primary Rig, its copy comes over.
+        let primary = store.latest_manifest("pc").unwrap().unwrap();
+        store.save_golden(&primary, Some("pc"), None, 3).unwrap();
+        let r = sync_in(&mut store, &blobs, "mac", &dir, &mut state, 4).unwrap();
+        assert_eq!((r.files_placed(), state.conflicts.len()), (1, 0), "{r:?}");
+        assert_eq!(read(&mac, DRUMS).as_deref(), Some("drums new"));
     }
 }

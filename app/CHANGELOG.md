@@ -4,6 +4,15 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.8 - 2026-10-26
+
+### Improved
+
+- Keep Files in Sync now brings a machine up to your Primary Rig. Where the two had different copies of a file before syncing, the Primary Rig's copy comes over (undo in History) instead of asking about each one.
+- The Sync & backup line on This machine says what's happening: how many files are coming over and from which machine, or that it's waiting for your other machine's files to reach Dropbox. "Check now" looks right away, and Show lists each machine's files.
+- Files arriving in Dropbox are picked up more reliably on Mac.
+- This machine keeps the whole plug-in list in one "All plug-ins" folder, so your machine's status is at the top.
+
 ## 0.4.7 - 2026-10-26
 
 ### Improved

@@ -26,6 +26,11 @@ use crate::sync::{app_dir, this_machine};
 const QUIET: Duration = Duration::from_secs(10);
 /// How long to wait before trying again while a DAW is open.
 const RETRY: Duration = Duration::from_secs(120);
+/// A linked machine's scan arrives over the link well before its backup
+/// finishes syncing through the cloud app, and some cloud folders (Dropbox
+/// and OneDrive as macOS File Providers) don't always report files they
+/// download: look once more this long after a scan arrives.
+const FOLLOW_UP: Duration = Duration::from_secs(180);
 /// The first look after launch waits for the catch-up scan and backup.
 const STARTUP_DELAY: Duration = Duration::from_secs(90);
 /// Emitted after files were placed or a conflict found, for the UI.
@@ -40,6 +45,7 @@ struct SyncState {
     last: Mutex<Option<SyncReport>>,
     error: Mutex<Option<String>>,
     retry_pending: AtomicBool,
+    follow_up_pending: AtomicBool,
 }
 
 /// Mirrored in `src/api.ts`.
@@ -66,7 +72,15 @@ pub fn setup(app: &AppHandle) {
     let handle = app.clone();
     app.listen_any("data-changed", move |_| {
         let handle = handle.clone();
-        std::thread::spawn(move || look(&handle));
+        std::thread::spawn(move || {
+            look(&handle);
+            let state = handle.state::<SyncState>();
+            if !state.follow_up_pending.swap(true, Ordering::SeqCst) {
+                std::thread::sleep(FOLLOW_UP);
+                state.follow_up_pending.store(false, Ordering::SeqCst);
+                look(&handle);
+            }
+        });
     });
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -125,7 +139,9 @@ pub fn look(app: &AppHandle) {
     if let Ok(mut last) = state.last.lock() {
         *last = Some(report.clone());
     }
-    if !report.waiting.is_empty() && !state.retry_pending.swap(true, Ordering::SeqCst) {
+    let _ = app.emit(SYNC_CHANGED, ());
+    let unfinished = !report.waiting.is_empty() || report.downloading > 0;
+    if unfinished && !state.retry_pending.swap(true, Ordering::SeqCst) {
         let handle = app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(RETRY);
@@ -140,7 +156,6 @@ pub fn look(app: &AppHandle) {
         return;
     }
     notify(app, &report);
-    let _ = app.emit(SYNC_CHANGED, ());
     // The template and preset folders are watched: a rescan (and the
     // backup that sends the files on) follows the writes on its own.
     let _ = app.emit("data-changed", ());
@@ -281,6 +296,16 @@ pub fn set_enabled(app: &AppHandle, on: bool) -> Result<(), String> {
         });
     }
     Ok(())
+}
+
+/// Look in the cloud folder now, from the Sync & backup line.
+#[tauri::command]
+pub async fn sync_look_now(app: AppHandle) -> Result<SyncView, String> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || look(&handle))
+        .await
+        .map_err(|e| e.to_string())?;
+    sync_view(app).await
 }
 
 /// Settle a file changed here and on `machine_id`: use that machine's copy

@@ -125,6 +125,7 @@ pub fn run() {
             autosync::sync_view,
             autosync::set_keep_in_sync,
             autosync::settle_conflict,
+            autosync::sync_look_now,
             duplicates::find_duplicates,
             duplicates::clean_up_duplicates,
             catalog::updates,
