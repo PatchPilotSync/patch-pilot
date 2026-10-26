@@ -4,6 +4,18 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.4 - 2026-10-26
+
+### New
+
+- Back up everything to your cloud folder. A Backup line on This machine copies your Reaper templates, FX chains, scripts, themes and key maps, your Ableton templates and settings, your plug-in presets and the Installer Vault list into a "Patch Pilot Backup" folder in Dropbox, OneDrive, Google Drive, iCloud Drive or any folder you pick. Click Back up now, or tick "Back up after every scan that finds a change".
+- Each backup copies only what changed, and earlier versions are kept, so you can go back to any backup. Patch Pilot never deletes anything in that folder, and it's laid out by app so you can browse it yourself.
+- Restore from a backup on any machine, Mac or PC: pick a backup and what to restore, and each file goes to the right place, with Undo in History. A new machine that finds another machine's backup offers to restore it, and Set up has a "Restore from a backup" choice.
+
+### Fixed
+
+- Script packages brought over from a saved scan now keep every file they need. This needs a rescan with this version.
+
 ## 0.4.3 - 2026-10-26
 
 ### New
