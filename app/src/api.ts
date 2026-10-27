@@ -839,6 +839,16 @@ export interface SetupStep {
   after: number[];
 }
 
+/** A plug-in here in other formats than the Primary Rig's; it counts as installed. */
+export interface OtherFormats {
+  product_id: string;
+  name: string;
+  /** Formats here, e.g. ["VST3"]. */
+  here: string[];
+  /** The Primary Rig's formats this machine lacks, e.g. ["VST2"]. */
+  missing: string[];
+}
+
 export interface SetupProgress {
   steps: SetupStep[];
   done: number;
@@ -848,6 +858,7 @@ export interface SetupProgress {
   templates: TemplateReadiness[];
   templates_ready: number;
   complete: boolean;
+  other_formats: OtherFormats[];
 }
 
 export interface SetupView {

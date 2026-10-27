@@ -705,6 +705,8 @@ mod tests {
             ),
             ("unknown/loose-thing", "Loose Thing.vst3"),
             ("unknown/other-thing", "Some Folder/Other Thing.vst3"),
+            // A Mac's Kilohearts VST3s keep the "kHs" prefix the PC's VST2s drop.
+            ("unknown/khs-3-band-eq", "Kilohearts/kHs 3-Band EQ.vst3"),
         ] {
             m.products.push(Product {
                 canonical_id: pid.into(),
@@ -731,6 +733,7 @@ mod tests {
                 ("meldaproduction/mcompressor", "MeldaProduction"),
                 ("unknown/loose-thing", ""),
                 ("unknown/other-thing", ""),
+                ("kilohearts/3-band-eq", "Kilohearts"),
             ]
         );
     }

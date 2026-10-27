@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use patchpilot_core::{ItemKind, Manifest, ProductId, TargetProfile};
+use patchpilot_core::{ItemKind, Manifest, PluginFormat, ProductId, TargetProfile};
 
 use crate::diff::{ParityState, ProductDiff, diff_manifests};
 use crate::score::apply_profile;
@@ -59,6 +59,21 @@ pub struct Step {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Plan {
     pub steps: Vec<Step>,
+    /// Plug-ins the machine has in other formats than the Primary Rig's
+    /// (a VST3 where the Primary Rig has a VST2). They count as installed, so
+    /// no step asks for them, but the difference is worth knowing.
+    pub other_formats: Vec<OtherFormats>,
+}
+
+/// A plug-in installed in some formats, not all of the Primary Rig's.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct OtherFormats {
+    pub product_id: ProductId,
+    pub name: String,
+    /// Formats on the machine, e.g. `["VST3", "AU"]`.
+    pub here: Vec<String>,
+    /// The Primary Rig's formats the machine lacks, e.g. `["VST2"]`.
+    pub missing: Vec<String>,
 }
 
 /// A vendor app that installs other vendors' products, keyed by the app's
@@ -134,14 +149,37 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             .unwrap_or_default()
     };
 
+    // A plug-in in any format counts as installed (a Mac with the VST3 of a
+    // PC's VST2): it goes in `other_formats`, not in a step.
     let todo: Vec<&ProductDiff> = diff
         .products
         .iter()
-        .filter(|p| {
-            matches!(
-                p.state,
-                ParityState::Missing | ParityState::Outdated | ParityState::Incomplete
-            )
+        .filter(|p| matches!(p.state, ParityState::Missing | ParityState::Outdated))
+        .collect();
+    let other_formats = diff
+        .products
+        .iter()
+        .filter(|p| p.state == ParityState::Incomplete)
+        .map(|p| {
+            let mut here: Vec<PluginFormat> = machine
+                .items
+                .iter()
+                .filter(|i| i.product_id.as_ref() == Some(&p.product_id))
+                .filter_map(|i| i.format)
+                .collect();
+            here.sort_by_key(|f| format_order(*f));
+            here.dedup();
+            OtherFormats {
+                product_id: p.product_id.clone(),
+                name: p.name.clone(),
+                here: here.into_iter().map(format_label).collect(),
+                missing: p
+                    .missing_formats
+                    .iter()
+                    .copied()
+                    .map(format_label)
+                    .collect(),
+            }
         })
         .collect();
 
@@ -325,7 +363,27 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
     // Steps were pushed phase by phase except for late "Install <app>"
     // steps; sort by phase and renumber, keeping dependencies.
     renumber(&mut steps);
-    Plan { steps }
+    Plan {
+        steps,
+        other_formats,
+    }
+}
+
+/// `VST3`, `AU`, `CLAP`.
+fn format_label(f: PluginFormat) -> String {
+    format!("{f:?}").to_uppercase()
+}
+
+/// VST3 first, as the format most hosts on both OSes load.
+fn format_order(f: PluginFormat) -> u8 {
+    match f {
+        PluginFormat::Vst3 => 0,
+        PluginFormat::Au => 1,
+        PluginFormat::Clap => 2,
+        PluginFormat::Vst2 => 3,
+        PluginFormat::Aax => 4,
+        PluginFormat::Jsfx => 5,
+    }
 }
 
 /// `1 ReaPack item`, `3 ReaPack items`.
@@ -393,17 +451,9 @@ fn count_phrase(items: &[&ProductDiff]) -> String {
     }
 }
 
-/// `Acme Comp 3.0.1 (you have 3.0)`, `Acme Verb: add AAX`.
+/// `Acme Comp 3.0.1 (you have 3.0)`, `Acme Verb 1.2`.
 fn detail(p: &ProductDiff) -> String {
     match p.state {
-        ParityState::Incomplete => {
-            let formats: Vec<_> = p
-                .missing_formats
-                .iter()
-                .map(|f| format!("{f:?}").to_uppercase())
-                .collect();
-            format!("{}: add {}", p.name, formats.join(", "))
-        }
         ParityState::Outdated => format!(
             "{} {} (you have {})",
             p.name,
