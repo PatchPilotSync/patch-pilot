@@ -79,7 +79,10 @@ fn progress_follows_rescans() {
     );
     let nks = &p.steps[2];
     assert_eq!(nks.open, ["Massive X 1.4.2"]);
-    assert_eq!(nks.finished, ["Kontakt 7 7.10.1 (you have 7.9.0)"]);
+    assert_eq!(
+        nks.finished,
+        ["Kontakt 7: 7.9.0 here, Primary Rig has 7.10.1"]
+    );
     assert_eq!(p.steps[6].status, StepStatus::Done, "authorize was ticked");
     assert_eq!(p.done, 3);
     assert!(p.score_now > p.score_before);
@@ -126,7 +129,7 @@ fn progress_follows_rescans() {
     assert!(report.contains("- Took: 1 h 5 min"));
     assert!(report.contains(&format!("- Parity score: {} → 100", p.score_before)));
     assert!(report.contains("- Steps done: 9 of 9"));
-    assert!(report.contains("  - Kontakt 7 7.10.1 (you have 7.9.0)"));
+    assert!(report.contains("  - Kontakt 7: 7.9.0 here, Primary Rig has 7.10.1"));
     assert!(!report.contains("Still to do"));
 }
 
@@ -244,5 +247,8 @@ fn an_older_app_found_later_reads_as_update() {
     let step = &p.steps[0];
     assert_eq!(step.title, "Update iLok License Manager");
     assert_eq!(step.status, StepStatus::Todo);
-    assert_eq!(step.open, ["iLok License Manager 5.9.0 (you have 5.1.0)"]);
+    assert_eq!(
+        step.open,
+        ["iLok License Manager: 5.1.0 here, Primary Rig has 5.9.0"]
+    );
 }

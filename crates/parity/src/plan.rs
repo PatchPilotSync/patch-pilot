@@ -40,8 +40,10 @@ pub struct Step {
     pub number: usize,
     pub phase: Phase,
     pub title: String,
-    /// One line per product, e.g. `Kontakt 7 7.10.1 (you have 7.9.0)`.
+    /// One line per product, e.g. `Kontakt 7: 7.9.0 here, Primary Rig has 7.10.1`.
     pub details: Vec<String>,
+    /// Per product: not here at all, or here at another version.
+    pub needs: Vec<Need>,
     pub products: Vec<ProductId>,
     /// Step numbers that must be done first.
     pub after: Vec<usize>,
@@ -54,6 +56,16 @@ pub struct Step {
     /// True when the step's plug-ins have no known vendor, so each is best
     /// found by searching for it.
     pub search: bool,
+}
+
+/// What a step's product needs on the machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Need {
+    /// Not installed in any format.
+    Install,
+    /// Installed, older than the Primary Rig's.
+    Update,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -194,6 +206,13 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
                 phase,
                 title,
                 details: items.iter().map(|p| detail(p)).collect(),
+                needs: items
+                    .iter()
+                    .map(|p| match p.state {
+                        ParityState::Outdated => Need::Update,
+                        _ => Need::Install,
+                    })
+                    .collect(),
                 products: items.iter().map(|p| p.product_id.clone()).collect(),
                 after,
                 app: app.and_then(|a| a.strip_prefix("app/")).map(str::to_owned),
@@ -451,14 +470,14 @@ fn count_phrase(items: &[&ProductDiff]) -> String {
     }
 }
 
-/// `Acme Comp 3.0.1 (you have 3.0)`, `Acme Verb 1.2`.
+/// `Acme Comp: 3.0 here, Primary Rig has 3.0.1`, `Acme Verb 1.2`.
 fn detail(p: &ProductDiff) -> String {
     match p.state {
         ParityState::Outdated => format!(
-            "{} {} (you have {})",
+            "{}: {} here, Primary Rig has {}",
             p.name,
-            p.golden_version.as_deref().unwrap_or("?"),
-            p.machine_version.as_deref().unwrap_or("?")
+            p.machine_version.as_deref().unwrap_or("?"),
+            p.golden_version.as_deref().unwrap_or("?")
         ),
         _ => match &p.golden_version {
             Some(v) => format!("{} {v}", p.name),
