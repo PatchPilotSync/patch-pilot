@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.36 - 2026-10-27
+
+### New
+
+- Sync over your home network, with no cloud: under Sync & backup, pick "Sync over your home network instead (no cloud)" (or "Home network…") on each machine. Linked machines on the same Wi-Fi or wired network copy templates, FX chains, scripts, presets and settings straight from each other, encrypted so only your machines can read them. Changes move while both machines are on that network. The first time, macOS asks to let Patch Pilot find devices on your local network and Windows may ask to allow it through the firewall: say yes.
+
 ## 0.4.35 - 2026-10-27
 
 ### Fixed
