@@ -99,6 +99,7 @@ pub fn run() {
             rig::overview,
             rig::scan_machine,
             rig::make_golden,
+            background::update_scan_running,
             compare::machines,
             compare::compare_machine,
             compare::plan_machine,

@@ -247,6 +247,24 @@ pub fn mark_login_default_applied(app_dir: &Path) -> std::io::Result<()> {
     std::fs::write(app_dir.join(LOGIN_DEFAULT_FILE), b"")
 }
 
+/// Which Patch Pilot version made this machine's latest scan. A newer
+/// version may read plug-ins and presets differently, so its first launch
+/// rescans right away instead of showing the old results.
+const SCANNED_WITH_FILE: &str = "scanned-with";
+
+/// The app version saved by [`record_scanned_with`]; None before the first
+/// scan by a version that records it.
+pub fn scanned_with(app_dir: &Path) -> Option<String> {
+    let v = std::fs::read_to_string(app_dir.join(SCANNED_WITH_FILE)).ok()?;
+    Some(v.trim().to_owned()).filter(|v| !v.is_empty())
+}
+
+/// Remember that `version` just scanned this machine.
+pub fn record_scanned_with(app_dir: &Path, version: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(app_dir)?;
+    std::fs::write(app_dir.join(SCANNED_WITH_FILE), format!("{version}\n"))
+}
+
 /// The folder holding the database, where `machine-id` lives too.
 pub fn app_dir(db: &Path) -> &Path {
     db.parent().unwrap_or(Path::new("."))
@@ -489,5 +507,14 @@ mod tests {
         assert!(!login_default_applied(&app));
         mark_login_default_applied(&app).unwrap();
         assert!(login_default_applied(&app));
+    }
+
+    #[test]
+    fn scanned_with_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("PatchPilot");
+        assert_eq!(scanned_with(&app), None);
+        record_scanned_with(&app, "0.4.33").unwrap();
+        assert_eq!(scanned_with(&app).as_deref(), Some("0.4.33"));
     }
 }
