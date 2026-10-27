@@ -10,14 +10,16 @@ mod migrations;
 mod paths;
 mod restore_points;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use patchpilot_core::{
     Bundle, BundleGolden, BundleMachine, Confidence, ContentHash, GoldenVersion, GoldenVersionInfo,
-    IgnoreEntry, IgnoredSuggestion, Item, MachineInfo, Manifest, PathMap, PortablePath, Product,
-    ProfileRule, RuleAction, TargetProfile, golden_machine_id, golden_name,
+    IgnoreEntry, IgnoredSuggestion, Item, ItemKind, MachineInfo, Manifest, PathMap, PortablePath,
+    Product, ProfileRule, RuleAction, TargetProfile, golden_machine_id, golden_name,
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_iter};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -166,6 +168,15 @@ pub struct SnapshotSummary {
     /// one added and one removed).
     pub added: u64,
     pub removed: u64,
+}
+
+/// A snapshot without the item counts, see [`Store::snapshot_times`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotStamp {
+    pub id: i64,
+    pub created_at: i64,
+    /// Same contents, same hash.
+    pub manifest_hash: String,
 }
 
 /// Switch a database to WAL. Switching takes a lock the busy timeout doesn't
@@ -371,12 +382,16 @@ impl Store {
         let Some((latest, _)) = self.latest_snapshot(source)? else {
             return Ok(());
         };
+        // CROSS JOIN keeps this order: from the Primary Rig's items to the
+        // machine's by product. Left to the planner, SQLite walks every
+        // machine item and scans the whole Primary Rig for each (seconds on
+        // a big rig).
         let mut stmt = self.conn.prepare(
             "SELECT gi.platform, gi.path_root, gi.path_rel, mi.content_hash
              FROM golden_versions v
-             JOIN snapshot_items gs ON gs.snapshot_id = v.snapshot_id
-             JOIN items gi ON gi.id = gs.item_id
-             JOIN items mi ON mi.product_id = gi.product_id AND mi.machine_id = ?3
+             CROSS JOIN snapshot_items gs ON gs.snapshot_id = v.snapshot_id
+             CROSS JOIN items gi ON gi.id = gs.item_id
+             CROSS JOIN items mi ON mi.product_id = gi.product_id AND mi.machine_id = ?3
              WHERE v.golden_id = ?1 AND v.version = (SELECT max(version) FROM golden_versions
                        WHERE golden_id = ?1 AND (?2 IS NULL OR version = ?2))
                AND gi.content_hash IS NOT NULL AND gi.mtime IS NOT NULL
@@ -969,6 +984,34 @@ impl Store {
 
     /// Rebuild the manifest stored in a snapshot.
     pub fn snapshot_manifest(&self, snapshot_id: i64) -> Result<Manifest> {
+        self.manifest_of(snapshot_id, None)
+    }
+
+    /// A snapshot's manifest with only its items of `kinds` (and their
+    /// products): far less to read when, say, History only compares
+    /// plug-ins across dozens of scans.
+    pub fn snapshot_manifest_of(&self, snapshot_id: i64, kinds: &[ItemKind]) -> Result<Manifest> {
+        self.manifest_of(snapshot_id, Some(kinds))
+    }
+
+    /// A machine's snapshots, newest first, without the item counts
+    /// [`Store::snapshots`] works out for every one.
+    pub fn snapshot_times(&self, machine_id: &str) -> Result<Vec<SnapshotStamp>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, created_at, manifest_hash FROM snapshots WHERE machine_id = ?1
+             ORDER BY id DESC",
+        )?;
+        let rows = stmt.query_map([machine_id], |r| {
+            Ok(SnapshotStamp {
+                id: r.get(0)?,
+                created_at: r.get(1)?,
+                manifest_hash: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn manifest_of(&self, snapshot_id: i64, kinds: Option<&[ItemKind]>) -> Result<Manifest> {
         let (machine_id, generated_at): (String, i64) = self.conn.query_row(
             "SELECT machine_id, generated_at FROM snapshots WHERE id = ?1",
             [snapshot_id],
@@ -976,14 +1019,38 @@ impl Store {
         )?;
         let machine = self.machine(&machine_id)?;
 
-        let mut stmt = self.conn.prepare(
+        // The snapshot's items as `s` and `i`. For some kinds only, start
+        // from the machine's items of those kinds (a scan's items are its
+        // machine's): far fewer rows than the whole scan.
+        let (from, args) = match kinds {
+            None => (
+                "FROM snapshot_items s JOIN items i ON i.id = s.item_id WHERE s.snapshot_id = ?1"
+                    .to_owned(),
+                vec![Value::from(snapshot_id)],
+            ),
+            Some(kinds) => {
+                // Kinds are fixed enum names, so they can go in the SQL as text.
+                let kinds: Vec<String> =
+                    kinds.iter().map(|k| format!("'{}'", to_text(k))).collect();
+                (
+                    format!(
+                        "FROM items i CROSS JOIN snapshot_items s
+                            ON s.snapshot_id = ?1 AND s.item_id = i.id
+                         WHERE i.machine_id = ?2 AND i.kind IN ({})",
+                        kinds.join(",")
+                    ),
+                    vec![Value::from(snapshot_id), Value::from(machine_id.clone())],
+                )
+            }
+        };
+
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT i.kind, i.product_id, i.format, i.platform, i.arch, i.version, i.path_root,
                     i.path_rel, i.path_absolute, i.content_hash, i.size, i.mtime,
                     i.platform_portable, i.confidence, i.id, i.needs_files
-             FROM snapshot_items s JOIN items i ON i.id = s.item_id
-             WHERE s.snapshot_id = ?1 ORDER BY s.position",
-        )?;
-        let rows = stmt.query_map([snapshot_id], |r| {
+             {from} ORDER BY s.position"
+        ))?;
+        let rows = stmt.query_map(params_from_iter(&args), |r| {
             Ok(RawItem {
                 kind: r.get(0)?,
                 product_id: r.get(1)?,
@@ -1004,42 +1071,49 @@ impl Store {
             })
         })?;
         let raw = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut deps = self.conn.prepare(
-            "SELECT product_id FROM dependencies WHERE asset_item_id = ?1 ORDER BY product_id",
-        )?;
+        // Every dependency in the snapshot in one query, not one per item
+        // (a big rig has tens of thousands of items).
+        let mut deps: HashMap<i64, Vec<patchpilot_core::ProductId>> = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT d.asset_item_id, d.product_id FROM dependencies d WHERE d.asset_item_id IN
+                (SELECT i.id {from}) ORDER BY d.asset_item_id, d.product_id"
+        ))?;
+        for row in stmt.query_map(params_from_iter(&args), |r| Ok((r.get(0)?, r.get(1)?)))? {
+            let (item, product) = row?;
+            deps.entry(item)
+                .or_default()
+                .push(patchpilot_core::ProductId(product));
+        }
         let items = raw
             .into_iter()
             .map(|r| {
-                let requires = deps
-                    .query_map([r.id], |row| row.get(0).map(patchpilot_core::ProductId))?
-                    .collect::<rusqlite::Result<_>>()?;
+                let requires = deps.remove(&r.id).unwrap_or_default();
                 let mut item = r.into_item()?;
                 item.requires = requires;
                 Ok(item)
             })
             .collect::<Result<Vec<_>>>()?;
 
-        // Products referenced by this snapshot, in first-use order.
+        // Products referenced by this snapshot, in one query, then put in
+        // first-use order.
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT canonical_id, vendor, name FROM products WHERE canonical_id IN
+                (SELECT i.product_id {from})"
+        ))?;
+        let mut found: HashMap<String, (String, String)> = stmt
+            .query_map(params_from_iter(&args), |r| {
+                Ok((r.get(0)?, (r.get(1)?, r.get(2)?)))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
         let mut products: Vec<Product> = Vec::new();
         for id in items.iter().filter_map(|i| i.product_id.as_ref()) {
-            if products.iter().any(|p| &p.canonical_id == id) {
-                continue;
+            if let Some((vendor, name)) = found.remove(&id.0) {
+                products.push(Product {
+                    canonical_id: id.clone(),
+                    vendor,
+                    name,
+                });
             }
-            let p = self
-                .conn
-                .query_row(
-                    "SELECT vendor, name FROM products WHERE canonical_id = ?1",
-                    [&id.0],
-                    |r| {
-                        Ok(Product {
-                            canonical_id: id.clone(),
-                            vendor: r.get(0)?,
-                            name: r.get(1)?,
-                        })
-                    },
-                )
-                .optional()?;
-            products.extend(p);
         }
 
         let mut manifest = Manifest::new(machine, generated_at);

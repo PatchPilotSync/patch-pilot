@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use patchpilot_core::{
-    BUNDLE_VERSION, Bundle, BundleMachine, IgnoreEntry, Manifest, ManifestError, Matcher,
+    BUNDLE_VERSION, Bundle, BundleMachine, IgnoreEntry, ItemKind, Manifest, ManifestError, Matcher,
     PluginFormat, PortablePath, ProfileRule, RuleAction, TargetProfile,
 };
 use patchpilot_store::{
@@ -81,8 +81,7 @@ fn opening_from_many_threads_at_once_migrates_once() {
             // A database one schema version behind, as an update finds it.
             Store::open(&path).unwrap();
             let conn = rusqlite::Connection::open(&path).unwrap();
-            conn.execute_batch("DROP INDEX snapshot_items_item")
-                .unwrap();
+            conn.execute_batch("DROP INDEX items_machine_kind").unwrap();
             conn.pragma_update(None, "user_version", LATEST_VERSION - 1)
                 .unwrap();
         }
@@ -419,6 +418,48 @@ fn requires_round_trips() {
         .unwrap()
         .unwrap();
     assert_eq!(loaded, manifest);
+}
+
+/// History and the Installer Vault read only some kinds of a scan's items;
+/// they must come back exactly as in the whole manifest, with their products.
+#[test]
+fn manifest_of_some_kinds_is_the_whole_manifest_filtered() {
+    let mut manifest = fixture_manifest();
+    for item in &mut manifest.items {
+        item.requires = vec!["acme/a".into()];
+    }
+    let mut store = Store::open_in_memory().unwrap();
+    store
+        .save_manifest(&fixture_manifest(), SnapshotReason::FirstScan, 1)
+        .unwrap();
+    let id = store
+        .save_manifest(&manifest, SnapshotReason::Scan, 2)
+        .unwrap()
+        .id;
+    for kinds in [
+        &[ItemKind::Plugin][..],
+        &[ItemKind::Plugin, ItemKind::VendorApp, ItemKind::LicenseTool],
+        &[ItemKind::DawAsset],
+        &[],
+    ] {
+        let mut want = manifest.clone();
+        want.items.retain(|i| kinds.contains(&i.kind));
+        want.products.retain(|p| {
+            want.items
+                .iter()
+                .any(|i| i.product_id.as_ref() == Some(&p.canonical_id))
+        });
+        let got = store.snapshot_manifest_of(id, kinds).unwrap();
+        assert_eq!(got, want, "{kinds:?}");
+    }
+    let times = store.snapshot_times(&manifest.machine.id).unwrap();
+    assert_eq!(
+        times
+            .iter()
+            .map(|t| (t.id, t.created_at))
+            .collect::<Vec<_>>(),
+        [(id, 2), (id - 1, 1)]
+    );
 }
 
 fn mac_manifest() -> Manifest {
