@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.33 - 2026-10-27
+
+### Fixed
+
+- History and the Installer Vault open quickly. On a big rig with a long history they could take several seconds to show anything; History now reads only what it compares and remembers older scans, and both tabs show what they had at once while they refresh. Looking up the Primary Rig is much faster too, which helps Compare and the tray.
+
 ## 0.4.32 - 2026-10-27
 
 ### Changed
