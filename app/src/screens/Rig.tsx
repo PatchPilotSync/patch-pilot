@@ -120,17 +120,24 @@ export function Rig({
         {/* Errors here surface where the files are listed, on Up To Speed. */}
         <BigFiles onError={() => {}} compact />
         {alerts.length > 0 && <Updates alerts={alerts} />}
+        {/* Only real read problems land here; a plug-in with no version number is normal. */}
         {warnings.length > 0 && (
           <Notice
-            tone="warn"
-            text={`${warnings.length} plug-in file${warnings.length === 1 ? "" : "s"} had no readable version info. Still listed, by file name.`}
+            tone="dim"
+            text={`${plural(warnings.length, "file")} couldn't be read fully. Still listed, by name.`}
             open={warningsOpen}
             onToggle={() => setWarningsOpen((o) => !o)}
           >
-            <ul className="max-h-40 overflow-auto font-mono text-[11px] text-dim">
-              {warnings.map((w) => (
-                <li key={w}>{w}</li>
-              ))}
+            <ul className="max-h-32 overflow-auto pb-1 pl-6 text-[11px] text-dim">
+              {warnings.map((w) => {
+                const { name, reason } = splitWarning(w);
+                return (
+                  <li key={w} className="truncate" title={w}>
+                    {name}
+                    {reason && <span className="opacity-70"> · {reason}</span>}
+                  </li>
+                );
+              })}
             </ul>
           </Notice>
         )}
@@ -367,4 +374,12 @@ function GoldenLine({
       }
     />
   );
+}
+
+/** "C:\…\Acme.vst3: invalid moduleinfo.json: …" → the file name and the reason. */
+function splitWarning(w: string): { name: string; reason: string } {
+  const at = w.indexOf(": ");
+  if (at < 0) return { name: w, reason: "" };
+  const path = w.slice(0, at);
+  return { name: path.split(/[\\/]/).pop() || path, reason: w.slice(at + 2) };
 }

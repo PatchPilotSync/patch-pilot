@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.28 - 2026-10-27
+
+### Fixed
+
+- This machine no longer warns about hundreds of plug-ins with "no readable version info". Some vendors (MeldaProduction, Soundtoys, Arturia's AAX on Windows) don't put a version number in their files. That's normal, so those plug-ins are simply listed without one. If a file really can't be read, one quiet line says so and lists the file names.
+- Fewer false "updates available". Arturia plug-ins no longer show an update because the Mac writes their versions differently. Each format is compared with the same format on your other machine, "5.12" and "5.12.6.6914" count as the same version, and Serum's "1,3,6,8" matches "1.368".
+
 ## 0.4.27 - 2026-10-27
 
 ### Changed

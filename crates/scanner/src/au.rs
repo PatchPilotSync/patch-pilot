@@ -48,13 +48,20 @@ impl AuInfo {
     /// The bundle's marketing version, then the first component's, then the
     /// bundle's build version. Some vendors (Arturia) leave out the marketing
     /// version and put the packed AU number in `CFBundleVersion`, which would
-    /// show as "65797" instead of the component's decoded "1.1.5".
-    pub fn version(&self) -> Option<&str> {
+    /// show as "65797" instead of the component's decoded "1.1.5". When
+    /// that packed number is all there is, it's decoded the same way.
+    pub fn version(&self) -> Option<String> {
         self.bundle
             .short_version
-            .as_deref()
-            .or_else(|| self.components.iter().find_map(|c| c.version.as_deref()))
-            .or(self.bundle.bundle_version.as_deref())
+            .clone()
+            .or_else(|| self.components.iter().find_map(|c| c.version.clone()))
+            .or_else(|| {
+                let v = self.bundle.bundle_version.as_deref()?;
+                match v.trim().parse::<u32>() {
+                    Ok(n) if n >= 0x1_0000 => decode_version(&plist::Value::Integer(n.into())),
+                    _ => Some(v.to_owned()),
+                }
+            })
     }
 }
 
@@ -205,11 +212,14 @@ mod tests {
             confidence: Confidence::High,
             warnings: vec![],
         };
-        assert_eq!(info.version(), Some("1.1.5"));
+        assert_eq!(info.version().as_deref(), Some("1.1.5"));
         info.bundle.short_version = Some("1.1.5.2201".into());
-        assert_eq!(info.version(), Some("1.1.5.2201"));
+        assert_eq!(info.version().as_deref(), Some("1.1.5.2201"));
         info.bundle.short_version = None;
         info.components = vec![component(None)];
-        assert_eq!(info.version(), Some("65797"));
+        assert_eq!(info.version().as_deref(), Some("1.1.5"));
+        // A plain build number is kept as written.
+        info.bundle.bundle_version = Some("6367".into());
+        assert_eq!(info.version().as_deref(), Some("6367"));
     }
 }
