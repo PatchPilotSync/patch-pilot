@@ -48,6 +48,12 @@ pub struct Step {
     /// The vendor app or licensing tool this step uses (scanner adapter ID,
     /// e.g. `native-access`), so the app can offer to open it.
     pub app: Option<String>,
+    /// The vendor's website, from the catalog, for plug-ins installed from
+    /// the vendor's own downloads.
+    pub link: Option<String>,
+    /// True when the step's plug-ins have no known vendor, so each is best
+    /// found by searching for it.
+    pub search: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -153,6 +159,8 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
                 products: items.iter().map(|p| p.product_id.clone()).collect(),
                 after,
                 app: app.and_then(|a| a.strip_prefix("app/")).map(str::to_owned),
+                link: None,
+                search: false,
             });
             number
         };
@@ -231,19 +239,18 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
             Some(m.app),
         );
     }
+    // Where each vendor's plug-ins come from: (step number, website, search).
+    let catalog = patchpilot_catalog::current();
+    let mut sources = Vec::new();
     for (vendor, items) in &by_vendor {
-        let from = if vendor.is_empty() {
-            "the vendor's installer".to_owned()
+        let title = if vendor.is_empty() {
+            format!("Find each one's installer: {}", count_phrase(items))
         } else {
-            format!("{vendor}'s installer or website")
+            format!("Install from {vendor}: {}", count_phrase(items))
         };
-        push(
-            Phase::Manual,
-            format!("Install from {from}: {}", count_phrase(items)),
-            items,
-            license_steps.clone(),
-            None,
-        );
+        let n = push(Phase::Manual, title, items, license_steps.clone(), None);
+        let link = catalog.vendor_named(vendor).and_then(|v| v.website.clone());
+        sources.push((n, link, vendor.is_empty()));
     }
 
     // ReaPack installs its own packages once its repositories are there, and
@@ -311,6 +318,10 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         );
     }
 
+    for (n, link, search) in sources {
+        steps[n - 1].link = link;
+        steps[n - 1].search = search;
+    }
     // Steps were pushed phase by phase except for late "Install <app>"
     // steps; sort by phase and renumber, keeping dependencies.
     renumber(&mut steps);
@@ -426,5 +437,58 @@ mod tests {
             Some("app/plugin-alliance-installation-manager")
         );
         assert_eq!(app("Acme Audio"), None);
+    }
+
+    #[test]
+    fn manual_steps_say_where_plugins_come_from() {
+        use patchpilot_core::{
+            Arch, Item, MachineInfo, Os, PathMap, PluginFormat, PortablePath, Product,
+        };
+        let manifest = |plugins: &[(&str, &str)]| {
+            let mut m = Manifest::new(
+                MachineInfo {
+                    id: "m".into(),
+                    name: "m".into(),
+                    os: Os::Macos,
+                    arch: Arch::Aarch64,
+                    os_version: None,
+                    path_map: PathMap::new(Os::Macos),
+                },
+                0,
+            );
+            for (id, vendor) in plugins {
+                m.products.push(Product {
+                    canonical_id: (*id).into(),
+                    vendor: (*vendor).into(),
+                    name: id.split('/').next_back().unwrap().into(),
+                });
+                let mut item = Item::plugin(
+                    PluginFormat::Vst3,
+                    Os::Macos,
+                    PortablePath::logical("VST3_SYSTEM", *id),
+                );
+                item.product_id = Some((*id).into());
+                m.items.push(item);
+            }
+            m
+        };
+        let golden = manifest(&[("fabfilter/pro-c-3", "FabFilter"), ("unknown/mystery", "")]);
+        let plan = up_to_speed(&golden, &TargetProfile::default(), &manifest(&[]));
+        let rows: Vec<_> = plan
+            .steps
+            .iter()
+            .map(|s| (s.title.as_str(), s.link.as_deref(), s.search))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Find each one's installer: install 1", None, true),
+                (
+                    "Install from FabFilter: install 1",
+                    Some("https://www.fabfilter.com"),
+                    false
+                ),
+            ]
+        );
     }
 }

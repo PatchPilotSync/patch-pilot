@@ -4,6 +4,20 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.23 - 2026-10-27
+
+### Fixed
+
+- On a Mac, vendor apps kept in a folder inside Applications are found, like Arturia Software Center in `Applications/Arturia`. Set up and Get Up To Speed stop asking you to install them, and their buttons say "Open" instead of "Get".
+- Wavesfactory plug-ins no longer ask for Waves Central. They don't come from Waves.
+- PACE License Support counts as installed on a Mac when iLok License Manager is there, since one installer puts in both.
+- When an older copy of a missing app turns up, its step says "Update" and shows the version you have.
+
+### New
+
+- Manual steps say where plug-ins come from. "Install from FabFilter" has a "Get from fabfilter.com" button. Plug-ins whose maker Patch Pilot can't tell get a Search link each.
+- More plug-ins are matched to their maker: anything in a folder named after a known vendor (like MeldaProduction), plus Minimal Audio, Mixed In Key and a few others.
+
 ## 0.4.22 - 2026-10-27
 
 ### Fixed

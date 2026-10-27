@@ -63,6 +63,10 @@ pub struct SetupStep {
     pub title: String,
     /// The vendor app or licensing tool the step uses (scanner adapter ID).
     pub app: Option<String>,
+    /// The vendor's website, for plug-ins from the vendor's own downloads.
+    pub link: Option<String>,
+    /// Each open line is best found by searching for it (no known vendor).
+    pub search: bool,
     pub status: StepStatus,
     /// Patch Pilot ticks it after a rescan; false for final checks.
     pub automatic: bool,
@@ -135,6 +139,8 @@ pub fn setup_progress(
             group: CHECKS_GROUP.to_owned(),
             title: (*title).to_owned(),
             app: None,
+            link: None,
+            search: false,
             automatic: false,
             open: vec![(*detail).to_owned()],
             finished: Vec::new(),
@@ -269,6 +275,8 @@ fn plan_step(
             .find(|l| !s.products.is_empty() && l.products == s.products)
             .map_or_else(|| s.title.clone(), |l| l.title.clone()),
         app: s.app.clone(),
+        link: s.link.clone(),
+        search: s.search,
         status,
         automatic: true,
         open: open_lines,

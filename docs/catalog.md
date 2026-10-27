@@ -14,6 +14,12 @@ newest release. See decision #47.
   (with or without the vendor's name in front). Only add products whose
   spellings actually differ between formats or OSes, or that should resolve
   when no vendor can be read.
+- **Vendor folders:** a plug-in with no readable vendor that sits in a folder
+  named after a vendor (`VST3/MeldaProduction/...`) takes that vendor, so
+  adding a vendor whose installer makes such a folder places those plug-ins.
+- **Websites:** a vendor's `website` is linked from manual Get Up To Speed
+  steps ("Get from fabfilter.com"): the vendor's home page, or its downloads
+  page when that's a stable address.
 - **Latest versions:** add `"latest": { "version": "4.0.2", "released": "2026-10-01" }`
   only after checking the vendor's site. The version must be written the way
   the plug-in reports it. A wrong value shows every user a false update alert.
