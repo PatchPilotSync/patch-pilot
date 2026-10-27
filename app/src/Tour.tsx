@@ -48,22 +48,22 @@ interface Step {
 const STEPS: Step[] = [
   {
     title: "Every rig, ready for the session",
-    body: "Patch Pilot keeps your studio, laptop and travel machines in step, so a project that opens on one opens on all of them. It reads what's installed without loading or changing it, never copies plug-ins, and what your machines share is end-to-end encrypted.",
+    body: "Patch Pilot keeps your studio, laptop and travel machines matching, so a project opens the same on each. It only reads what's installed, and never copies plug-ins or touches a license.",
     art: <MachinesArt />,
   },
   {
     title: "The Primary Rig",
-    body: "Your ideal setup: the plug-ins, versions, vendor apps and templates every machine should have. Make it from your best machine, and update it whenever your setup changes. Each version is kept.",
+    body: "Your ideal setup, made from your best machine. Every other machine is measured against it, and each version is kept.",
     art: <GoldenArt />,
   },
   {
-    title: "Compare and catch drift",
-    body: "Compare shows what each machine is missing next to the Primary Rig, and the parity score sums it up with the reasons. It also flags Reaper templates that would open with empty plug-in slots, and which plug-ins they need. Link your machines with a short code and Compare updates live, end-to-end encrypted. Bought a plug-in on the laptop? Add it to the Primary Rig from there, and a quiet alert tells you when a machine drifts.",
+    title: "Compare and the parity score",
+    body: "Compare shows what each machine lacks next to the Primary Rig. Under the score, “Why 87, not 100” lists each reason with the points it costs.",
     art: <CompareArt />,
   },
   {
     title: "Get up to speed",
-    body: "Get Up To Speed turns the differences into a checklist, starting with what other installs depend on. Open each vendor app or installer from the list and install things yourself; Patch Pilot never installs anything on its own or touches a license. Templates, scripts and themes come over in one click, or on their own once syncing is on.",
+    body: "A checklist of what's Not installed or needs an Update, with both versions. Open the vendor app or a Vault installer from it; Patch Pilot never installs anything itself. Ignore what this machine doesn't need.",
     art: <ChecklistArt />,
   },
   {
@@ -72,17 +72,13 @@ const STEPS: Step[] = [
     art: <SyncArt />,
   },
   {
+    title: "Nothing is lost",
+    body: "Every change is a restore point in History, so you can go back. This machine finds duplicate presets to clean up, and the Vault keeps installers ready for your next machine.",
+    art: <HistoryArt />,
+  },
+  {
     title: `Lives in your ${TRAY}`,
-    body: (
-      <>
-        Click the plane in the {TRAY} for every machine's score. Expand, or double-click the popover, to open this
-        window. It opens when your computer starts and rescans on its own when plug-in folders change; each change is
-        saved as a snapshot, and History lets you go back. Keep Files in Sync in its menu turns syncing off and on.
-        <span className="mt-2 block">
-          The Vault tab keeps the installers you download in a folder you choose, ready for your next machine.
-        </span>
-      </>
-    ),
+    body: `Click the plane in the ${TRAY} for every machine's score, or Expand for this window. It starts with your computer and rescans on its own when plug-in folders change.`,
     art: <TrayArt />,
   },
 ];
@@ -184,14 +180,22 @@ function SyncStep() {
   }
 
   const intro =
-    "New scripts, templates and presets on any machine reach the others on their own through your cloud folder. History can undo each one; plug-ins and settings never sync on their own.";
+    "Templates, scripts, presets and DAW settings reach your other machines on their own. Choose what syncs on each machine; Reaper shortcuts move between PC and Mac keys.";
+  if (view?.github && view.settings.keep_in_sync) {
+    return (
+      <>
+        {intro}
+        <span className="mt-2 block text-ok">✓ Syncing through GitHub ({view.github}).</span>
+      </>
+    );
+  }
   if (view?.dir && view.settings.keep_in_sync) {
     const cloud = view.clouds.find((c) => c.path === view.settings.folder)?.name ?? "your folder";
     return (
       <>
         {intro}
         <span className="mt-2 block text-ok">
-          ✓ Syncing through {cloud}. Turn it off in the {TRAY} menu, or change it on This machine.
+          ✓ Syncing through {cloud}. Change it under Sync &amp; backup on This machine.
         </span>
       </>
     );
@@ -207,7 +211,7 @@ function SyncStep() {
             missing={false}
             preferred={view.settings.folder ?? view.transfer_folder}
             onChoose={choose}
-            hint="Which cloud service do you use? Pick the same one on each machine."
+            hint="Which cloud service do you use? Pick the same one on each machine, or GitHub later on This machine."
           />
         </span>
       )}
@@ -282,23 +286,24 @@ function GoldenArt() {
 function CompareArt() {
   return (
     <div className="flex items-center gap-4" aria-hidden="true">
-      <div className="w-[76px] text-center">
+      <div className="w-[64px] text-center">
         <div className="text-[28px] font-semibold leading-none text-warn tabular-nums">87</div>
         <ScoreBar score={87} className="mt-2" />
         <div className="mt-1.5 text-[11px] text-dim">parity</div>
       </div>
-      <div className="w-[170px] rounded-md border border-line bg-panel py-1 text-xs">
+      <div className="w-[190px] rounded-md border border-line bg-panel py-1 text-xs">
+        <div className="px-2.5 py-0.5 text-[11px] text-dim">Why 87, not 100</div>
         {(
           [
-            ["bad", "Serum 2", "Missing"],
-            ["warn", "Pro-Q 4", "Outdated"],
-            ["warn", "Kontakt 8", "No AAX"],
+            ["bad", "Serum 2 is missing", "−8"],
+            ["warn", "Pro-Q 4 is older", "−3"],
+            ["warn", "2 presets differ", "−2"],
           ] as const
-        ).map(([tone, name, note]) => (
-          <div key={name} className="flex h-6 items-center gap-2 px-2.5">
+        ).map(([tone, label, pts]) => (
+          <div key={label} className="flex h-6 items-center gap-2 px-2.5">
             <Dot tone={tone} />
-            <span className="flex-1">{name}</span>
-            <span className="text-[11px] text-dim">{note}</span>
+            <span className="flex-1">{label}</span>
+            <span className="text-[11px] text-dim tabular-nums">{pts}</span>
           </div>
         ))}
       </div>
@@ -308,15 +313,15 @@ function CompareArt() {
 
 function ChecklistArt() {
   return (
-    <div className="w-[220px] rounded-md border border-line bg-panel py-1 text-xs" aria-hidden="true">
+    <div className="w-[250px] rounded-md border border-line bg-panel py-1 text-xs" aria-hidden="true">
       <div className="px-2.5 py-1 text-[11px] text-dim">Travel laptop needs</div>
       {(
         [
-          [true, "iLok License Manager"],
-          [true, "Serum 2"],
-          [false, "Update Pro-Q 4 to 4.0.2"],
+          [true, "iLok License Manager", null],
+          [false, "Serum 2", "Not installed"],
+          [false, "Pro-Q 4", "Update 4.0.1 → 4.0.2"],
         ] as const
-      ).map(([done, label]) => (
+      ).map(([done, label, tag]) => (
         <div key={label} className="flex h-6 items-center gap-2 px-2.5">
           <span
             className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] text-[9px] ${
@@ -325,34 +330,67 @@ function ChecklistArt() {
           >
             {done ? "✓" : ""}
           </span>
-          <span className={done ? "text-dim line-through" : ""}>{label}</span>
+          <span className={`flex-1 ${done ? "text-dim line-through" : ""}`}>{label}</span>
+          {tag && <span className="text-[11px] text-dim">{tag}</span>}
         </div>
       ))}
+      <div className="flex h-6 items-center gap-2 px-2.5 text-dim">
+        <span className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 line-through">Kontakt 8 AAX</span>
+        <span className="text-[11px]">Ignored</span>
+      </div>
     </div>
   );
 }
 
 function SyncArt() {
   return (
-    <div className="flex items-center gap-3" aria-hidden="true">
-      <Chip>
-        <Dot tone="ok" /> MacBook
-      </Chip>
-      <span className="text-dim">→</span>
-      <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-line bg-panel">
-        <svg width="26" height="18" viewBox="0 0 26 18" fill="none" className="text-accent-text">
-          <path
-            d="M7 17 H20 A5 5 0 0 0 20.5 7 A7 7 0 0 0 7.2 5.5 A5.8 5.8 0 0 0 7 17 Z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-          />
-        </svg>
+    <div className="flex flex-col items-center gap-2.5" aria-hidden="true">
+      <div className="flex items-center gap-3">
+        <Chip>
+          <Dot tone="ok" /> MacBook
+        </Chip>
+        <span className="text-dim">→</span>
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-line bg-panel">
+          <svg width="26" height="18" viewBox="0 0 26 18" fill="none" className="text-accent-text">
+            <path
+              d="M7 17 H20 A5 5 0 0 0 20.5 7 A7 7 0 0 0 7.2 5.5 A5.8 5.8 0 0 0 7 17 Z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+        <span className="text-dim">→</span>
+        <Chip>
+          <Dot tone="ok" /> Studio PC
+        </Chip>
       </div>
-      <span className="text-dim">→</span>
-      <Chip>
-        <Dot tone="ok" /> Studio PC
-      </Chip>
+      <div className="flex gap-1.5 text-[11px] text-dim">
+        <Badge>Templates</Badge>
+        <Badge>Presets</Badge>
+        <Badge>Shortcuts ⌘H ↔ Ctrl+H</Badge>
+      </div>
+    </div>
+  );
+}
+
+function HistoryArt() {
+  return (
+    <div className="w-[250px] rounded-md border border-line bg-panel py-1 text-xs" aria-hidden="true">
+      {(
+        [
+          ["Synced 3 presets from PC", "2 min"],
+          ["Cleaned up 12 duplicates", "1 h"],
+          ["Serum 2 installed", "Mon"],
+        ] as const
+      ).map(([label, when], n) => (
+        <div key={label} className="flex h-6 items-center gap-2 px-2.5">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${n === 0 ? "bg-accent" : "bg-track"}`} />
+          <span className="flex-1 truncate">{label}</span>
+          <span className={`text-[11px] ${n === 1 ? "text-accent-text" : "text-dim"}`}>{n === 1 ? "Go back…" : when}</span>
+        </div>
+      ))}
     </div>
   );
 }
