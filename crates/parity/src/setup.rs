@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::diff::{ParityState, diff_manifests};
 use crate::{
-    OtherFormats, Plan, Step, TemplateReadiness, align_products, apply_profile, compare,
+    Need, OtherFormats, Plan, Step, TemplateReadiness, align_products, apply_profile, compare,
     template_readiness, up_to_speed,
 };
 
@@ -75,6 +75,8 @@ pub struct SetupStep {
     pub finished: Vec<String>,
     /// Products still to do.
     pub open_products: Vec<ProductId>,
+    /// For each open product: not installed at all, or an older version.
+    pub open_needs: Vec<Need>,
     pub after: Vec<usize>,
 }
 
@@ -143,6 +145,7 @@ pub fn setup_progress(
             open: vec![(*detail).to_owned()],
             finished: Vec::new(),
             open_products: Vec::new(),
+            open_needs: Vec::new(),
             after: Vec::new(),
         }
     }));
@@ -227,18 +230,22 @@ fn plan_step(
     let mut open_lines = Vec::new();
     let mut finished = Vec::new();
     let mut open_products = Vec::new();
+    let mut open_needs = Vec::new();
     // Something missing when the plan was made can turn up older since
     // (an old Arturia Software Center found): say what's left now.
     let live_line = |p: &ProductId| {
         live.steps.iter().find_map(|l| {
             let i = l.products.iter().position(|x| x == p)?;
-            l.details.get(i).cloned()
+            Some((l.details.get(i)?.clone(), *l.needs.get(i)?))
         })
     };
     for (i, p) in s.products.iter().enumerate() {
         let line = s.details.get(i).cloned().unwrap_or_else(|| p.0.clone());
         if open.contains(p) {
-            open_lines.push(live_line(p).unwrap_or(line));
+            let need = s.needs.get(i).copied().unwrap_or(Need::Install);
+            let (line, need) = live_line(p).unwrap_or((line, need));
+            open_lines.push(line);
+            open_needs.push(need);
             open_products.push(p.clone());
         } else {
             finished.push(line);
@@ -281,6 +288,7 @@ fn plan_step(
         open: open_lines,
         finished,
         open_products,
+        open_needs,
         after: s.after.clone(),
     }
 }

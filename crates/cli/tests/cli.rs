@@ -425,7 +425,7 @@ fn plan_prints_ordered_steps() {
         "\nFoundation\n  1. Install iLok License Manager\n",
         "  2. Install Native Access  (after 1)\n",
         "\nVendor apps\n  3. Open Native Access and install 1 and update 1  (after 1, 2)\n",
-        "       Kontakt 7 7.10.1 (you have 7.9.0)\n",
+        "       Kontakt 7: 7.9.0 here, Primary Rig has 7.10.1\n",
         "\nManual steps\n",
     ] {
         assert!(out.contains(needle), "{needle:?} not in:\n{out}");
