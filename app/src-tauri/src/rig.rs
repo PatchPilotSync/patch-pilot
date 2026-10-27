@@ -141,10 +141,16 @@ pub async fn make_golden(app: AppHandle) -> Result<Overview, String> {
     load_overview(&store, Some(&id))
 }
 
-/// Rescan this machine for the background watcher, with progress events only
-/// when `progress` (the rescan after an update). Does nothing (returns
-/// `None`) until the user has scanned it once. The caller holds [`Scanning`].
-pub(crate) fn rescan_quietly(
+/// Rescan this machine without progress events, for the background watcher.
+/// Does nothing (returns `None`) until the user has scanned it once. The
+/// caller holds [`Scanning`].
+pub(crate) fn rescan_quietly(app: &AppHandle) -> Result<Option<ScanReport>, String> {
+    rescan_existing(app, false)
+}
+
+/// [`rescan_quietly`], with progress events when `progress` (the rescan
+/// after an update).
+pub(crate) fn rescan_existing(
     app: &AppHandle,
     progress: bool,
 ) -> Result<Option<ScanReport>, String> {

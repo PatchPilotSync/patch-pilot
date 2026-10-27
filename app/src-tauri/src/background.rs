@@ -197,7 +197,7 @@ fn rescans(app: &AppHandle, rx: &Receiver<bool>) {
             watcher.update_scan.store(true, Ordering::SeqCst);
             let _ = app.emit(UPDATE_SCAN, true);
         }
-        let result = rig::rescan_quietly(app, visible);
+        let result = rig::rescan_existing(app, visible);
         scanning.finish();
         if visible {
             watcher.update_scan.store(false, Ordering::SeqCst);
