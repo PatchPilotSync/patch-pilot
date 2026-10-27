@@ -59,7 +59,14 @@ pub enum Base {
     UserLibrary,
     /// macOS `/Library`.
     Library,
+    /// Every user's documents: macOS `/Users/Shared`, Windows
+    /// `C:\Users\Public\Documents`.
+    Shared,
 }
+
+/// Places a folder can be on one OS, most likely first. The first that
+/// exists is the one used.
+pub type Places = &'static [(Base, &'static str)];
 
 #[derive(Debug, Clone, Copy)]
 pub struct PresetLocation {
@@ -68,27 +75,34 @@ pub struct PresetLocation {
     pub vendor: &'static str,
     /// What the folder holds, e.g. "Serum presets".
     pub name: &'static str,
-    pub macos: Option<(Base, &'static str)>,
-    pub windows: Option<(Base, &'static str)>,
+    pub macos: Places,
+    pub windows: Places,
     /// True when both OSes lay the folder out the same way, so a Mac and a PC
     /// should hold the same files.
     pub portable: bool,
 }
 
-const fn both(
-    id: &'static str,
-    vendor: &'static str,
-    name: &'static str,
-    rel: &'static str,
-) -> PresetLocation {
-    PresetLocation {
-        id,
-        vendor,
-        name,
-        macos: Some((Base::Documents, rel)),
-        windows: Some((Base::Documents, rel)),
-        portable: true,
+impl PresetLocation {
+    fn places(&self, os: Os) -> Places {
+        match os {
+            Os::Macos => self.macos,
+            Os::Windows => self.windows,
+        }
     }
+}
+
+/// A folder at the same place under Documents on both OSes.
+macro_rules! both {
+    ($id:literal, $vendor:literal, $name:literal, $rel:literal) => {
+        PresetLocation {
+            id: $id,
+            vendor: $vendor,
+            name: $name,
+            macos: &[(Base::Documents, $rel)],
+            windows: &[(Base::Documents, $rel)],
+            portable: true,
+        }
+    };
 }
 
 /// Vendor preset folders. Keep sorted by vendor.
@@ -97,69 +111,87 @@ pub const LOCATIONS: &[PresetLocation] = &[
         id: "arturia",
         vendor: "Arturia",
         name: "Arturia presets",
-        macos: Some((Base::Library, "Arturia/Presets")),
-        windows: Some((Base::ProgramData, "Arturia/Presets")),
+        macos: &[(Base::Library, "Arturia/Presets")],
+        windows: &[(Base::ProgramData, "Arturia/Presets")],
         portable: true,
     },
-    both(
+    both!(
         "fabfilter",
         "FabFilter",
         "FabFilter presets",
-        "FabFilter/Presets",
+        "FabFilter/Presets"
     ),
-    both(
+    both!(
         "ik-multimedia",
         "IK Multimedia",
         "IK Multimedia presets",
-        "IK Multimedia",
+        "IK Multimedia"
     ),
-    both("izotope", "iZotope", "iZotope presets", "iZotope"),
-    both(
+    both!("izotope", "iZotope", "iZotope presets", "iZotope"),
+    both!(
         "kilohearts",
         "Kilohearts",
         "Kilohearts presets",
-        "Kilohearts",
+        "Kilohearts"
     ),
-    both(
+    both!(
         "native-instruments",
         "Native Instruments",
         "Native Instruments User Content",
-        "Native Instruments/User Content",
+        "Native Instruments/User Content"
     ),
+    PresetLocation {
+        id: "soundtoys",
+        vendor: "Soundtoys",
+        name: "Soundtoys presets",
+        macos: &[(Base::Shared, "Soundtoys/Soundtoys 5")],
+        windows: &[(Base::Shared, "Soundtoys/Soundtoys 5")],
+        portable: true,
+    },
     PresetLocation {
         id: "spectrasonics",
         vendor: "Spectrasonics",
         name: "Omnisphere user patches",
-        macos: Some((
-            Base::UserLibrary,
-            "Application Support/Spectrasonics/STEAM/Omnisphere/Settings Library/Patches/User",
-        )),
-        windows: Some((
+        // STEAM is in /Library unless moved; ~/Library has a link to it.
+        macos: &[
+            (
+                Base::Library,
+                "Application Support/Spectrasonics/STEAM/Omnisphere/Settings Library/Patches/User",
+            ),
+            (
+                Base::UserLibrary,
+                "Application Support/Spectrasonics/STEAM/Omnisphere/Settings Library/Patches/User",
+            ),
+        ],
+        windows: &[(
             Base::ProgramData,
             "Spectrasonics/STEAM/Omnisphere/Settings Library/Patches/User",
-        )),
+        )],
         portable: true,
     },
-    both(
+    both!(
         "surge-xt",
         "Surge Synth Team",
         "Surge XT user data",
-        "Surge XT",
+        "Surge XT"
     ),
     PresetLocation {
         id: "tal",
         vendor: "TAL Software",
         name: "TAL presets",
-        macos: Some((Base::UserLibrary, "Application Support/ToguAudioLine")),
-        windows: Some((Base::AppData, "ToguAudioLine")),
+        macos: &[(Base::UserLibrary, "Application Support/ToguAudioLine")],
+        windows: &[(Base::AppData, "ToguAudioLine")],
         portable: true,
     },
     PresetLocation {
         id: "u-he",
         vendor: "u-he",
         name: "u-he presets",
-        macos: Some((Base::UserLibrary, "Audio/Presets/u-he")),
-        windows: Some((Base::Documents, "u-he")),
+        macos: &[
+            (Base::UserLibrary, "Audio/Presets/u-he"),
+            (Base::Library, "Audio/Presets/u-he"),
+        ],
+        windows: &[(Base::Documents, "u-he")],
         // Windows keeps them in `<Product>.data/Presets`, macOS in `<Product>`.
         portable: false,
     },
@@ -167,32 +199,151 @@ pub const LOCATIONS: &[PresetLocation] = &[
         id: "valhalla-dsp",
         vendor: "Valhalla DSP",
         name: "Valhalla presets",
-        macos: Some((Base::UserLibrary, "Application Support/Valhalla DSP, LLC")),
-        windows: Some((Base::AppData, "Valhalla DSP, LLC")),
+        macos: &[(Base::UserLibrary, "Application Support/Valhalla DSP, LLC")],
+        windows: &[(Base::AppData, "Valhalla DSP, LLC")],
         portable: true,
     },
-    both("vital", "Vital Audio", "Vital presets", "Vital"),
-    both(
-        "serum",
-        "Xfer Records",
-        "Serum presets",
-        "Xfer/Serum Presets",
-    ),
-    both(
-        "serum-2",
-        "Xfer Records",
-        "Serum 2 presets",
-        "Xfer/Serum 2 Presets",
-    ),
+    PresetLocation {
+        id: "vital",
+        vendor: "Vital Audio",
+        name: "Vital presets",
+        macos: &[
+            (Base::Documents, "Vital"),
+            (Base::Library, "Audio/Presets/Vital"),
+            (Base::UserLibrary, "Audio/Presets/Vital"),
+        ],
+        windows: &[(Base::Documents, "Vital")],
+        portable: true,
+    },
+    // Serum's installer puts them in /Library on a Mac (or ~/Library when
+    // installed for one user), and in Documents on Windows.
+    PresetLocation {
+        id: "serum",
+        vendor: "Xfer Records",
+        name: "Serum presets",
+        macos: &[
+            (Base::Library, "Audio/Presets/Xfer Records/Serum Presets"),
+            (
+                Base::UserLibrary,
+                "Audio/Presets/Xfer Records/Serum Presets",
+            ),
+            (Base::Documents, "Xfer/Serum Presets"),
+        ],
+        windows: &[(Base::Documents, "Xfer/Serum Presets")],
+        portable: true,
+    },
+    PresetLocation {
+        id: "serum-2",
+        vendor: "Xfer Records",
+        name: "Serum 2 presets",
+        macos: &[
+            (Base::Library, "Audio/Presets/Xfer Records/Serum 2 Presets"),
+            (
+                Base::UserLibrary,
+                "Audio/Presets/Xfer Records/Serum 2 Presets",
+            ),
+            (Base::Documents, "Xfer/Serum 2 Presets"),
+        ],
+        windows: &[(Base::Documents, "Xfer/Serum 2 Presets")],
+        portable: true,
+    },
 ];
 
-/// The standard preset folder whose vendor subfolders each become an item.
-fn standard_folder(os: Os) -> (Base, &'static str) {
+/// A standard preset folder whose vendor subfolders each become an item.
+struct Standard {
+    at: (Base, &'static str),
+    /// Start of each subfolder's ID, before the vendor's slug.
+    prefix: &'static str,
+    /// Said after the name when an earlier standard folder has the vendor too.
+    again: &'static str,
+    /// The user's own folder. The others skip DAW makers' and the OS's
+    /// presets, which come with them.
+    own: bool,
+}
+
+/// The standard preset folders on `os`, the user's own first.
+fn standard_folders(os: Os) -> &'static [Standard] {
     match os {
-        Os::Macos => (Base::UserLibrary, "Audio/Presets"),
-        Os::Windows => (Base::Documents, "VST3 Presets"),
+        Os::Macos => &[
+            Standard {
+                at: (Base::UserLibrary, "Audio/Presets"),
+                prefix: "standard-",
+                again: "",
+                own: true,
+            },
+            Standard {
+                at: (Base::Library, "Audio/Presets"),
+                prefix: "standard-all-",
+                again: " for all users",
+                own: false,
+            },
+        ],
+        Os::Windows => &[
+            Standard {
+                at: (Base::Documents, "VST3 Presets"),
+                prefix: "standard-",
+                again: "",
+                own: true,
+            },
+            Standard {
+                at: (Base::AppData, "VST3 Presets"),
+                prefix: "standard-roaming-",
+                again: " in AppData",
+                own: false,
+            },
+            Standard {
+                at: (Base::ProgramData, "VST3 Presets"),
+                prefix: "standard-all-",
+                again: " for all users",
+                own: false,
+            },
+        ],
     }
 }
+
+/// The standard folder an ID from [`standard_folders`] belongs to. The
+/// longest prefix wins, so `standard-all-x` isn't read as vendor `all-x` of
+/// the user's folder.
+fn standard_for(id: &str, os: Os) -> Option<&'static Standard> {
+    standard_folders(os)
+        .iter()
+        .filter(|s| id.starts_with(s.prefix))
+        .max_by_key(|s| s.prefix.len())
+}
+
+/// Where vendors keep their own folders, searched for preset folders by name
+/// (see [`find_preset_folders`]).
+fn vendor_places(os: Os) -> &'static [(Base, &'static str)] {
+    match os {
+        Os::Macos => &[
+            (Base::Documents, ""),
+            (Base::UserLibrary, "Application Support"),
+            (Base::Library, "Application Support"),
+            (Base::Shared, ""),
+        ],
+        Os::Windows => &[
+            (Base::Documents, ""),
+            (Base::AppData, ""),
+            (Base::ProgramData, ""),
+            (Base::Shared, ""),
+        ],
+    }
+}
+
+/// Catalog vendors whose folders hold a DAW's own files, which the DAW
+/// scanners handle, or the OS's.
+const NOT_PRESET_VENDORS: [&str; 6] = [
+    "ableton",
+    "apple",
+    "avid",
+    "cockos",
+    "image-line",
+    "steinberg",
+];
+
+/// Product IDs of preset folders found by name start with this, after
+/// [`PRODUCT_PREFIX`].
+const FOUND_PREFIX: &str = "found-";
 
 /// This machine's base folders. `None` where unknown or not on this OS.
 #[derive(Debug, Clone, Default)]
@@ -202,11 +353,13 @@ pub struct PresetBases {
     pub program_data: Option<PathBuf>,
     pub user_library: Option<PathBuf>,
     pub library: Option<PathBuf>,
+    pub shared: Option<PathBuf>,
 }
 
 impl PresetBases {
-    /// Bases from the home folder and (Windows) `%APPDATA%` / `%ProgramData%`.
-    pub fn standard(os: Os, home: &str, app_data: &str, program_data: &str) -> Self {
+    /// Bases from the home folder and (Windows) `%APPDATA%`, `%ProgramData%`
+    /// and `%PUBLIC%`.
+    pub fn standard(os: Os, home: &str, app_data: &str, program_data: &str, public: &str) -> Self {
         let some = |s: &str| (!s.is_empty()).then(|| PathBuf::from(s));
         let home = some(home);
         match os {
@@ -214,12 +367,14 @@ impl PresetBases {
                 documents: home.as_ref().map(|h| h.join("Documents")),
                 user_library: home.as_ref().map(|h| h.join("Library")),
                 library: Some(PathBuf::from("/Library")),
+                shared: Some(PathBuf::from("/Users/Shared")),
                 ..Self::default()
             },
             Os::Windows => Self {
                 documents: home.as_ref().map(|h| h.join("Documents")),
                 app_data: some(app_data),
                 program_data: some(program_data),
+                shared: some(public).map(|p| p.join("Documents")),
                 ..Self::default()
             },
         }
@@ -232,12 +387,13 @@ impl PresetBases {
             Base::ProgramData => self.program_data.as_deref(),
             Base::UserLibrary => self.user_library.as_deref(),
             Base::Library => self.library.as_deref(),
+            Base::Shared => self.shared.as_deref(),
         }
     }
 
     fn join(&self, (base, rel): (Base, &str)) -> Option<PathBuf> {
         let mut p = self.get(base)?.to_path_buf();
-        p.extend(rel.split('/'));
+        p.extend(rel.split('/').filter(|s| !s.is_empty()));
         Some(p)
     }
 }
@@ -252,23 +408,33 @@ pub struct PresetFolder {
     pub portable: bool,
 }
 
-/// Every known preset folder that exists on this machine.
+/// Every preset folder on this machine, in three passes:
+/// - the vendor folders in [`LOCATIONS`], at the first of their places that
+///   exists;
+/// - each vendor subfolder of the standard preset folders (AU and VST3);
+/// - folders named like presets ("Presets", "User Presets", "Serum 2
+///   Presets") up to two levels inside a folder named after a vendor the
+///   catalog knows, in Documents, Application Support (macOS), `%APPDATA%`
+///   and `%ProgramData%` (Windows) and the shared documents folder:
+///   `ProgramData\Valhalla DSP, LLC\ValhallaVintageVerb\Presets`.
+///
+/// A folder inside or around one already listed is left out, so no file
+/// counts twice.
 pub fn find_preset_folders(os: Os, bases: &PresetBases) -> Vec<PresetFolder> {
     let mut out = Vec::new();
-    let mut claimed = Vec::new();
+    // Every place a known folder may be, found or not, so the later passes
+    // never list it again under another name.
+    let mut claimed: Vec<PathBuf> = Vec::new();
     for loc in LOCATIONS {
-        let rel = match os {
-            Os::Macos => loc.macos,
-            Os::Windows => loc.windows,
-        };
-        let Some(path) = rel.and_then(|r| bases.join(r)) else {
-            continue;
-        };
-        claimed.push(path.clone());
-        if path.is_dir() {
+        let places: Vec<PathBuf> = loc
+            .places(os)
+            .iter()
+            .filter_map(|&at| bases.join(at))
+            .collect();
+        if let Some(path) = places.iter().find(|p| p.is_dir()) {
             out.push(PresetFolder {
                 root: root_name(loc.id),
-                path,
+                path: path.clone(),
                 product: Product {
                     canonical_id: ProductId(format!("{PRODUCT_PREFIX}{}", loc.id)),
                     vendor: loc.vendor.into(),
@@ -277,34 +443,173 @@ pub fn find_preset_folders(os: Os, bases: &PresetBases) -> Vec<PresetFolder> {
                 portable: loc.portable,
             });
         }
+        claimed.extend(places);
     }
-    if let Some(standard) = bases.join(standard_folder(os))
-        && let Ok(entries) = std::fs::read_dir(&standard)
-    {
-        let mut subdirs: Vec<PathBuf> = entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.is_dir() && !claimed.contains(p) && !is_hidden(p))
-            .collect();
-        subdirs.sort();
-        for path in subdirs {
-            let Some(vendor) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+    let overlaps = |p: &Path, claimed: &[PathBuf]| {
+        claimed.iter().any(|c| c.starts_with(p) || p.starts_with(c))
+    };
+    let mut standard_vendors = Vec::new();
+    for standard in standard_folders(os) {
+        let Some(dir) = bases.join(standard.at) else {
+            continue;
+        };
+        for path in subdirs(&dir) {
+            if overlaps(&path, &claimed) {
                 continue;
+            }
+            let vendor = file_name(&path);
+            if !standard.own && is_daw_vendor(&vendor) {
+                continue;
+            }
+            // The same vendor in the user's and the shared folder: say which.
+            let again = if standard_vendors.contains(&vendor) {
+                standard.again
+            } else {
+                ""
             };
-            let id = format!("standard-{}", slug(&vendor));
+            let name = format!("{vendor} presets{again}");
+            let id = format!("{}{}", standard.prefix, slug(&vendor));
+            standard_vendors.push(vendor.clone());
             out.push(PresetFolder {
                 root: root_name(&id),
                 product: Product {
                     canonical_id: ProductId(format!("{PRODUCT_PREFIX}{id}")),
-                    name: format!("{vendor} presets"),
+                    name,
                     vendor,
                 },
                 path,
                 portable: false,
             });
         }
+        claimed.push(dir);
+    }
+    let catalog = patchpilot_catalog::current();
+    for &at in vendor_places(os) {
+        let Some(dir) = bases.join(at) else {
+            continue;
+        };
+        for vendor_dir in subdirs(&dir) {
+            let name = file_name(&vendor_dir);
+            let Some(vendor) = catalog
+                .vendor_named(&name)
+                .filter(|_| !is_daw_vendor(&name))
+            else {
+                continue;
+            };
+            if claimed.iter().any(|c| vendor_dir.starts_with(c)) {
+                continue;
+            }
+            for path in named_preset_dirs(&vendor_dir) {
+                if overlaps(&path, &claimed) {
+                    continue;
+                }
+                let Ok(rel) = path.strip_prefix(&vendor_dir) else {
+                    continue;
+                };
+                let rel: Vec<String> = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                let id = format!("{FOUND_PREFIX}{}-{}", vendor.id, slug(&rel.join(" ")));
+                // The same folder in a user's and a shared place: the user's.
+                let product_id = format!("{PRODUCT_PREFIX}{id}");
+                if out.iter().any(|f| f.product.canonical_id.0 == product_id) {
+                    continue;
+                }
+                let parent = match rel.len() {
+                    1 => vendor.name.clone(),
+                    _ => rel[rel.len() - 2].clone(),
+                };
+                out.push(PresetFolder {
+                    root: root_name(&id),
+                    product: Product {
+                        canonical_id: ProductId(product_id),
+                        vendor: vendor.name.clone(),
+                        name: found_name(&parent, &rel[rel.len() - 1]),
+                    },
+                    path: path.clone(),
+                    portable: false,
+                });
+                claimed.push(path);
+            }
+        }
     }
     out
+}
+
+fn is_daw_vendor(name: &str) -> bool {
+    patchpilot_catalog::current()
+        .vendor_named(name)
+        .is_some_and(|v| NOT_PRESET_VENDORS.contains(&v.id.as_str()))
+}
+
+/// Visible subfolders of `dir`, sorted.
+fn subdirs(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && !is_hidden(p))
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+fn file_name(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Folders one or two levels inside `vendor_dir` whose name has the word
+/// "presets", outermost only.
+fn named_preset_dirs(vendor_dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for child in subdirs(vendor_dir) {
+        if is_preset_name(&file_name(&child)) {
+            out.push(child);
+            continue;
+        }
+        out.extend(
+            subdirs(&child)
+                .into_iter()
+                .filter(|p| is_preset_name(&file_name(p))),
+        );
+    }
+    out
+}
+
+fn is_preset_name(name: &str) -> bool {
+    slug(name).split('-').any(|w| w == "presets")
+}
+
+/// "Serum 2 Presets" -> "Serum 2 presets"; "Presets" in "Elevate" ->
+/// "Elevate presets"; "USER Presets" in "Fresh Air" -> "Fresh Air user
+/// presets".
+fn found_name(parent: &str, name: &str) -> String {
+    const PLAIN: [&str; 6] = ["presets", "user", "factory", "my", "custom", "own"];
+    let words: Vec<&str> = name.split_whitespace().collect();
+    let plain = words
+        .iter()
+        .all(|w| PLAIN.contains(&w.to_ascii_lowercase().as_str()));
+    let words: Vec<String> = words
+        .iter()
+        .map(|w| {
+            if PLAIN.contains(&w.to_ascii_lowercase().as_str()) {
+                w.to_ascii_lowercase()
+            } else {
+                (*w).to_owned()
+            }
+        })
+        .collect();
+    let name = words.join(" ");
+    if plain {
+        format!("{parent} {name}")
+    } else {
+        name
+    }
 }
 
 /// One item (and product) per folder, with a content hash of its files,
@@ -407,37 +712,33 @@ fn is_vst3_preset(rel: &str) -> bool {
 
 /// True when `root` is a vendor folder from [`LOCATIONS`] with a place on `os`.
 pub fn is_vendor_root(root: &str, os: Os) -> bool {
-    LOCATIONS.iter().any(|l| {
-        root_name(l.id) == root
-            && match os {
-                Os::Macos => l.macos.is_some(),
-                Os::Windows => l.windows.is_some(),
-            }
-    })
+    LOCATIONS
+        .iter()
+        .any(|l| root_name(l.id) == root && !l.places(os).is_empty())
 }
 
 /// Where preset folder `root` belongs on this machine when its scan didn't
-/// find it: the vendor's documented place, or for the standard folder, a
-/// subfolder there whose name matches. `None` when it can't be told.
+/// find it: the vendor's place that exists, else its first; for a standard
+/// folder, a subfolder there whose name matches. `None` when it can't be told,
+/// as for folders found by name.
 pub fn default_dir(root: &str, os: Os, bases: &PresetBases) -> Option<PathBuf> {
     if let Some(loc) = LOCATIONS.iter().find(|l| root_name(l.id) == root) {
-        let at = match os {
-            Os::Macos => loc.macos,
-            Os::Windows => loc.windows,
-        }?;
-        return bases.join(at);
+        let places: Vec<PathBuf> = loc
+            .places(os)
+            .iter()
+            .filter_map(|&at| bases.join(at))
+            .collect();
+        return places
+            .iter()
+            .find(|p| p.is_dir())
+            .or(places.first())
+            .cloned();
     }
-    let standard = bases.join(standard_folder(os))?;
-    std::fs::read_dir(standard)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| {
-            p.is_dir()
-                && p.file_name().is_some_and(|n| {
-                    root_name(&format!("standard-{}", slug(&n.to_string_lossy()))) == root
-                })
-        })
+    standard_folders(os).iter().find_map(|s| {
+        subdirs(&bases.join(s.at)?)
+            .into_iter()
+            .find(|p| root_name(&format!("{}{}", s.prefix, slug(&file_name(p)))) == root)
+    })
 }
 
 /// Where a preset folder lives on `os`, for people: `Documents\Kilohearts`,
@@ -445,20 +746,15 @@ pub fn default_dir(root: &str, os: Os, bases: &PresetBases) -> Option<PathBuf> {
 pub fn location(product: &Product, os: Os) -> Option<String> {
     let id = product.canonical_id.0.strip_prefix(PRODUCT_PREFIX)?;
     if let Some(loc) = LOCATIONS.iter().find(|l| l.id == id) {
-        let at = match os {
-            Os::Macos => loc.macos,
-            Os::Windows => loc.windows,
-        }?;
-        return Some(show(at, os));
+        return loc.places(os).first().map(|&at| show(at, os));
     }
-    id.starts_with("standard-").then(|| {
-        format!(
-            "{}{}{}",
-            show(standard_folder(os), os),
-            separator(os),
-            product.vendor
-        )
-    })
+    let standard = standard_for(id, os)?;
+    Some(format!(
+        "{}{}{}",
+        show(standard.at, os),
+        separator(os),
+        product.vendor
+    ))
 }
 
 fn show((base, rel): (Base, &str), os: Os) -> String {
@@ -469,8 +765,13 @@ fn show((base, rel): (Base, &str), os: Os) -> String {
         Base::ProgramData => "C:\\ProgramData",
         Base::UserLibrary => "~/Library",
         Base::Library => "/Library",
+        Base::Shared if os == Os::Macos => "/Users/Shared",
+        Base::Shared => "C:\\Users\\Public\\Documents",
     };
     let sep = separator(os);
+    if rel.is_empty() {
+        return base.to_owned();
+    }
     format!("{base}{sep}{}", rel.replace('/', sep))
 }
 
@@ -615,8 +916,192 @@ mod tests {
             documents: Some(home.join("Documents")),
             user_library: Some(home.join("Library")),
             library: Some(home.join("SharedLibrary")),
+            shared: Some(home.join("Shared")),
             ..PresetBases::default()
         }
+    }
+
+    fn windows_bases(home: &Path) -> PresetBases {
+        PresetBases {
+            documents: Some(home.join("Documents")),
+            app_data: Some(home.join("AppData")),
+            program_data: Some(home.join("ProgramData")),
+            shared: Some(home.join("Public")),
+            ..PresetBases::default()
+        }
+    }
+
+    fn found(folders: &[PresetFolder]) -> Vec<(&str, &str, &str)> {
+        folders
+            .iter()
+            .map(|f| {
+                (
+                    f.product.canonical_id.0.as_str(),
+                    f.product.vendor.as_str(),
+                    f.product.name.as_str(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn serum_on_a_mac_is_in_the_shared_library() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let shared = home.join("SharedLibrary/Audio/Presets");
+        write(
+            &shared.join("Xfer Records/Serum 2 Presets/Presets/User/Bass.SerumPreset"),
+            "bass",
+        );
+        write(&shared.join("Acme/Verb/Hall.aupreset"), "hall");
+        write(&shared.join("Apple/AUDelay/Echo.aupreset"), "echo");
+        write(
+            &home.join("Library/Audio/Presets/Acme/Verb/Room.aupreset"),
+            "room",
+        );
+        let bases = mac_bases(home);
+        let folders = find_preset_folders(Os::Macos, &bases);
+        // Xfer Records isn't listed again around Serum 2's folder.
+        assert_eq!(
+            found(&folders),
+            [
+                ("presets/serum-2", "Xfer Records", "Serum 2 presets"),
+                ("presets/standard-acme", "Acme", "Acme presets"),
+                (
+                    "presets/standard-all-acme",
+                    "Acme",
+                    "Acme presets for all users"
+                ),
+            ]
+        );
+        assert_eq!(folders[0].path, shared.join("Xfer Records/Serum 2 Presets"));
+        assert_eq!(folders[0].root, "PRESETS_SERUM_2");
+        assert_eq!(
+            default_dir("PRESETS_SERUM_2", Os::Macos, &bases),
+            Some(shared.join("Xfer Records/Serum 2 Presets"))
+        );
+        assert_eq!(
+            default_dir("PRESETS_STANDARD_ALL_ACME", Os::Macos, &bases),
+            Some(shared.join("Acme"))
+        );
+        // Serum's own folder on Windows is still the same folder.
+        write(
+            &home.join("Documents/Xfer/Serum 2 Presets/Presets/User/Bass.SerumPreset"),
+            "bass",
+        );
+        let pc = find_preset_folders(Os::Windows, &windows_bases(home));
+        assert_eq!(pc[0].root, "PRESETS_SERUM_2");
+        assert!(pc[0].portable);
+    }
+
+    #[test]
+    fn finds_preset_folders_in_vendor_folders_by_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let data = home.join("ProgramData");
+        write(
+            &data.join("Valhalla DSP, LLC/ValhallaVintageVerb/Presets/Factory/Hall.vpreset"),
+            "hall",
+        );
+        write(
+            &data.join("Valhalla DSP, LLC/ValhallaVintageVerb/InstallerFiles/x"),
+            "x",
+        );
+        write(
+            &data.join("Slate Digital/Fresh Air/FACTORY Presets/Air.fxp"),
+            "a",
+        );
+        write(
+            &data.join("Slate Digital/Fresh Air/USER Presets/Mine.fxp"),
+            "m",
+        );
+        write(&data.join("BABY Audio/presets/Warm.preset"), "w");
+        write(
+            &home.join("Documents/Universal Audio/Presets/Vocal.preset"),
+            "v",
+        );
+        // A plug-in's own folder in the vendor's preset place is that folder.
+        write(
+            &home.join("AppData/Valhalla DSP, LLC/ValhallaRoom/User Presets/Big.vpreset"),
+            "b",
+        );
+        // Not a vendor, a DAW's own folder, too deep, already listed.
+        write(&home.join("Documents/Holiday/Presets/x.fxp"), "x");
+        write(
+            &home.join("Documents/Ableton/User Library/Presets/x.adv"),
+            "x",
+        );
+        write(&data.join("Native Instruments/A/B/Presets/x.nksf"), "x");
+        write(&home.join("Documents/Kilohearts/Presets/x.phaseplant"), "x");
+        write(
+            &home.join("Public/Soundtoys/Soundtoys 5/EchoBoy/Slap.preset"),
+            "s",
+        );
+
+        let folders = find_preset_folders(Os::Windows, &windows_bases(home));
+        assert_eq!(
+            found(&folders),
+            [
+                ("presets/kilohearts", "Kilohearts", "Kilohearts presets"),
+                ("presets/soundtoys", "Soundtoys", "Soundtoys presets"),
+                ("presets/valhalla-dsp", "Valhalla DSP", "Valhalla presets"),
+                (
+                    "presets/found-universal-audio-presets",
+                    "Universal Audio",
+                    "Universal Audio presets"
+                ),
+                (
+                    "presets/found-baby-audio-presets",
+                    "Baby Audio",
+                    "Baby Audio presets"
+                ),
+                (
+                    "presets/found-slate-digital-fresh-air-factory-presets",
+                    "Slate Digital",
+                    "Fresh Air factory presets"
+                ),
+                (
+                    "presets/found-slate-digital-fresh-air-user-presets",
+                    "Slate Digital",
+                    "Fresh Air user presets"
+                ),
+                (
+                    "presets/found-valhalla-dsp-valhallavintageverb-presets",
+                    "Valhalla DSP",
+                    "ValhallaVintageVerb presets"
+                ),
+            ]
+        );
+        assert!(folders[3..].iter().all(|f| !f.portable));
+        assert_eq!(
+            folders[3].path,
+            home.join("Documents/Universal Audio/Presets")
+        );
+        // Found by name: no fixed place to put it on another machine.
+        assert_eq!(
+            default_dir(&folders[3].root, Os::Windows, &windows_bases(home)),
+            None
+        );
+        assert!(!is_vendor_root(&folders[3].root, Os::Windows));
+        assert!(is_vendor_root("PRESETS_SOUNDTOYS", Os::Macos));
+    }
+
+    #[test]
+    fn found_folders_are_named_for_people() {
+        assert_eq!(
+            found_name("Xfer Records", "Serum 2 Presets"),
+            "Serum 2 presets"
+        );
+        assert_eq!(found_name("Elevate", "Presets"), "Elevate presets");
+        assert_eq!(
+            found_name("Fresh Air", "USER Presets"),
+            "Fresh Air user presets"
+        );
+        assert_eq!(found_name("Baby Audio", "presets"), "Baby Audio presets");
+        assert!(is_preset_name("FACTORY Presets"));
+        assert!(is_preset_name("Serum_2_Presets"));
+        assert!(!is_preset_name("PresetsBackup"));
+        assert!(!is_preset_name("Settings"));
     }
 
     #[test]
@@ -628,7 +1113,7 @@ mod tests {
         assert!(
             LOCATIONS
                 .iter()
-                .all(|l| l.macos.is_some() || l.windows.is_some())
+                .all(|l| !l.macos.is_empty() || !l.windows.is_empty())
         );
     }
 
@@ -819,6 +1304,22 @@ mod tests {
         assert_eq!(
             location(&product("standard-valhalla", "Valhalla"), Os::Macos).as_deref(),
             Some("~/Library/Audio/Presets/Valhalla")
+        );
+        assert_eq!(
+            location(&product("standard-all-valhalla", "Valhalla"), Os::Macos).as_deref(),
+            Some("/Library/Audio/Presets/Valhalla")
+        );
+        assert_eq!(
+            location(&product("soundtoys", "Soundtoys"), Os::Windows).as_deref(),
+            Some("C:\\Users\\Public\\Documents\\Soundtoys\\Soundtoys 5")
+        );
+        assert_eq!(
+            location(&product("serum-2", "Xfer Records"), Os::Macos).as_deref(),
+            Some("/Library/Audio/Presets/Xfer Records/Serum 2 Presets")
+        );
+        assert_eq!(
+            location(&product("found-acme-presets", "Acme"), Os::Macos),
+            None
         );
         let plugin = Product {
             canonical_id: ProductId("acme-verb".into()),

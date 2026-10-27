@@ -423,6 +423,7 @@ pub(crate) fn preset_bases(os: Os) -> patchpilot_parity::presets::PresetBases {
         &home_dir().unwrap_or_default(),
         &var("APPDATA"),
         &var("ProgramData"),
+        &var("PUBLIC"),
     )
 }
 
