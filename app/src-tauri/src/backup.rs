@@ -46,6 +46,8 @@ pub struct BackupView {
     pub github_progress: Option<patchpilot_local::github::Progress>,
     /// Why the last GitHub sync didn't finish; it tries again on its own.
     pub github_error: Option<String>,
+    /// Linked machines on the home network, while syncing over it.
+    pub lan: Option<crate::lan::LanView>,
     /// The big-file folder, offered first when picking.
     pub transfer_folder: Option<String>,
     /// Every machine's backups there, this machine's first.
@@ -124,6 +126,10 @@ fn run(app: &AppHandle) -> Result<BackupReport, String> {
             let _ = crate::github::sync_now(&handle);
         });
     }
+    // Over the home network, tell machines nearby there's a new backup.
+    if result.is_ok() {
+        crate::lan::backed_up(app);
+    }
     result
 }
 
@@ -189,6 +195,7 @@ pub async fn backup_view(app: AppHandle) -> Result<BackupView, String> {
         clouds: transfer::this_machines_clouds(),
         github,
         github_progress,
+        lan: crate::lan::view(&app),
         github_error,
         transfer_folder: transfer::load_settings(&app_dir()?)
             .folder

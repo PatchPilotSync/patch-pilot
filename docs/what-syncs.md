@@ -43,6 +43,17 @@ machines too, as long as their copy wasn't edited there.
 | Plug-ins tagged into Collections | The tag travels, but Live only shows it once the plug-in is installed; Windows and Mac plug-in names can differ. |
 | Installer Vault index | Restored on purpose from the backup, not synced. |
 
+## How files travel
+
+Through the cloud folder picked (Dropbox, Google Drive, OneDrive, iCloud or
+any folder), a private GitHub repo (decision #73), or **straight over your
+home network** with no cloud at all (decision #94). Over the home network,
+linked machines find each other on the same Wi-Fi or wired network and copy
+files directly, encrypted with the key only linked machines hold; changes
+move while both machines are on that network. The first time, macOS asks to
+let Patch Pilot find devices on the local network, and Windows may ask to
+allow it through the firewall on private networks: say yes to both.
+
 ## Choosing what syncs
 
 Under Sync & backup, **Choose what syncs** lists each of the kinds above

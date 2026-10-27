@@ -17,6 +17,7 @@ const ID_CONTEXT: &str = "Patch Pilot 2026-10-24 rig id v1";
 const TOKEN_CONTEXT: &str = "Patch Pilot 2026-10-24 relay token v1";
 const ENCRYPT_CONTEXT: &str = "Patch Pilot 2026-10-24 rig encryption v1";
 const FILE_CONTEXT: &str = "Patch Pilot 2026-10-24 file name v1";
+const LAN_CONTEXT: &str = "Patch Pilot 2026-10-27 home network v1";
 const STORED_PREFIX: &str = "pprig1:";
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 /// Unpacked size cap, so a corrupt object can't fill memory.
@@ -129,6 +130,24 @@ impl RigKey {
             return Err(Error::Decrypt);
         }
         Ok(bytes)
+    }
+
+    /// Encrypt a message between linked machines on the home network
+    /// (decision #94). `label` says what it is (a beacon, a request, the
+    /// answer to one request), so a message replayed as something else fails
+    /// to open. Its own key, so nothing sent here opens as a relay object.
+    pub fn seal_lan(&self, label: &str, bytes: &[u8]) -> Vec<u8> {
+        envelope::seal(&self.lan_key(), &self.aad(label), bytes)
+    }
+
+    /// Decrypt a home-network message; another rig's, or one sealed under
+    /// another label, fails.
+    pub fn open_lan(&self, label: &str, sealed: &[u8]) -> Result<Vec<u8>> {
+        envelope::open(&self.lan_key(), &self.aad(label), sealed)
+    }
+
+    fn lan_key(&self) -> [u8; 32] {
+        blake3::derive_key(LAN_CONTEXT, &self.0)
     }
 
     fn encryption_key(&self) -> [u8; 32] {
@@ -322,6 +341,18 @@ mod tests {
         assert!(RigKey::generate().open_file(&hash, &sealed).is_err());
         let other = content_hash(b"other");
         assert!(rig.open_file(&other, &sealed).is_err());
+    }
+
+    #[test]
+    fn home_network_messages_open_only_for_the_rig_and_label() {
+        let rig = RigKey::generate();
+        let sealed = rig.seal_lan("beacon", b"hello");
+        assert_eq!(rig.open_lan("beacon", &sealed).unwrap(), b"hello");
+        assert!(rig.open_lan("request", &sealed).is_err());
+        assert!(RigKey::generate().open_lan("beacon", &sealed).is_err());
+        // Not a relay file either.
+        let hash = content_hash(b"hello");
+        assert!(rig.open_file(&hash, &sealed).is_err());
     }
 
     #[test]

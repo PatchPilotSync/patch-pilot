@@ -103,7 +103,7 @@ The client does all the intelligent work. The server stores encrypted data it ca
 
 ## 8. Local-first vs cloud
 
-Local-first with a cloud relay. Every machine works offline. The cloud only: moves manifests and small blobs between machines, keeps Primary Rig history off any single machine, and serves the catalog. Never use the user's Dropbox/iCloud folder as transport (conflict copies). LAN peer-to-peer later for cloud-averse studios.
+Local-first with a cloud relay. Every machine works offline. The cloud only: moves manifests and small blobs between machines, keeps Primary Rig history off any single machine, and serves the catalog. Never use the user's Dropbox/iCloud folder as transport (conflict copies). LAN peer-to-peer for cloud-averse studios (decision #94: synced files can go straight between machines on the home network, no cloud).
 
 ## 9. Database (per machine, SQLite)
 
@@ -274,6 +274,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Presets | Find the same preset saved in several folders and clean up the extra copies, undoable from History (#66) | Shipped (v0.4.3) |
 | Backup | Back up every tracked template, script, theme, setting, preset and the Installer Vault index to a cloud folder, incrementally with every earlier version kept; restore onto any machine, also a fresh one from Set up | Shipped (v0.4.4) |
 | Sync | Keep files in sync: new, changed and renamed templates, scripts and presets reach every linked machine on their own through the cloud folder picked in the tour; never deletes (a rename removes the old name, undoable) or overwrites an edit, conflicts ask, every placement undoable, tray switch (#70). Portable settings travel too: Reaper key map, menus/toolbars, mouse modifiers, theme adjuster, toolbar icons, FX presets; Live Collection names, Options.txt, tunings, control surface scripts (#77; list in docs/what-syncs.md) | On main |
+| Sync | Sync over the home network with no cloud: linked machines on the same network copy synced files straight from each other, encrypted with the rig key (#94) | On main |
 
 ### Not started
 
@@ -283,7 +284,6 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Business | Pro launch: pricing, accounts, payments | Pricing ideas in section 18 |
 | Studios | Studio design partners | Original M10–12 |
 | Apple signing | Developer ID signing and notarization so macOS stops warning | $99 a year; not decided |
-| LAN exchange | Swap manifests over the local network without the relay | Probably not needed now that live sync works; file export still exists in the CLI |
 
 ### Original plan (October 2026)
 
