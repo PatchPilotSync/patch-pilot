@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.33 - 2026-10-27
+
+### Changed
+
+- After an update, Patch Pilot rescans this machine a few seconds after it starts, with "Scanning this machine…" showing, so This machine and Compare reflect what the new version reads (like the zip files left out of preset folders in 0.4.31) without pressing Rescan. Otherwise the startup check still waits a minute to stay out of the way.
+
 ## 0.4.32 - 2026-10-27
 
 ### Changed

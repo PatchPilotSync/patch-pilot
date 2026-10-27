@@ -7,7 +7,9 @@ import {
   machines as loadMachines,
   openMainWindow,
   overview as loadOverview,
+  onUpdateScan,
   scanMachine,
+  updateScanRunning,
   updates as loadUpdates,
   type ComparisonRow,
   type MachineCard,
@@ -50,8 +52,15 @@ export function Tray() {
   useEffect(() => {
     load();
     const unlisten = listen("popover-shown", load);
+    // The rescan on the first launch after an update shows here too.
+    updateScanRunning().then(setScanning, () => {});
+    const unlistenUpdateScan = onUpdateScan((running) => {
+      setScanning(running);
+      if (!running) load();
+    });
     return () => {
       unlisten.then((f) => f());
+      unlistenUpdateScan.then((f) => f());
     };
   }, [load]);
 

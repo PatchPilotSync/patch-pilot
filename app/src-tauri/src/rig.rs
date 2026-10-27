@@ -141,10 +141,13 @@ pub async fn make_golden(app: AppHandle) -> Result<Overview, String> {
     load_overview(&store, Some(&id))
 }
 
-/// Rescan this machine without progress events, for the background watcher.
-/// Does nothing (returns `None`) until the user has scanned it once. The
-/// caller holds [`Scanning`].
-pub(crate) fn rescan_quietly(app: &AppHandle) -> Result<Option<ScanReport>, String> {
+/// Rescan this machine for the background watcher, with progress events only
+/// when `progress` (the rescan after an update). Does nothing (returns
+/// `None`) until the user has scanned it once. The caller holds [`Scanning`].
+pub(crate) fn rescan_quietly(
+    app: &AppHandle,
+    progress: bool,
+) -> Result<Option<ScanReport>, String> {
     let db = db_path()?;
     if !db.exists() {
         return Ok(None);
@@ -157,7 +160,7 @@ pub(crate) fn rescan_quietly(app: &AppHandle) -> Result<Option<ScanReport>, Stri
     if open(&db)?.latest_manifest(&id).map_err(err)?.is_none() {
         return Ok(None);
     }
-    scan_blocking(app, None, false).map(Some)
+    scan_blocking(app, None, progress).map(Some)
 }
 
 fn scan_blocking(
@@ -202,6 +205,10 @@ fn scan_blocking(
     let _ = patchpilot_local::up_to_speed::record_check(
         patchpilot_local::app_dir(&db),
         patchpilot_local::now(),
+    );
+    let _ = patchpilot_local::record_scanned_with(
+        patchpilot_local::app_dir(&db),
+        &app.package_info().version.to_string(),
     );
     if !info.unchanged {
         let _ = app.emit(RIG_CHANGED, ());

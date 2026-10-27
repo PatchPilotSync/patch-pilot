@@ -7,13 +7,18 @@ const STEPS = [
   "Saving the snapshot",
 ];
 
-export function Scanning({ progress }: { progress: Progress | null }) {
+/** `updated`: the rescan on the first launch after an update. */
+export function Scanning({ progress, updated = false }: { progress: Progress | null; updated?: boolean }) {
   const current = progress?.step ?? 0;
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-4 px-6 pt-[16vh]">
       <div>
         <h1 className="text-lg font-semibold">Scanning this machine…</h1>
-        <p className="mt-1 text-dim">Reading what's installed. Nothing is changed.</p>
+        <p className="mt-1 text-dim">
+          {updated
+            ? "Patch Pilot was updated, so it's reading what's installed again. Nothing is changed."
+            : "Reading what's installed. Nothing is changed."}
+        </p>
       </div>
       <div className="h-[3px] overflow-hidden rounded-full bg-track">
         <div

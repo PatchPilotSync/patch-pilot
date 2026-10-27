@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
@@ -24,11 +25,20 @@ const QUIET: Duration = Duration::from_secs(20);
 /// The catch-up scan for changes made while Patch Pilot wasn't running waits
 /// this long after launch, to stay out of the way at login.
 const STARTUP_SCAN_DELAY: Duration = Duration::from_secs(60);
+/// After an update the last scan was made by older code (e.g. presets it now
+/// skips), so rescan almost at once, with the status showing.
+const AFTER_UPDATE_SCAN_DELAY: Duration = Duration::from_secs(3);
+/// Emitted with `true` when the after-update rescan starts and `false` when
+/// it ends, so the window and popover show "Scanning…".
+pub const UPDATE_SCAN: &str = "update-scan";
 /// How often to look again while a scan the user started is still running.
 const BUSY_RETRY: Duration = Duration::from_secs(2);
 
 pub struct Watcher {
-    rescan: Sender<()>,
+    /// `true` asks for the visible after-update rescan.
+    rescan: Sender<bool>,
+    /// Set while the after-update rescan runs.
+    update_scan: AtomicBool,
     /// Plug-in, template and preset folders, recursively.
     watch: Mutex<Option<FolderWatch>>,
     /// Where vendor apps and licensing tools land, one level deep.
@@ -47,6 +57,7 @@ pub fn start(app: &AppHandle) {
     let (tx, rx) = mpsc::channel();
     app.manage(Watcher {
         rescan: tx.clone(),
+        update_scan: AtomicBool::new(false),
         watch: Mutex::new(None),
         apps: Mutex::new(None),
         settings: Mutex::new(None),
@@ -55,13 +66,40 @@ pub fn start(app: &AppHandle) {
     let _ = thread::Builder::new()
         .name("patchpilot-rescan".to_owned())
         .spawn(move || rescans(&handle, &rx));
+    let updated = scanned_by_older_version(app);
     let _ = thread::Builder::new()
         .name("patchpilot-startup-scan".to_owned())
         .spawn(move || {
-            thread::sleep(STARTUP_SCAN_DELAY);
-            let _ = tx.send(());
+            thread::sleep(if updated {
+                AFTER_UPDATE_SCAN_DELAY
+            } else {
+                STARTUP_SCAN_DELAY
+            });
+            let _ = tx.send(updated);
         });
     rewatch(app);
+}
+
+/// True when this machine's latest scan wasn't made by this version of
+/// Patch Pilot: the first launch after an update, or after updating from a
+/// version that didn't record it.
+fn scanned_by_older_version(app: &AppHandle) -> bool {
+    let Ok(db) = rig::db_path() else {
+        return false;
+    };
+    let dir = patchpilot_local::app_dir(&db);
+    // Never scanned: the welcome screen's first scan comes first.
+    if patchpilot_local::up_to_speed::last_check(dir).is_none() {
+        return false;
+    }
+    let current = app.package_info().version.to_string();
+    patchpilot_local::scanned_with(dir).as_deref() != Some(current.as_str())
+}
+
+/// True while the after-update rescan runs, for a window opened meanwhile.
+#[tauri::command]
+pub fn update_scan_running(watcher: tauri::State<'_, Watcher>) -> bool {
+    watcher.update_scan.load(Ordering::SeqCst)
 }
 
 /// (Re)start the watches when the set of folders changed, e.g. an installer
@@ -95,7 +133,7 @@ fn rewatch(app: &AppHandle) {
 fn restart<W, E>(
     slot: &Mutex<Option<FolderWatch>>,
     folders: Vec<PathBuf>,
-    rescan: &Sender<()>,
+    rescan: &Sender<bool>,
     watch: W,
 ) -> Option<Vec<PathBuf>>
 where
@@ -112,7 +150,7 @@ where
         folders,
         QUIET,
         Box::new(move || {
-            let _ = rescan.send(());
+            let _ = rescan.send(false);
         }),
     )
     .ok();
@@ -139,21 +177,32 @@ fn set_tooltip(app: &AppHandle, watching: &[PathBuf]) {
 /// while a folder wasn't watched would otherwise wait for the next change.
 pub fn rescan_soon(app: &AppHandle) {
     if let Some(state) = app.try_state::<Watcher>() {
-        let _ = state.rescan.send(());
+        let _ = state.rescan.send(false);
     }
 }
 
 /// One scan at a time, however many changes arrive meanwhile.
-fn rescans(app: &AppHandle, rx: &Receiver<()>) {
-    while rx.recv().is_ok() {
+fn rescans(app: &AppHandle, rx: &Receiver<bool>) {
+    let watcher = app.state::<Watcher>();
+    while let Ok(mut visible) = rx.recv() {
         let scanning = app.state::<Scanning>();
         while !scanning.start() {
             thread::sleep(BUSY_RETRY);
         }
         // Changes that arrived while waiting are covered by this scan.
-        while rx.try_recv().is_ok() {}
-        let result = rig::rescan_quietly(app);
+        while let Ok(v) = rx.try_recv() {
+            visible |= v;
+        }
+        if visible {
+            watcher.update_scan.store(true, Ordering::SeqCst);
+            let _ = app.emit(UPDATE_SCAN, true);
+        }
+        let result = rig::rescan_quietly(app, visible);
         scanning.finish();
+        if visible {
+            watcher.update_scan.store(false, Ordering::SeqCst);
+            let _ = app.emit(UPDATE_SCAN, false);
+        }
         if let Ok(Some(report)) = result
             && !report.unchanged
         {
