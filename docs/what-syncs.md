@@ -21,7 +21,7 @@ places what's new, changed or renamed on its linked machines (decisions #70,
 | Ableton Live | Places in Dropbox (or another cloud folder) or the User Library, pointed at the same folder on each machine (decision #79) | yes |
 | Ableton Live | What's tagged into Collections (the `.xmp` files in the User Library's `Ableton Folder Info`) | yes |
 | Ableton Live | Control surface scripts in the User Library (`Remote Scripts/`) and `Options.txt` | yes |
-| Plug-ins | Preset folders of the vendors Patch Pilot knows | no |
+| Plug-ins | Preset folders of the vendors Patch Pilot knows, the AU and VST3 preset folders, and folders named "Presets" inside a known vendor's folder (decision #89); a folder laid out differently on a Mac and a PC syncs only between machines of the same kind | no |
 
 Renaming or moving any of these files renames or moves it on the other
 machines too, as long as their copy wasn't edited there.
