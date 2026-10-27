@@ -72,6 +72,12 @@ export const scanMachine = (name: string | null) =>
   invoke<ScanReport>("scan_machine", { name });
 export const makeGolden = () => invoke<Overview>("make_golden");
 
+/** The rescan on the first launch after an update: true when it starts, false when it ends. */
+export const updateScanRunning = () => invoke<boolean>("update_scan_running");
+export function onUpdateScan(f: (running: boolean) => void): Promise<UnlistenFn> {
+  return listen<boolean>("update-scan", (e) => f(e.payload));
+}
+
 export function onScanProgress(f: (p: Progress) => void): Promise<UnlistenFn> {
   return listen<Progress>("scan-progress", (e) => f(e.payload));
 }

@@ -6,12 +6,14 @@ import {
   machines as loadMachines,
   makeGolden,
   onScanProgress,
+  onUpdateScan,
   onSyncStatus,
   onVaultChanged,
   overview as loadOverview,
   scanMachine,
   setupView as loadSetupView,
   syncStatus as loadSyncStatus,
+  updateScanRunning,
   vaultStatus,
   type MachinesView,
   type Overview,
@@ -41,6 +43,8 @@ export default function App() {
   const [syncSetupAt, setSyncSetupAt] = useState<number | undefined>();
   const [progress, setProgress] = useState<Progress | null>(null);
   const [scanning, setScanning] = useState(false);
+  // The rescan on the first launch after an update.
+  const [updateScan, setUpdateScan] = useState(false);
   const [busy, setBusy] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +78,12 @@ export default function App() {
     refresh();
     // Event-driven, no polling: nothing runs while the app sits idle.
     const unlistenProgress = onScanProgress(setProgress);
+    updateScanRunning().then(setUpdateScan, () => {});
+    const unlistenUpdateScan = onUpdateScan((running) => {
+      setProgress(null);
+      setUpdateScan(running);
+      if (!running) refresh();
+    });
     loadSyncStatus().then(setSync, () => {});
     const unlistenSync = onSyncStatus(setSync);
     // Drop a `patchpilot export` file anywhere to add that machine.
@@ -127,6 +137,7 @@ export default function App() {
       unlistenReplay.then((f) => f());
       unlistenSyncSetup.then((f) => f());
       unlistenProgress.then((f) => f());
+      unlistenUpdateScan.then((f) => f());
       unlistenSync.then((f) => f());
       unlistenDrop.then((f) => f());
     };
@@ -168,7 +179,7 @@ export default function App() {
 
   return (
     <main className="flex h-full flex-col bg-canvas text-fg antialiased">
-      {overview?.machine && !scanning && !replay && (
+      {overview?.machine && !scanning && !updateScan && !replay && (
         <nav className="flex h-10 shrink-0 items-center gap-4 border-b border-line bg-panel px-3">
           <span className="flex items-center gap-1.5 font-semibold">
             <Mark className="text-accent-text" />
@@ -235,8 +246,8 @@ export default function App() {
       <div className="min-h-0 flex-1 overflow-auto">
         {overview === null ? (
           <Loading text="Loading your rig…" />
-        ) : scanning ? (
-          <Scanning progress={progress} />
+        ) : scanning || updateScan ? (
+          <Scanning progress={progress} updated={updateScan && !scanning} />
         ) : !overview.machine || replay ? (
           <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
         ) : tab === "setup" ? (
@@ -261,7 +272,7 @@ export default function App() {
           />
         )}
       </div>
-      {tour && overview !== null && !scanning && <Tour onClose={() => setTour(false)} />}
+      {tour && overview !== null && !scanning && !updateScan && <Tour onClose={() => setTour(false)} />}
       {linking && <LinkDialog status={sync} onClose={() => setLinking(false)} />}
       {reporting && overview?.machine && (
         <ReportDialog
