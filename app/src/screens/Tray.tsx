@@ -133,7 +133,7 @@ export function Tray() {
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">
               {suggesting.golden_source
-                ? `New since v${view?.golden_version}: ${groupSummary(suggesting.suggestion_groups)}`
+                ? `Not in Primary Rig v${view?.golden_version} yet: ${groupSummary(suggesting.suggestion_groups)}`
                 : `For the Primary Rig${suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}: ${groupSummary(suggesting.suggestion_groups)}`}
             </span>
             <span className="text-dim" aria-hidden="true">

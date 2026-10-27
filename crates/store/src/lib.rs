@@ -313,7 +313,7 @@ impl Store {
         note: Option<&str>,
         now: i64,
     ) -> Result<GoldenVersionInfo> {
-        let parent = self.golden(None)?;
+        let parent = self.golden_stored(None)?;
         if let Some(p) = &parent
             && same_content(&p.manifest, manifest)
         {
@@ -345,7 +345,75 @@ impl Store {
 
     /// A Primary Rig version, or the latest when `version` is `None`.
     /// `Ok(None)` if there is no such version.
+    ///
+    /// Files its source machine hasn't touched since (same path, OS and
+    /// modified time) carry that machine's latest fingerprint, so a file a
+    /// newer Patch Pilot hashes differently (key maps, decision #62) doesn't
+    /// read as changed. The stored version stays as it was.
     pub fn golden(&self, version: Option<u32>) -> Result<Option<GoldenVersion>> {
+        let Some(mut g) = self.golden_stored(version)? else {
+            return Ok(None);
+        };
+        if let Some(source) = &g.info.source_machine_id {
+            self.refresh_fingerprints(&mut g.manifest, version, source)?;
+        }
+        Ok(Some(g))
+    }
+
+    /// New fingerprints for `golden`'s files that `source`'s latest scan
+    /// found unchanged (same modified time) but hashed differently.
+    fn refresh_fingerprints(
+        &self,
+        golden: &mut Manifest,
+        version: Option<u32>,
+        source: &str,
+    ) -> Result<()> {
+        let Some((latest, _)) = self.latest_snapshot(source)? else {
+            return Ok(());
+        };
+        let mut stmt = self.conn.prepare(
+            "SELECT gi.platform, gi.path_root, gi.path_rel, mi.content_hash
+             FROM golden_versions v
+             JOIN snapshot_items gs ON gs.snapshot_id = v.snapshot_id
+             JOIN items gi ON gi.id = gs.item_id
+             JOIN items mi ON mi.product_id = gi.product_id AND mi.machine_id = ?3
+             WHERE v.golden_id = ?1 AND v.version = (SELECT max(version) FROM golden_versions
+                       WHERE golden_id = ?1 AND (?2 IS NULL OR version = ?2))
+               AND gi.content_hash IS NOT NULL AND gi.mtime IS NOT NULL
+               AND mi.content_hash IS NOT NULL AND mi.content_hash != gi.content_hash
+               AND mi.mtime = gi.mtime AND mi.platform = gi.platform
+               AND mi.path_root IS gi.path_root AND mi.path_rel IS gi.path_rel
+               AND EXISTS (SELECT 1 FROM snapshot_items s WHERE s.snapshot_id = ?4 AND s.item_id = mi.id)",
+        )?;
+        let fresh = stmt
+            .query_map(params![GOLDEN_ID, version, source, latest], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (platform, root, rel, hash) in fresh {
+            let (Some(root), Some(rel)) = (root, rel) else {
+                continue;
+            };
+            let Ok(hash) = ContentHash::try_from(hash) else {
+                continue;
+            };
+            let path = PortablePath::logical(root, rel);
+            for item in golden.items.iter_mut().filter(|i| {
+                i.path == path && i.content_hash.is_some() && to_text(&i.platform) == platform
+            }) {
+                item.content_hash = Some(hash.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// A Primary Rig version exactly as saved.
+    fn golden_stored(&self, version: Option<u32>) -> Result<Option<GoldenVersion>> {
         let row = self
             .conn
             .query_row(
@@ -401,7 +469,7 @@ impl Store {
         }
         for info in self.golden_history()?.into_iter().rev() {
             let g = self
-                .golden(Some(info.version))?
+                .golden_stored(Some(info.version))?
                 .expect("listed version exists");
             bundle.golden.push(BundleGolden {
                 version: info.version,
@@ -496,7 +564,7 @@ impl Store {
         let Some(theirs_latest) = bundle.golden.last() else {
             return Ok(GoldenImport::NotInBundle);
         };
-        let start = match self.golden(None)? {
+        let start = match self.golden_stored(None)? {
             None => 0,
             Some(ours) => {
                 match bundle
@@ -508,7 +576,7 @@ impl Store {
                     None => {
                         // Their latest may be one of our older versions.
                         let ours_has_theirs = self.golden_history()?.iter().any(|v| {
-                            self.golden(Some(v.version))
+                            self.golden_stored(Some(v.version))
                                 .ok()
                                 .flatten()
                                 .is_some_and(|g| same_content(&g.manifest, &theirs_latest.manifest))
