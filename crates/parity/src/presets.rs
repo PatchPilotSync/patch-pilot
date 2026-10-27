@@ -45,6 +45,9 @@ const MAX_LISTED_FILES: usize = 10_000;
 pub const ROOT_PREFIX: &str = "PRESETS_";
 /// Compiled code is never listed or written, wherever it sits (CLAUDE.md rule 2).
 const NEVER_SHARED_EXT: [&str; 8] = ["dll", "dylib", "so", "exe", "app", "msi", "pkg", "dmg"];
+/// Archives (an installer's `kphp-factory-presets.zip`) aren't presets a
+/// plug-in reads: neither preset folders nor files in one.
+const ARCHIVE_EXT: [&str; 9] = ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst"];
 
 /// Where a preset folder lives, relative to a per-user or shared base.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -551,7 +554,7 @@ fn subdirs(dir: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir() && !is_hidden(p))
+        .filter(|p| p.is_dir() && !is_hidden(p) && !is_archive(p))
         .collect();
     dirs.sort();
     dirs
@@ -704,6 +707,7 @@ pub fn is_shareable_file(rel: &str) -> bool {
         .map(|e| e.to_string_lossy().into_owned());
     safe && !matches!(name.as_str(), "thumbs.db" | "desktop.ini")
         && !ext.is_some_and(|e| NEVER_SHARED_EXT.contains(&e.as_str()))
+        && !is_archive(Path::new(&name))
 }
 
 fn is_vst3_preset(rel: &str) -> bool {
@@ -813,7 +817,7 @@ fn summarize(dir: &Path) -> Option<Summary> {
         .into_iter()
         .filter_entry(|e| e.depth() == 0 || !is_hidden(e.path()))
         .flatten()
-        .filter(|e| e.file_type().is_file() && !is_junk(e.path()))
+        .filter(|e| e.file_type().is_file() && !is_junk(e.path()) && !is_archive(e.path()))
         .take(MAX_FILES)
         .filter_map(|e| {
             let rel = e.path().strip_prefix(dir).ok()?;
@@ -878,6 +882,11 @@ fn summarize(dir: &Path) -> Option<Summary> {
 fn is_hidden(p: &Path) -> bool {
     p.file_name()
         .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+}
+
+fn is_archive(p: &Path) -> bool {
+    p.extension()
+        .is_some_and(|e| ARCHIVE_EXT.contains(&e.to_string_lossy().to_ascii_lowercase().as_str()))
 }
 
 /// OS litter that differs between machines and means nothing.
@@ -1037,6 +1046,13 @@ mod tests {
             &home.join("Public/Soundtoys/Soundtoys 5/EchoBoy/Slap.preset"),
             "s",
         );
+        // An installer's unpacked archives aren't preset folders, and
+        // archives inside a preset folder aren't presets.
+        write(
+            &data.join("Kilohearts/kphp-factory-presets.zip/a.phaseplant"),
+            "a",
+        );
+        write(&data.join("BABY Audio/presets/Pack.zip"), "zip");
 
         let folders = find_preset_folders(Os::Windows, &windows_bases(home));
         assert_eq!(
@@ -1237,6 +1253,7 @@ mod tests {
             ".hidden/x",
             "a/Thumbs.db",
             "a/b.dll",
+            "a/Factory.ZIP",
             "a\\b",
             "C:/x",
             "",
@@ -1275,6 +1292,7 @@ mod tests {
         }
         write(&b.path().join(".DS_Store"), "junk");
         write(&b.path().join("Thumbs.db"), "junk");
+        write(&b.path().join("Bank/Factory.zip"), "archive");
         let ha = summarize(a.path()).unwrap().hash;
         assert_eq!(ha, summarize(b.path()).unwrap().hash);
         write(&b.path().join("Two.fxp"), "TWO");

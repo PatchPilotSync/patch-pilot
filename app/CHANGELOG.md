@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.31 - 2026-10-27
+
+### Fixed
+
+- Preset folders no longer list zip files. Kilohearts' downloaded factory content ("kphp-factory-presets.zip" and the like) was showing as dozens of preset folders. Only normal folders count now, and zip files inside a preset folder are left out too.
+
 ## 0.4.30 - 2026-10-27
 
 ### Fixed
