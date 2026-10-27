@@ -4,13 +4,19 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
-## 0.4.24 - 2026-10-27
+## 0.4.25 - 2026-10-27
 
 ### Fixed
 
 - A plug-in you have in any format counts as installed in Set up and Get Up To Speed. A Mac with the VST3 of a plug-in your Primary Rig has as a VST2 isn't asked to install it again. Below the checklist, "N plug-ins are here in another format" lists which formats differ, and the setup report does too.
 - Kilohearts plug-ins on a Mac, named "kHs 3-Band EQ" and so on, are matched to the same plug-ins on a PC.
 - Mark done, Undo and Ignore in a checklist take effect the moment you click.
+
+## 0.4.24 - 2026-10-27
+
+### Fixed
+
+- On a Mac, Patch Pilot stops asking for your Documents folder every time it opens. Click Allow once and it remembers. Until the Mac app is signed by Apple, macOS may ask once more after an update. The prompt now says why: Patch Pilot watches preset folders in Documents to keep them in sync.
 
 ## 0.4.23 - 2026-10-27
 
