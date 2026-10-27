@@ -3,15 +3,18 @@
 //! "Somewhere" is another of the user's machines, the Primary Rig, or the
 //! plug-in catalog's latest release. Only versions that parse and compare as
 //! older raise an alert; an unreadable version never does (decision #17).
+//! Formats are compared like for like where both sides have them, and a
+//! version that only leaves off detail isn't older (decision #87).
 //! The alert names where the newer version was seen, so the user can judge it.
 
 use std::collections::BTreeMap;
 
 use patchpilot_catalog::Catalog;
-use patchpilot_core::{ItemKind, Manifest, PluginFormat, ProductId};
+use patchpilot_core::{Item, ItemKind, Manifest, PluginFormat, ProductId};
 use serde::Serialize;
 
-use crate::{VersionOrder, compare_versions};
+use crate::version::{compare_by_format, newest, versions_by_format};
+use crate::{VersionOrder, compare_releases, compare_versions};
 
 /// Where a newer version was seen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -56,18 +59,7 @@ pub fn update_alerts(
 ) -> Vec<UpdateAlert> {
     let mut here = machine.clone();
     catalog.canonicalize(&mut here);
-    let installed = newest_versions(&here);
-
-    // Newest version per product elsewhere, with its source.
-    let mut best: BTreeMap<&ProductId, (String, UpdateSource)> = BTreeMap::new();
-    let mut offer = |id, version: String, source: &UpdateSource| {
-        let newer = best
-            .get(id)
-            .is_none_or(|(cur, _)| compare_versions(cur, &version) == VersionOrder::Older);
-        if newer {
-            best.insert(id, (version, source.clone()));
-        }
-    };
+    let installed = plugins_by_product(&here);
     let others: Vec<(&UpdateSource, Manifest)> = elsewhere
         .iter()
         .map(|e| {
@@ -76,20 +68,38 @@ pub fn update_alerts(
             (e.source, m)
         })
         .collect();
-    let mut seen: Vec<(&UpdateSource, Versions)> = others
+    let seen: Vec<(&UpdateSource, Plugins)> = others
         .iter()
-        .map(|(s, m)| (*s, newest_versions(m)))
+        .map(|(s, m)| (*s, plugins_by_product(m)))
         .collect();
-    for id in installed.keys() {
-        for (source, versions) in &mut seen {
-            if let Some((v, _)) = versions.remove(id) {
-                offer(id, v, source);
+
+    // Per product: the installed version that's behind, the newest version
+    // it's behind, and where that was seen.
+    let mut best: BTreeMap<&ProductId, (String, String, UpdateSource)> = BTreeMap::new();
+    let mut offer = |id, ours: &str, latest: &str, source: &UpdateSource| {
+        let newer = best
+            .get(id)
+            .is_none_or(|(_, cur, _)| compare_versions(cur, latest) == VersionOrder::Older);
+        if newer {
+            best.insert(id, (ours.to_owned(), latest.to_owned(), source.clone()));
+        }
+    };
+    for (id, ours) in &installed {
+        for (source, plugins) in &seen {
+            if let Some(theirs) = plugins.get(id)
+                && let Some((VersionOrder::Older, o, t)) = compare_by_format(ours, theirs)
+            {
+                offer(id, o, t, source);
             }
         }
-        if let Some(release) = catalog.product(id).and_then(|p| p.latest.as_ref()) {
+        if let Some(release) = catalog.product(id).and_then(|p| p.latest.as_ref())
+            && let Some(o) = newest(ours)
+            && compare_releases(o, &release.version) == VersionOrder::Older
+        {
             offer(
                 id,
-                release.version.clone(),
+                o,
+                &release.version,
                 &UpdateSource::Catalog {
                     released: release.released.clone(),
                 },
@@ -97,25 +107,21 @@ pub fn update_alerts(
         }
     }
 
-    let mut alerts: Vec<UpdateAlert> = installed
-        .iter()
-        .filter_map(|(id, (version, formats))| {
-            let (latest, source) = best.get(id)?;
-            if compare_versions(version, latest) != VersionOrder::Older {
-                return None;
-            }
+    let mut alerts: Vec<UpdateAlert> = best
+        .into_iter()
+        .map(|(id, (version, latest, source))| {
             let product = here.product(id);
             let vendor_id = id.0.split_once('/').map_or("", |(v, _)| v);
-            Some(UpdateAlert {
+            UpdateAlert {
                 id: id.0.clone(),
                 vendor: product.map(|p| p.vendor.clone()).unwrap_or_default(),
                 name: product.map_or_else(|| id.0.clone(), |p| p.name.clone()),
-                formats: formats.clone(),
-                installed: version.clone(),
-                latest: latest.clone(),
-                source: source.clone(),
+                formats: installed[id].iter().filter_map(|(f, _)| *f).collect(),
+                installed: version,
+                latest,
+                source,
                 website: catalog.vendor(vendor_id).and_then(|v| v.website.clone()),
-            })
+            }
         })
         .collect();
     alerts.sort_by(|a, b| {
@@ -125,28 +131,21 @@ pub fn update_alerts(
     alerts
 }
 
-/// Plug-in product -> its newest readable version and its formats.
-type Versions = BTreeMap<ProductId, (String, Vec<PluginFormat>)>;
+/// Plug-in product -> the newest readable version of each of its formats.
+type Plugins<'a> = BTreeMap<&'a ProductId, Vec<(Option<PluginFormat>, &'a str)>>;
 
-fn newest_versions(m: &Manifest) -> Versions {
-    let mut out = Versions::new();
+fn plugins_by_product(m: &Manifest) -> Plugins<'_> {
+    let mut items: BTreeMap<&ProductId, Vec<&Item>> = BTreeMap::new();
     for item in m.items.iter().filter(|i| i.kind == ItemKind::Plugin) {
-        let (Some(id), Some(v)) = (&item.product_id, &item.version) else {
-            continue;
-        };
-        let entry = out
-            .entry(id.clone())
-            .or_insert_with(|| (v.clone(), Vec::new()));
-        if compare_versions(&entry.0, v) == VersionOrder::Older {
-            entry.0 = v.clone();
-        }
-        if let Some(f) = item.format
-            && !entry.1.contains(&f)
-        {
-            entry.1.push(f);
+        if let Some(id) = &item.product_id {
+            items.entry(id).or_default().push(item);
         }
     }
-    out
+    items
+        .into_iter()
+        .map(|(id, items)| (id, versions_by_format(items)))
+        .filter(|(_, v)| !v.is_empty())
+        .collect()
 }
 
 #[cfg(test)]
@@ -275,5 +274,59 @@ mod tests {
                 released: Some("2026-09-01".into())
             }
         );
+    }
+
+    #[test]
+    fn formats_compare_like_for_like_and_build_numbers_add_detail_only() {
+        let catalog = Catalog::bundled();
+        let pc = manifest(
+            Os::Windows,
+            &[
+                ("arturia/acid-v", "Arturia", "1.1", PluginFormat::Vst3),
+                (
+                    "xfer-records/serum",
+                    "Xfer Records",
+                    "1,3,6,8",
+                    PluginFormat::Vst3,
+                ),
+                ("acme/old", "Acme", "2.0", PluginFormat::Vst2),
+                ("acme/old", "Acme", "2.4", PluginFormat::Vst3),
+            ],
+        );
+        let mac = manifest(
+            Os::Macos,
+            &[
+                (
+                    "arturia/acid-v",
+                    "Arturia",
+                    "1.1.5.6367",
+                    PluginFormat::Vst3,
+                ),
+                // Arturia's AAX wrapper carries its own number.
+                ("arturia/acid-v", "Arturia", "1.4.6", PluginFormat::Aax),
+                (
+                    "xfer-records/serum",
+                    "Xfer Records",
+                    "1.368",
+                    PluginFormat::Vst3,
+                ),
+                ("acme/old", "Acme", "2.4", PluginFormat::Vst2),
+            ],
+        );
+        let source = UpdateSource::Machine { name: "Mac".into() };
+        let alerts = update_alerts(
+            &pc,
+            &[Elsewhere {
+                source: &source,
+                manifest: &mac,
+            }],
+            &catalog,
+        );
+        let got: Vec<(&str, &str, &str)> = alerts
+            .iter()
+            .map(|a| (a.id.as_str(), a.installed.as_str(), a.latest.as_str()))
+            .collect();
+        // Only the old VST2 copy is behind.
+        assert_eq!(got, [("acme/old", "2.0", "2.4")]);
     }
 }
