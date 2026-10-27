@@ -162,6 +162,19 @@ fn report_lists_open_work() {
         "{report}"
     );
     assert!(!report.contains("## Done"));
+    // Acme Verb is here as a VST3 without the Primary Rig's AAX: no step asks
+    // for it, the report says so.
+    assert!(
+        !p.steps
+            .iter()
+            .any(|s| s.open.iter().any(|l| l.contains("Acme Verb")))
+    );
+    assert!(
+        report.contains(
+            "## Installed in other formats\n\n- Acme Verb: VST3 here, Primary Rig also has AAX\n"
+        ),
+        "{report}"
+    );
 }
 
 #[test]

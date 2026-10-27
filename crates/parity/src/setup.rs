@@ -13,8 +13,8 @@ use serde::Serialize;
 
 use crate::diff::{ParityState, diff_manifests};
 use crate::{
-    Plan, Step, TemplateReadiness, align_products, apply_profile, compare, template_readiness,
-    up_to_speed,
+    OtherFormats, Plan, Step, TemplateReadiness, align_products, apply_profile, compare,
+    template_readiness, up_to_speed,
 };
 
 /// Checks after the plan that Patch Pilot can't see for itself, so the user
@@ -91,6 +91,9 @@ pub struct SetupProgress {
     pub templates_ready: usize,
     /// Every step done or skipped and every template ready.
     pub complete: bool,
+    /// Plug-ins here in other formats than the Primary Rig's, which count as
+    /// installed (see [`Plan::other_formats`]).
+    pub other_formats: Vec<OtherFormats>,
 }
 
 /// Progress of a setup that started from `baseline` (the machine's scan when
@@ -112,12 +115,7 @@ pub fn setup_progress(
     let open: BTreeSet<ProductId> = diff_manifests(&target, &m)
         .products
         .into_iter()
-        .filter(|p| {
-            matches!(
-                p.state,
-                ParityState::Missing | ParityState::Outdated | ParityState::Incomplete
-            )
-        })
+        .filter(|p| matches!(p.state, ParityState::Missing | ParityState::Outdated))
         .map(|p| p.product_id)
         .collect();
 
@@ -164,6 +162,7 @@ pub fn setup_progress(
         templates_ready,
         templates,
         steps,
+        other_formats: live.other_formats,
     }
 }
 
@@ -373,6 +372,19 @@ pub fn setup_report(info: &ReportInfo, p: &SetupProgress) -> String {
         &by(&[StepStatus::Todo, StepStatus::Partly]),
         true,
     );
+
+    if !p.other_formats.is_empty() {
+        let _ = writeln!(out, "\n## Installed in other formats\n");
+        for o in &p.other_formats {
+            let _ = writeln!(
+                out,
+                "- {}: {} here, Primary Rig also has {}",
+                o.name,
+                o.here.join(", "),
+                o.missing.join(", ")
+            );
+        }
+    }
 
     let not_ready: Vec<_> = p.templates.iter().filter(|t| !t.is_ready()).collect();
     if !not_ready.is_empty() {

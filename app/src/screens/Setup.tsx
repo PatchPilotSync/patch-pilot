@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   setupClose,
@@ -14,6 +14,7 @@ import {
   vaultMatches,
   vaultRun,
   vendorApps,
+  type OtherFormats,
   type SetupStep,
   type SetupView,
   type VaultMatch,
@@ -79,7 +80,12 @@ export function Setup({ onRescan, onError, onChange }: Props) {
     <Progress
       view={view}
       onRescan={onRescan}
-      onTick={(key, done) => run(setupTick(key, done))}
+      onTick={(key, done) =>
+        setupTick(key, done).then(apply, (e) => {
+          onError(String(e));
+          throw e;
+        })
+      }
       onFinish={() => run(setupFinish())}
       onReport={() => setupReportText().then(setReport, (e) => onError(String(e)))}
       onClose={() => run(setupClose())}
@@ -173,7 +179,7 @@ function Progress({
 }: {
   view: SetupView;
   onRescan: () => void;
-  onTick: (key: string, done: boolean) => void;
+  onTick: (key: string, done: boolean) => Promise<void>;
   onFinish: () => void;
   onReport: () => void;
   onClose: () => void;
@@ -181,6 +187,9 @@ function Progress({
 }) {
   const a = view.active!;
   const p = a.progress;
+  const quick = useQuickSteps(p.steps);
+  const steps = quick.steps;
+  const done = steps.filter(isFinished).length;
   // Open buttons for vendor apps, and installers kept in the Installer Vault.
   const [apps, setApps] = useState<VendorApp[]>([]);
   const [installers, setInstallers] = useState<Map<string, VaultMatch>>(new Map());
@@ -200,7 +209,8 @@ function Progress({
     run: (entry) => vaultRun(entry).catch((e) => onError(String(e))),
     onError,
     bringOver: true,
-    ignore: (label, products) => ignoreItems(null, label, productRules(products)).catch((e) => onError(String(e))),
+    ignore: (label, products) =>
+      quick.hide(products, ignoreItems(null, label, productRules(products))).catch((e) => onError(String(e))),
   };
   const ignores = useIgnores(null, view);
   const notReady = p.templates.filter((t) => t.missing.length > 0);
@@ -214,7 +224,7 @@ function Progress({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">Setting up {a.machine}</h1>
           <p className="truncate text-xs text-dim">
-            {p.done} of {p.total} steps · score was {p.score_before} · {a.profile ?? "Whole Primary Rig"} · Primary Rig
+            {done} of {p.total} steps · score was {p.score_before} · {a.profile ?? "Whole Primary Rig"} · Primary Rig
             v{a.golden_version} · started {timeAgo(a.started_at)}
           </p>
         </div>
@@ -226,7 +236,7 @@ function Progress({
         </Button>
       </header>
       <div className="h-[3px] overflow-hidden rounded-full bg-track" aria-hidden="true">
-        <div className="h-full rounded-full bg-accent" style={{ width: `${p.total ? (p.done / p.total) * 100 : 100}%` }} />
+        <div className="h-full rounded-full bg-accent" style={{ width: `${p.total ? (done / p.total) * 100 : 100}%` }} />
       </div>
 
       {p.complete && !a.finished_at ? (
@@ -243,8 +253,9 @@ function Progress({
         </p>
       )}
 
-      <StepList steps={p.steps} scope="setup" onTick={onTick} actions={actions} />
-      <StepExtras steps={p.steps} onError={onError} />
+      <StepList steps={steps} scope="setup" onTick={(key, d) => quick.tick(key, d, onTick(key, d))} actions={actions} />
+      <OtherFormatsNote items={p.other_formats} />
+      <StepExtras steps={steps} onError={onError} />
       <IgnoredToggle ignores={ignores} machine={null} onError={onError} />
 
       <div>
@@ -289,6 +300,112 @@ function Progress({
 }
 
 const isFinished = (s: SetupStep) => s.status === "done" || s.status === "skipped";
+
+/**
+ * Mark done, Undo and Ignore show at once: recounting the checklist in Rust
+ * takes a moment, so each change is applied here first and kept until the
+ * recount agrees (or the call fails).
+ */
+export function useQuickSteps(steps: SetupStep[]) {
+  const [ticks, setTicks] = useState<Map<string, boolean>>(new Map());
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+
+  // Forget what the recount now shows by itself.
+  useEffect(() => {
+    setTicks((t) => {
+      const left = new Map([...t].filter(([key, d]) => !agrees(steps.find((s) => s.key === key), d)));
+      return left.size === t.size ? t : left;
+    });
+    setHidden((h) => {
+      const open = new Set(steps.flatMap((s) => s.open_products));
+      const left = new Set([...h].filter((id) => open.has(id)));
+      return left.size === h.size ? h : left;
+    });
+  }, [steps]);
+
+  const shown = useMemo(
+    () => (ticks.size || hidden.size ? steps.map((s) => quickStep(s, ticks.get(s.key), hidden)) : steps),
+    [steps, ticks, hidden],
+  );
+  return {
+    steps: shown,
+    tick(key: string, done: boolean, call: Promise<unknown>) {
+      setTicks((t) => new Map(t).set(key, done));
+      call.catch(() =>
+        setTicks((t) => {
+          const left = new Map(t);
+          left.delete(key);
+          return left;
+        }),
+      );
+    },
+    hide(products: string[], call: Promise<unknown>): Promise<unknown> {
+      setHidden((h) => new Set([...h, ...products]));
+      return call.catch((e) => {
+        setHidden((h) => new Set([...h].filter((id) => !products.includes(id))));
+        throw e;
+      });
+    },
+  };
+}
+
+/** True when the recounted step already shows the tick (or its undo). */
+function agrees(s: SetupStep | undefined, done: boolean): boolean {
+  if (!s) return true;
+  return done ? isFinished(s) : s.status !== "skipped" && (s.automatic || s.status !== "done");
+}
+
+/** A step as it will look once ticked (`tick`) and with `hidden` products ignored. */
+function quickStep(s: SetupStep, tick: boolean | undefined, hidden: Set<string>): SetupStep {
+  let step = s;
+  if (s.automatic && s.open_products.some((id) => hidden.has(id))) {
+    const keep = s.open_products.map((id) => !hidden.has(id));
+    const open_products = s.open_products.filter((_, n) => keep[n]);
+    step = {
+      ...s,
+      open: s.open.filter((_, n) => keep[n] ?? true),
+      open_products,
+      status: open_products.length === 0 ? "done" : s.status,
+    };
+  }
+  if (tick === undefined || agrees(step, tick)) return step;
+  if (!step.automatic) return { ...step, status: tick ? "done" : "todo" };
+  if (tick) return { ...step, status: "skipped" };
+  return { ...step, status: step.finished.length ? "partly" : "todo" };
+}
+
+/**
+ * Plug-ins here in other formats than the Primary Rig's (a VST3 where the PC
+ * has a VST2). They count as installed; this says what differs, folded away.
+ */
+export function OtherFormatsNote({ items }: { items: OtherFormats[] }) {
+  const [open, setOpen] = useState(false);
+  if (!items.length) return null;
+  const n = items.length;
+  return (
+    <div className="-mx-2 text-xs">
+      <Folder
+        title={`${n} plug-in${n === 1 ? " is" : "s are"} here in another format`}
+        count={n}
+        className="px-2"
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+        badges={<span className="text-[11px] text-dim">Counted as installed</span>}
+      >
+        <ul className="pl-6 pr-2">
+          {items.map((o) => (
+            <li key={o.product_id} className="flex gap-2 py-0.5">
+              <span className="min-w-0 truncate">{o.name}</span>
+              <span className="shrink-0 text-dim">
+                {o.here.join(", ")} here · Primary Rig also has {o.missing.join(", ")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Folder>
+    </div>
+  );
+}
 
 /** The step Bring over and Big files sit in (parity's plan: "Bring over N DAW files ..."). */
 const isBringStep = (s: SetupStep) => s.automatic && s.title.startsWith("Bring over");

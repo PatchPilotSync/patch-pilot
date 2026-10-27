@@ -32,13 +32,14 @@ import {
   type ParityState,
   type PluginFormat,
   type SetupProgress,
+  type SetupStep,
   type SuggestionGroup,
   type VaultMatch,
   type VendorApp,
 } from "../api";
 import { IgnoreButton, IgnoredToggle, pathRules, productRules, useIgnores } from "../Ignore";
 import { bringSummary, isReaperScript, isTemplate, Needs } from "../bring";
-import { StepExtras, StepList, type Actions } from "./Setup";
+import { OtherFormatsNote, StepExtras, StepList, useQuickSteps, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
 import {
   Badge,
@@ -243,6 +244,8 @@ interface Props {
  * app, which stays in the tray.
  */
 const lastComparison = new Map<string, MachineComparison>();
+/** Steps before Get Up To Speed has loaded, one array so effects don't rerun. */
+const NO_STEPS: SetupStep[] = [];
 
 export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   // A refresh can briefly list fewer machines (a sync landing); fall back for
@@ -1507,6 +1510,7 @@ function PlanView({
   onBack: () => void;
 }) {
   const [progress, setProgress] = useState<SetupProgress | null>(null);
+  const quick = useQuickSteps(progress?.steps ?? NO_STEPS);
   const [apps, setApps] = useState<VendorApp[]>([]);
   const [installers, setInstallers] = useState<Map<string, VaultMatch>>(new Map());
   useEffect(() => {
@@ -1537,11 +1541,20 @@ function PlanView({
     onError,
     // This machine's own checklist does the work inside its steps, as Set up does.
     bringOver: here,
-    ignore: (label, products) => ignoreItems(id, label, productRules(products)).catch((e) => onError(String(e))),
+    ignore: (label, products) =>
+      quick.hide(products, ignoreItems(id, label, productRules(products))).catch((e) => onError(String(e))),
   };
   const ignores = useIgnores(id, refresh);
-  const tick = (key: string, done: boolean) => planTick(id, key, done).then(setProgress, (e) => onError(String(e)));
-  const steps = progress?.steps ?? [];
+  const tick = (key: string, done: boolean) =>
+    quick.tick(
+      key,
+      done,
+      planTick(id, key, done).then(setProgress, (e) => {
+        onError(String(e));
+        throw e;
+      }),
+    );
+  const steps = quick.steps;
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
       <header className="flex items-center gap-4">
@@ -1557,7 +1570,7 @@ function PlanView({
         </div>
         {progress && (
           <span className="text-xs tabular-nums text-dim">
-            {progress.done} of {progress.total}
+            {steps.filter((s) => s.status === "done" || s.status === "skipped").length} of {progress.total}
           </span>
         )}
         <Button variant="quiet" onClick={onBack} className="shrink-0 whitespace-nowrap">
@@ -1569,6 +1582,7 @@ function PlanView({
         <p className="text-xs font-medium text-ok">Every step is done.</p>
       )}
       <StepList steps={steps} scope={`plan.${id}`} onTick={tick} actions={actions} />
+      {progress && <OtherFormatsNote items={progress.other_formats} />}
       {here && progress && <StepExtras steps={steps} onError={onError} />}
       <IgnoredToggle ignores={ignores} machine={here ? null : id} onError={onError} />
     </div>
