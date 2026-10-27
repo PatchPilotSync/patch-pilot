@@ -14,7 +14,7 @@ fn single_component() {
     let info = read_au(&fixture("single-component/Acme Verb.component"));
     assert_eq!(info.confidence, Confidence::High);
     assert_eq!(info.name, "Acme Verb");
-    assert_eq!(info.version(), Some("2.1"));
+    assert_eq!(info.version().as_deref(), Some("2.1"));
     assert_eq!(info.components.len(), 1);
     let c = &info.components[0];
     assert_eq!(c.component_id(), "aufx:Verb:Acme");
@@ -47,7 +47,7 @@ fn legacy_bundle_without_components() {
     let info = read_au(&fixture("legacy-no-components/Old Phaser.component"));
     assert_eq!(info.confidence, Confidence::Medium);
     assert_eq!(info.name, "Old Phaser");
-    assert_eq!(info.version(), Some("1.0"));
+    assert_eq!(info.version().as_deref(), Some("1.0"));
     assert!(info.components.is_empty());
 }
 

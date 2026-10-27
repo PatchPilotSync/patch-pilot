@@ -37,12 +37,9 @@ fn dll_without_version_resource() {
     assert_eq!(m.name, "Acme Gate");
     assert_eq!(m.raw_name, "Acme Gate (64 bit)");
     assert_eq!(m.arch, Some(Arch::X86_64));
-    assert_eq!(m.warnings.len(), 1);
-    assert!(
-        m.warnings[0].contains("no version resource"),
-        "{:?}",
-        m.warnings
-    );
+    // No version resource is normal for many vendors, so it isn't a warning.
+    assert!(m.warnings.is_empty(), "{:?}", m.warnings);
+    assert_eq!(m.version, None);
 }
 
 #[test]

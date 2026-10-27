@@ -127,6 +127,8 @@ fn apply_pe(info: &mut Vst3Info, binary: &Path) {
             info.source = Vst3Source::PeResource;
             info.confidence = Confidence::Medium;
         }
+        // Many vendors ship no version resource; that's normal, not a problem.
+        Err(ReadError::NoVersionInfo { .. }) => {}
         Err(e) => info.warnings.push(e.to_string()),
     }
 }

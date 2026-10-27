@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use patchpilot_core::{Item, Manifest, Os, PluginFormat, ProductId};
 
-use crate::version::{VersionOrder, compare_versions};
+use crate::version::{VersionOrder, compare_by_format, compare_versions, versions_by_format};
 
 /// Where a product stands on the machine relative to Primary Rig.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
@@ -99,7 +99,7 @@ pub fn diff_manifests(golden: &Manifest, machine: &Manifest) -> ManifestDiff {
         } else if m_items.is_empty() {
             d.state = ParityState::Missing;
         } else {
-            d.state = compare_present(&relevant, m_items, &d);
+            d.state = compare_present(&relevant, m_items, &mut d);
             let have: Vec<_> = m_items.iter().filter_map(|i| i.format).collect();
             for f in relevant.iter().filter_map(|i| i.format) {
                 if !have.contains(&f) && !d.missing_formats.contains(&f) {
@@ -170,13 +170,21 @@ fn relevant_golden_items<'a>(items: &[&'a Item], os: Os) -> Vec<&'a Item> {
         .collect()
 }
 
-fn compare_present(golden: &[&Item], machine: &[&Item], d: &ProductDiff) -> ParityState {
-    if let (Some(g), Some(m)) = (&d.golden_version, &d.machine_version) {
-        match compare_versions(m, g) {
-            VersionOrder::Older => return ParityState::Outdated,
-            VersionOrder::Newer => return ParityState::NewerThanGolden,
-            VersionOrder::Unknown => return ParityState::VersionUnknown,
-            VersionOrder::Same => {}
+fn compare_present(golden: &[&Item], machine: &[&Item], d: &mut ProductDiff) -> ParityState {
+    let ours = versions_by_format(machine.iter().copied());
+    let theirs = versions_by_format(golden.iter().copied());
+    if let Some((order, m, g)) = compare_by_format(&ours, &theirs) {
+        let state = match order {
+            VersionOrder::Older => ParityState::Outdated,
+            VersionOrder::Newer => ParityState::NewerThanGolden,
+            VersionOrder::Unknown => ParityState::VersionUnknown,
+            VersionOrder::Same => ParityState::InParity,
+        };
+        if state != ParityState::InParity {
+            // Show the versions that decided it.
+            d.machine_version = Some(m.to_owned());
+            d.golden_version = Some(g.to_owned());
+            return state;
         }
     }
     // Same version (or none): user-owned files can still differ in content.

@@ -170,7 +170,7 @@ fn read_one(c: &Candidate) -> Read {
         PluginFormat::Au => {
             let i = read_au(&c.path);
             let first = i.components.first();
-            let version = i.version().map(str::to_owned);
+            let version = i.version();
             Read {
                 name: first.map_or_else(
                     || normalize_name(&i.name).name,

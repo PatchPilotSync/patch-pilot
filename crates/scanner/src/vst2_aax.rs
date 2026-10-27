@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use patchpilot_core::{Arch, Confidence, PluginFormat};
 
+use crate::ReadError;
 use crate::names::{Channels, normalize_name};
 use crate::pe::read_pe_version;
 use crate::plist_info::read_bundle_info;
@@ -101,6 +102,8 @@ fn read_meta(path: &Path, format: PluginFormat, locate_pe: Option<BinaryLocator>
                 meta.source = MetaSource::PeResource;
                 meta.confidence = Confidence::Medium;
             }
+            // Many vendors ship no version resource; that's normal, not a problem.
+            Err(ReadError::NoVersionInfo { .. }) => {}
             Err(e) => meta.warnings.push(e.to_string()),
         }
     }
