@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.32 - 2026-10-27
+
+### Changed
+
+- The first-run tour (How it works) matches today's app: the Primary Rig, what the parity score's points mean, Not installed and Update in Get Up To Speed, Ignore, keeping files and settings in sync through a cloud folder or GitHub, Choose what syncs, Reaper shortcuts between PC and Mac, and a new step on History, duplicate presets and the Vault. Each step is shorter.
+
 ## 0.4.31 - 2026-10-27
 
 ### Fixed
