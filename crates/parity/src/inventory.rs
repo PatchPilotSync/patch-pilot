@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use patchpilot_core::{Confidence, ItemKind, Manifest, PluginFormat, PortablePath};
+use patchpilot_core::{Confidence, ItemKind, Manifest, PluginFormat, PortablePath, Product};
 use serde::Serialize;
 
 use crate::comparison::confidence_rank;
@@ -76,8 +76,19 @@ pub fn inventory(m: &Manifest) -> Inventory {
     let mut templates = 0;
     let mut presets = Vec::new();
 
+    // By ID, not `Manifest::product` per item: that's a scan of every
+    // product, and a big rig has thousands of each.
+    let by_id: BTreeMap<&str, &Product> = m
+        .products
+        .iter()
+        .rev()
+        .map(|p| (p.canonical_id.0.as_str(), p))
+        .collect();
     for item in &m.items {
-        let product = item.product_id.as_ref().and_then(|id| m.product(id));
+        let product = item
+            .product_id
+            .as_ref()
+            .and_then(|id| by_id.get(id.0.as_str()).copied());
         match item.kind {
             ItemKind::Plugin => {
                 plugins += 1;

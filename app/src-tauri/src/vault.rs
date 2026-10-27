@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use patchpilot_core::{Os, Product, ProductId};
+use patchpilot_core::{ItemKind, Os, Product, ProductId};
 use patchpilot_local::open::{Opened, VendorApp};
 use patchpilot_local::vault::{InboxItem, VaultSettings, dismiss_key};
 use patchpilot_local::{FolderWatch, app_dir};
@@ -365,9 +365,17 @@ fn products() -> Result<Vec<Product>, String> {
     if let Some(g) = store.golden(None).map_err(err)? {
         manifests.push(g.manifest);
     }
+    // Only what can be installed: a full scan is mostly presets and files.
     for m in store.machines().map_err(err)? {
-        if let Some(scan) = store.latest_manifest(&m.id).map_err(err)? {
-            manifests.push(scan);
+        if let Some((id, _)) = store.latest_snapshot(&m.id).map_err(err)? {
+            manifests.push(
+                store
+                    .snapshot_manifest_of(
+                        id,
+                        &[ItemKind::Plugin, ItemKind::VendorApp, ItemKind::LicenseTool],
+                    )
+                    .map_err(err)?,
+            );
         }
     }
     Ok(patchpilot_local::vault::installable_products(&manifests))

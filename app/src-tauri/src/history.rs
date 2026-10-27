@@ -3,8 +3,11 @@
 //! Plug-ins are only listed; files are put back through
 //! `patchpilot_local::restore`.
 
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
+use patchpilot_core::{ItemKind, Manifest};
 use patchpilot_local::restore::{self, ApplyError, UndoFile};
 use patchpilot_parity::{ProductChange, plugin_changes};
 use patchpilot_store::{RestoreKind, Store};
@@ -15,6 +18,13 @@ use crate::rig::{db_path, err, open};
 
 /// Scans further back than this aren't listed (each one is a manifest load).
 const MAX_SCANS: usize = 60;
+
+/// What a scan changed since the one before and how many plug-in products
+/// it had, by the two scans' manifest hashes (the same contents always give
+/// the same answer, whichever database they're in).
+type ScanKey = (String, Option<String>);
+static SCAN_CHANGES: Mutex<BTreeMap<ScanKey, (Vec<ProductChange>, usize)>> =
+    Mutex::new(BTreeMap::new());
 
 /// Mirrored by `HistoryView` in `src/api.ts`.
 #[derive(Debug, Serialize)]
@@ -75,12 +85,16 @@ pub struct GoBackPlan {
 
 #[tauri::command]
 pub async fn history() -> Result<HistoryView, String> {
-    let Some((store, id, _)) = context()? else {
-        return Ok(HistoryView {
-            entries: Vec::new(),
-        });
-    };
-    history_view(&store, &id)
+    tauri::async_runtime::spawn_blocking(|| {
+        let Some((store, id, _)) = context()? else {
+            return Ok(HistoryView {
+                entries: Vec::new(),
+            });
+        };
+        history_view(&store, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -148,40 +162,47 @@ fn context() -> Result<Option<(Store, String, PathBuf)>, String> {
 
 pub(crate) fn history_view(store: &Store, machine: &str) -> Result<HistoryView, String> {
     let mut entries = Vec::new();
-    let snapshots = store.snapshots(machine).map_err(err)?;
+    let snapshots = store.snapshot_times(machine).map_err(err)?;
     let latest = snapshots.first().map(|s| s.id);
-    // Each scan's manifest is the next-older one's "new"; load each once.
-    let mut newer: Option<(i64, patchpilot_core::Manifest)> = None;
-    let mut rows = Vec::new();
-    for s in snapshots.iter().take(MAX_SCANS + 1) {
-        let m = store.snapshot_manifest(s.id).map_err(err)?;
-        if let Some((id, n)) = newer.take() {
-            rows.push((id, Some(plugin_changes(&m, &n)), n));
+    // Scans never change, so what each one changed is worked out once per
+    // run; reopening History only reads scans saved since (2026-10-27).
+    let mut cache = SCAN_CHANGES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut loaded: HashMap<i64, Manifest> = HashMap::new();
+    for (i, scan) in snapshots.iter().take(MAX_SCANS).enumerate() {
+        let id = scan.id;
+        // The scan before this one; none for the first scan.
+        let earlier = snapshots.get(i + 1);
+        let before = earlier.map(|s| s.id);
+        let key = (
+            scan.manifest_hash.clone(),
+            earlier.map(|s| s.manifest_hash.clone()),
+        );
+        if !cache.contains_key(&key) {
+            load(store, &mut loaded, id)?;
+            let plugins = patchpilot_parity::inventory(&loaded[&id]).products;
+            let changes = match before {
+                Some(b) => {
+                    load(store, &mut loaded, b)?;
+                    plugin_changes(&loaded[&b], &loaded[&id])
+                }
+                None => Vec::new(),
+            };
+            // Only the next-older scan is needed again.
+            loaded.retain(|k, _| Some(*k) == before);
+            cache.insert(key.clone(), (changes, plugins));
         }
-        newer = Some((s.id, m));
-    }
-    if let Some((id, n)) = newer {
-        // The oldest loaded: the first scan, or older than we list.
-        let first = snapshots.last().is_some_and(|s| s.id == id);
-        rows.push((id, first.then(Vec::new), n));
-    }
-    for (id, changes, m) in rows.into_iter().take(MAX_SCANS) {
-        let Some(changes) = changes else { continue };
-        let first = snapshots.last().is_some_and(|s| s.id == id);
+        let (changes, plugins) = &cache[&key];
+        let first = before.is_none();
         if changes.is_empty() && !first {
             continue;
         }
-        let at = snapshots
-            .iter()
-            .find(|s| s.id == id)
-            .map_or(0, |s| s.created_at);
         entries.push(Entry::Scan {
             snapshot_id: id,
-            at,
+            at: scan.created_at,
             first,
             latest: Some(id) == latest,
-            plugins: patchpilot_parity::inventory(&m).products,
-            changes,
+            plugins: *plugins,
+            changes: changes.clone(),
         });
     }
     for p in store.restore_points(machine).map_err(err)? {
@@ -211,11 +232,12 @@ pub(crate) fn go_back_plan_for(
     snapshot_id: i64,
 ) -> Result<GoBackPlan, String> {
     let at = scan_time(store, machine, snapshot_id)?;
-    let then = store.snapshot_manifest(snapshot_id).map_err(err)?;
-    let now = store
-        .latest_manifest(machine)
+    let then = plugins_at(store, snapshot_id)?;
+    let (latest, _) = store
+        .latest_snapshot(machine)
         .map_err(err)?
         .ok_or(NOT_SCANNED)?;
+    let now = plugins_at(store, latest)?;
     let files = restore::go_back_preview(store, blobs, machine, snapshot_id).map_err(apply_err)?;
     Ok(GoBackPlan {
         at,
@@ -226,12 +248,27 @@ pub(crate) fn go_back_plan_for(
 
 fn scan_time(store: &Store, machine: &str, snapshot_id: i64) -> Result<i64, String> {
     store
-        .snapshots(machine)
+        .snapshot_times(machine)
         .map_err(err)?
         .iter()
         .find(|s| s.id == snapshot_id)
         .map(|s| s.created_at)
         .ok_or_else(|| "that scan isn't one of this machine's".to_owned())
+}
+
+/// A scan's plug-ins: all History compares, and far less to read than a
+/// whole scan, which on a big rig is mostly presets and files.
+fn plugins_at(store: &Store, snapshot_id: i64) -> Result<Manifest, String> {
+    store
+        .snapshot_manifest_of(snapshot_id, &[ItemKind::Plugin])
+        .map_err(err)
+}
+
+fn load(store: &Store, loaded: &mut HashMap<i64, Manifest>, id: i64) -> Result<(), String> {
+    if let std::collections::hash_map::Entry::Vacant(e) = loaded.entry(id) {
+        e.insert(plugins_at(store, id)?);
+    }
+    Ok(())
 }
 
 fn previews(files: Vec<UndoFile>) -> Vec<FilePreview> {
@@ -283,7 +320,6 @@ fn day(at: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patchpilot_core::Manifest;
     use patchpilot_local::restore::{ChangeSet, FileChange, apply_changes};
     use patchpilot_store::SnapshotReason;
 

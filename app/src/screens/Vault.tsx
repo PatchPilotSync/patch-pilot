@@ -12,8 +12,11 @@ import {
   type VaultEntry,
   type VaultView,
 } from "../api";
-import { Badge, Button, Folder, FolderControls, inputClass, useFolders } from "../ui";
+import { Badge, Button, Folder, FolderControls, Loading, inputClass, useFolders } from "../ui";
 import { Triage } from "./VaultTriage";
+
+/** The last Vault shown, so reopening the tab shows it at once while it refreshes. */
+let lastView: VaultView | null = null;
 
 const OS_LABEL: Record<Os, string> = { windows: "Windows", macos: "macOS" };
 
@@ -31,7 +34,11 @@ export function Vault({
   /** How many new installers are waiting, for the tab's badge. */
   onCount: (n: number) => void;
 }) {
-  const [view, setView] = useState<VaultView | null>(null);
+  const [view, setViewState] = useState<VaultView | null>(lastView);
+  const setView = useCallback((v: VaultView) => {
+    lastView = v;
+    setViewState(v);
+  }, []);
   const [extra, setExtra] = useState<InboxItem[]>([]);
   const [changing, setChanging] = useState(false);
 
@@ -43,7 +50,7 @@ export function Vault({
       },
       (e) => onError(String(e)),
     );
-  }, [onError, onCount]);
+  }, [onError, onCount, setView]);
 
   useEffect(() => {
     refresh();
@@ -74,7 +81,7 @@ export function Vault({
     }
   }
 
-  if (!view) return null;
+  if (!view) return <Loading text="Opening the Installer Vault…" compact />;
 
   if (!view.root || changing) {
     return <PickFolder view={view} onChoose={choose} onCancel={view.root ? () => setChanging(false) : null} />;
