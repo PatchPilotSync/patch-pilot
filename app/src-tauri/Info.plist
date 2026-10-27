@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Shown in macOS's folder access prompts (decision #84). -->
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Patch Pilot watches plug-in preset folders in Documents (FabFilter, Valhalla, Xfer and others) to keep them in sync with your other machines.</string>
+	<key>NSMusicFolderUsageDescription</key>
+	<string>Patch Pilot reads your Ableton User Library in Music to keep templates and presets in sync with your other machines.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Patch Pilot looks for duplicate presets on your Desktop when you ask it to.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Patch Pilot looks for plug-in installers in Downloads for your Installer Vault.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Patch Pilot can keep your Installer Vault or backup on an external drive.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Patch Pilot can keep your Installer Vault or backup on a network drive.</string>
+</dict>
+</plist>
