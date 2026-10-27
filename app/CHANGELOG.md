@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.27 - 2026-10-27
+
+### Changed
+
+- In Set up and Get Up To Speed, each plug-in and app line says "Not installed" when it isn't here in any format, or "Update" when it's here but older, with both versions: "Kontakt 7: 7.9.0 here, Primary Rig has 7.10.1".
+
 ## 0.4.26 - 2026-10-27
 
 ### Changed

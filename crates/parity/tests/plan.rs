@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use patchpilot_core::{Manifest, TargetProfile};
-use patchpilot_parity::{Phase, align_products, up_to_speed};
+use patchpilot_parity::{Need, Phase, align_products, up_to_speed};
 
 fn load(name: &str) -> Manifest {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -58,8 +58,12 @@ fn stable_ordered_plan() {
     );
     assert_eq!(
         plan.steps[2].details,
-        ["Kontakt 7 7.10.1 (you have 7.9.0)", "Massive X 1.4.2"]
+        [
+            "Kontakt 7: 7.9.0 here, Primary Rig has 7.10.1",
+            "Massive X 1.4.2"
+        ]
     );
+    assert_eq!(plan.steps[2].needs, [Need::Update, Need::Install]);
     // Acme Verb is here without its AAX: installed, with the formats noted.
     assert_eq!(plan.steps[4].details, ["Acme Gate 1.2"]);
     let other: Vec<_> = plan

@@ -365,6 +365,7 @@ function quickStep(s: SetupStep, tick: boolean | undefined, hidden: Set<string>)
       ...s,
       open: s.open.filter((_, n) => keep[n] ?? true),
       open_products,
+      open_needs: s.open_needs.filter((_, n) => keep[n] ?? true),
       status: open_products.length === 0 ? "done" : s.status,
     };
   }
@@ -540,6 +541,8 @@ export function StepRow({
 }) {
   const finished = isFinished(s);
   const mark = MARK[s.status];
+  // Plug-in and app lines say whether they're missing or older; DAW files and Reaper settings don't.
+  const tagged = s.automatic && !isBringStep(s) && !isReaperStep(s);
   const [showAll, setShowAll] = useState(false);
   const web = (url: string) => openWebPage(url).catch((e) => actions.onError(String(e)));
   const box = (
@@ -575,8 +578,21 @@ export function StepRow({
           <ul className="mt-0.5 text-xs text-dim">
             {(showAll ? s.open : s.open.slice(0, SHOWN)).map((d, n) => {
               const installer = s.automatic ? actions.installer(s.open_products[n]) : undefined;
+              const need = tagged ? s.open_needs[n] : undefined;
               return (
                 <li key={d} className="group flex items-center gap-2">
+                  {need && (
+                    <span
+                      className={`w-[72px] shrink-0 text-[10px] ${need === "update" ? "text-warn" : "text-dim"}`}
+                      title={
+                        need === "update"
+                          ? "Installed here, but an older version than the Primary Rig's"
+                          : "Not installed here in any format"
+                      }
+                    >
+                      {need === "update" ? "Update" : "Not installed"}
+                    </span>
+                  )}
                   <span className="min-w-0 truncate">{d}</span>
                   {actions.ignore && s.automatic && s.open_products[n] && (
                     <IgnoreButton onIgnore={() => actions.ignore!(d, [s.open_products[n]])} />

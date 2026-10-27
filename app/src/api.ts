@@ -836,6 +836,8 @@ export interface SetupStep {
   open: string[];
   finished: string[];
   open_products: string[];
+  /** Per open product: "install" (not here in any format) or "update" (here, older). */
+  open_needs: ("install" | "update")[];
   after: number[];
 }
 
