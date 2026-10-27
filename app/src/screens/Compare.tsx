@@ -23,6 +23,7 @@ import {
   vendorApps,
   type BringView,
   type ComparisonRow,
+  type Reason,
   type FileToBring,
   type MachineCard,
   type MachineComparison,
@@ -420,6 +421,34 @@ function MachineItem({ m, active, onClick }: { m: MachineCard; active: boolean; 
   );
 }
 
+/** What the score lost to, in points off 100. Reasons worth under a point fold into one line. */
+function ReasonList({ score, reasons }: { score: number; reasons: Reason[] }) {
+  const big = reasons.filter((r) => Math.round(r.points) >= 1);
+  const small = reasons.filter((r) => Math.round(r.points) < 1);
+  return (
+    <div className="flex flex-col gap-0.5 text-xs text-dim">
+      <p className="text-[11px]" title="Each item weighs by kind; anything a template needs counts three times as much.">
+        Why {score}, not 100
+      </p>
+      <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
+        {big.map((r) => {
+          const n = Math.round(r.points);
+          return (
+            <li key={r.text}>
+              {r.text} <span className="tabular-nums text-fg">−{n} point{n === 1 ? "" : "s"}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {small.length > 0 && (
+        <p>
+          Under a point each: {small.map((r) => r.text).join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Empty({ text }: { text: string }) {
   return <p className="p-6 text-dim">{text}</p>;
 }
@@ -535,13 +564,7 @@ function Diff({
               />
             ))}
           </div>
-          <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-dim">
-            {c.reasons.map((r) => (
-              <li key={r.text}>
-                <span className="tabular-nums text-fg">−{Math.round(r.points)}</span> {r.text}
-              </li>
-            ))}
-          </ul>
+          <ReasonList score={c.score} reasons={c.reasons} />
         </div>
       ) : (
         <p className="text-xs text-ok">At parity with the Primary Rig.</p>
