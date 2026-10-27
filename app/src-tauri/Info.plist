@@ -15,5 +15,8 @@
 	<string>Patch Pilot can keep your Installer Vault or backup on an external drive.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
 	<string>Patch Pilot can keep your Installer Vault or backup on a network drive.</string>
+	<!-- Sync over the home network (decision #94): macOS asks before an app talks to the local network. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Patch Pilot finds your other linked machines on this network and copies synced files straight between them, encrypted.</string>
 </dict>
 </plist>

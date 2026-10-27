@@ -454,6 +454,8 @@ export interface BackupView {
   github_progress: GitHubProgress | null;
   /** Why the last GitHub sync didn't finish; it tries again on its own. */
   github_error: string | null;
+  /** Linked machines on the home network, while syncing over it (decision #94). */
+  lan: LanView | null;
   /** The big-file folder, offered first when picking. */
   transfer_folder: string | null;
   /** This machine's backups first. */
@@ -532,6 +534,34 @@ export const onGitHubChanged = (f: () => void): Promise<UnlistenFn> => listen("g
 /** A long sync's progress, then null when it ends. */
 export const onGitHubProgress = (f: (p: GitHubProgress | null) => void): Promise<UnlistenFn> =>
   listen<GitHubProgress | null>("github-progress", (e) => f(e.payload));
+
+// Sync over the home network (decision #94); mirrors src-tauri/src/lan.rs and patchpilot_local::lan.
+
+export interface LanProgress {
+  /** The machine files are coming from. */
+  from: string;
+  done: number;
+  total: number;
+}
+
+export interface LanPeer {
+  machine_name: string;
+  seen_at: number;
+  /** Heard from in the last minute or so. */
+  here: boolean;
+}
+
+export interface LanView {
+  /** Linked machines heard on this network, most recent first. */
+  peers: LanPeer[];
+  error: string | null;
+  progress: LanProgress | null;
+  last: { at: number; report: { machines: string[]; copied: number; removed: number } } | null;
+}
+
+export const lanUse = () => invoke<void>("lan_use");
+export const onLanProgress = (f: (p: LanProgress | null) => void): Promise<UnlistenFn> =>
+  listen<LanProgress | null>("lan-progress", (e) => f(e.payload));
 
 // Keep files in sync (decision #70); mirrors src-tauri/src/autosync.rs and patchpilot_local::autosync.
 

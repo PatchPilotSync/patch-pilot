@@ -79,6 +79,24 @@ pub fn save_settings(app_dir: &Path, settings: &GitHubSettings) -> Result<(), St
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileIndex(BTreeMap<String, (u64, u128, String)>);
 
+impl FileIndex {
+    /// Record that the file at `path` (`rel` in the copy) was just written
+    /// with blob ID `id`, so the next look doesn't read it again.
+    pub(crate) fn note(&mut self, rel: &str, path: &Path, id: &str) {
+        if let Ok(meta) = std::fs::metadata(path) {
+            self.0
+                .insert(rel.to_owned(), (meta.len(), mtime(&meta), id.to_owned()));
+        }
+    }
+}
+
+fn mtime(meta: &std::fs::Metadata) -> u128 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos())
+}
+
 pub fn load_index(app_dir: &Path) -> FileIndex {
     std::fs::read(app_dir.join(INDEX_FILE))
         .ok()
@@ -540,7 +558,10 @@ fn extract(
 
 /// Every file in the copy, by `/`-separated path, with its blob ID. Files
 /// still being written are left out.
-fn local_files(dir: &Path, index: &mut FileIndex) -> Result<BTreeMap<String, String>, String> {
+pub(crate) fn local_files(
+    dir: &Path,
+    index: &mut FileIndex,
+) -> Result<BTreeMap<String, String>, String> {
     let mut out = BTreeMap::new();
     let mut seen = BTreeMap::new();
     for entry in walkdir::WalkDir::new(dir).min_depth(1) {
@@ -561,11 +582,7 @@ fn local_files(dir: &Path, index: &mut FileIndex) -> Result<BTreeMap<String, Str
             .collect::<Vec<_>>()
             .join("/");
         let meta = entry.metadata().map_err(|e| e.to_string())?;
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |d| d.as_nanos());
+        let mtime = mtime(&meta);
         let id = match index.0.get(&rel) {
             Some((size, t, id)) if *size == meta.len() && *t == mtime && mtime != 0 => id.clone(),
             _ => blob_id(

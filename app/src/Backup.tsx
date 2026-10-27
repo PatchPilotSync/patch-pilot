@@ -8,7 +8,9 @@ import {
   backupRestoreList,
   backupView,
   fileKey,
+  lanUse,
   onBackupChanged,
+  onLanProgress,
   onGitHubProgress,
   onSyncChanged,
   restoreBackup,
@@ -26,6 +28,8 @@ import {
   type BackupView,
   type FileToBring,
   type GitHubProgress,
+  type LanProgress,
+  type LanView,
   type RestoreReport,
   type RestoreView,
   type SkippedFile,
@@ -61,6 +65,7 @@ export function BackupLine({
   const [view, setView, load] = useBackupView(onError);
   const [sync, setSync] = useSyncView(onError, view);
   const progress = useGitHubProgress(view);
+  const lanProgress = useLanProgress(view);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -117,6 +122,12 @@ export function BackupLine({
   } else if (view.github_error) {
     tone = "warn";
     text = view.github_error;
+  } else if (view.lan && lanProgress) {
+    tone = "accent";
+    text = `Copying ${lanProgress.done.toLocaleString()} of ${plural(lanProgress.total, "file")} from ${lanProgress.from} over your home network…`;
+  } else if (view.lan?.error) {
+    tone = "warn";
+    text = view.lan.error;
   } else if (view.error) {
     tone = "warn";
     text = `The last backup didn't finish: ${view.error}`;
@@ -124,7 +135,7 @@ export function BackupLine({
     tone = "accent";
     text = `A backup of ${others[0].machine_name} from ${when(others[0].backups[0].made_at)} is in ${where}. Sync with it?`;
   } else if (syncing) {
-    [tone, text] = syncLine(sync, where, view.github);
+    [tone, text] = syncLine(sync, where, view.github, view.lan);
   } else if (latest) {
     text = `Backed up ${timeAgo(latest.made_at)} to ${where}${view.settings.auto ? ", after every change" : ""}. Syncing is off.`;
   } else {
@@ -155,10 +166,10 @@ export function BackupLine({
                   View on GitHub
                 </Button>
               )}
-              {progress ? null : syncing ? (
+              {progress || lanProgress ? null : syncing ? (
                 // Looks on its own too; this is for "why hasn't it come over yet?".
                 <Button variant="link" onClick={check} disabled={busy} className="h-6 shrink-0 px-2">
-                  {busy ? "Checking…" : view.github_error ? "Try now" : "Check now"}
+                  {busy ? "Checking…" : view.github_error || view.lan?.error ? "Try now" : "Check now"}
                 </Button>
               ) : (
                 // Backups run on their own while syncing; the button is for by-hand backups.
@@ -187,7 +198,7 @@ type Tone = "ok" | "accent" | "warn";
  * brought (or why nothing came yet), so a machine behind the Primary Rig
  * can see it catching up.
  */
-function syncLine(sync: SyncView, where: string, github: string | null): [Tone, string] {
+function syncLine(sync: SyncView, where: string, github: string | null, lan: LanView | null): [Tone, string] {
   const last = sync.last;
   if (sync.linked === 0) return ["accent", `Backed up to ${where}. Link another machine to keep files in sync with it.`];
   if (last && last.waiting.length > 0) {
@@ -200,6 +211,11 @@ function syncLine(sync: SyncView, where: string, github: string | null): [Tone, 
   }
   const sources = (last?.sources ?? []).filter((s) => s.linked);
   if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
+  if (sources.length === 0 && lan && !lan.peers.some((p) => p.here))
+    return [
+      "accent",
+      "Looking for your other machines on this network. On each one, pick Home network… under Sync & backup.",
+    ];
   if (sources.length === 0)
     return github
       ? ["accent", `Next: on your other machine, Use GitHub… with ${github.split("/").pop()}.`]
@@ -223,6 +239,20 @@ function useGitHubProgress(view: BackupView | null) {
   useEffect(() => setProgress(initial), [initial]);
   useEffect(() => {
     const unlisten = onGitHubProgress(setProgress);
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+  return progress;
+}
+
+/** How far a pull over the home network has got, while one runs. */
+function useLanProgress(view: BackupView | null) {
+  const [progress, setProgress] = useState<LanProgress | null>(null);
+  const initial = view?.lan?.progress ?? null;
+  useEffect(() => setProgress(initial), [initial]);
+  useEffect(() => {
+    const unlisten = onLanProgress(setProgress);
     return () => {
       unlisten.then((f) => f());
     };
@@ -389,6 +419,21 @@ function Details({
     );
   }
 
+  // Over the home network (decision #94): like GitHub, syncing is what it's for.
+  async function useLan() {
+    await act(
+      lanUse()
+        .then(backupView)
+        .then(async (v) => {
+          if (sync && onSync && v.dir && !v.settings.keep_in_sync) {
+            onSync(await setKeepInSync(true));
+            return backupView();
+          }
+          return v;
+        }),
+    );
+  }
+
   async function toggleSync(on: boolean) {
     if (!onSync) return;
     setBusy(true);
@@ -421,6 +466,17 @@ function Details({
         <Button variant="link" className="-ml-3 h-6 self-start text-[11px]" onClick={() => setAdvanced(true)}>
           {view.github ? `Advanced: GitHub (${view.github})…` : "Advanced: sync with GitHub instead…"}
         </Button>
+        {!view.lan && (
+          <Button
+            variant="link"
+            className="-ml-3 h-6 self-start text-[11px]"
+            title="Linked machines on the same Wi-Fi or wired network copy files straight from each other, encrypted. No cloud."
+            disabled={busy}
+            onClick={useLan}
+          >
+            Sync over your home network instead (no cloud)…
+          </Button>
+        )}
       </div>
     );
   }
@@ -458,18 +514,36 @@ function Details({
           <span className="min-w-0 flex-1 truncate" title={`Private repo on GitHub, copied to ${view.dir}`}>
             GitHub repo {view.github}
           </span>
+        ) : view.lan ? (
+          <span
+            className="min-w-0 flex-1 truncate"
+            title={`Linked machines on this network copy files straight from each other, encrypted. This machine's copy: ${view.dir}`}
+          >
+            Home network{view.lan.peers.length > 0 ? ` · ${view.lan.peers.map(peerText).join(", ")}` : ""}
+          </span>
         ) : (
           <span className="min-w-48 flex-1 truncate" title={view.dir}>
             {view.dir}
           </span>
         )}
         <Button variant="quiet" className="h-6 px-2" onClick={() => setPicking(true)}>
-          {view.github ? "Change" : "Change folder"}
+          {view.github || view.lan ? "Change" : "Change folder"}
         </Button>
         {/* Advanced (decision #73): in view once a folder is picked, not only behind Change folder. */}
-        {!view.github && (
+        {!view.github && !view.lan && (
           <Button variant="quiet" className="h-6 px-2" title="Advanced: sync through a private GitHub repo instead" onClick={() => setAdvanced(true)}>
             Use GitHub…
+          </Button>
+        )}
+        {!view.github && !view.lan && (
+          <Button
+            variant="quiet"
+            className="h-6 px-2"
+            title="Sync straight between linked machines on this network, encrypted, with no cloud"
+            disabled={busy}
+            onClick={useLan}
+          >
+            Home network…
           </Button>
         )}
       </div>
@@ -901,10 +975,16 @@ function restoreSummary(r: RestoreReport): string {
 /** "Dropbox", or the folder's name. */
 function placeName(view: BackupView): string {
   if (view.github) return "GitHub";
+  if (view.lan) return "your home network";
   const cloud = view.clouds.find((c) => c.path === view.settings.folder);
   if (cloud) return cloud.name;
   const f = view.settings.folder ?? "";
   return f.split(/[\\/]/).filter(Boolean).pop() ?? "your folder";
+}
+
+/** "MacBook" while it's on this network, "MacBook (seen 2 h ago)" after. */
+function peerText(p: LanView["peers"][number]): string {
+  return p.here ? p.machine_name : `${p.machine_name} (seen ${timeAgo(p.seen_at)})`;
 }
 
 function when(unixSeconds: number): string {

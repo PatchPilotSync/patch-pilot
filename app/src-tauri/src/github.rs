@@ -243,7 +243,7 @@ fn sync_blocking(
     report
 }
 
-fn machine_name(this: &str) -> String {
+pub(crate) fn machine_name(this: &str) -> String {
     db_path()
         .ok()
         .and_then(|db| open(&db).ok())

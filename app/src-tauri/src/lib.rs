@@ -11,6 +11,7 @@ mod compare;
 mod duplicates;
 mod github;
 mod history;
+mod lan;
 mod mac_keys;
 mod reaper;
 mod report;
@@ -83,6 +84,7 @@ pub fn run() {
             backup::setup(app);
             autosync::setup(app);
             github::setup(app);
+            lan::setup(app);
             tray::setup(app)?;
             background::apply_login_default(app);
             if background::launched_at_login() {
@@ -154,6 +156,7 @@ pub fn run() {
             github::github_use_repo,
             github::github_sign_out,
             github::github_open,
+            lan::lan_use,
             duplicates::find_duplicates,
             duplicates::clean_up_duplicates,
             catalog::updates,

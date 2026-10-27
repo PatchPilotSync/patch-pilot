@@ -523,7 +523,7 @@ pub(crate) fn subdirs(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// The backups' stamps in `folder`, oldest first.
-fn stamps(folder: &Path) -> Vec<String> {
+pub(crate) fn stamps(folder: &Path) -> Vec<String> {
     let mut out: Vec<String> = std::fs::read_dir(folder.join(BACKUPS))
         .map(|e| {
             e.flatten()
