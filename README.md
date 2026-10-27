@@ -4,7 +4,7 @@
 
 For producers, mixers and engineers who work on more than one computer, on Windows and macOS, with Reaper or Ableton Live.
 
-![The tray popover: every machine's parity and what the Travel Laptop needs](docs/screenshots/tray.png)
+<img src="docs/screenshots/tray.png" width="340" alt="The tray popover: every machine's score against the Primary Rig and what the Travel Laptop needs">
 
 ## Download
 
@@ -44,7 +44,7 @@ You know the moment: you open a project on the laptop and half the chain is red 
 
 | Your rig | Compare with the Primary Rig | Get Up To Speed |
 | --- | --- | --- |
-| ![The plug-ins installed on this machine](docs/screenshots/rig.png) | ![Travel Laptop scored 40% against the Primary Rig, with reasons](docs/screenshots/compare.png) | ![Checklist to bring Travel Laptop back to parity](docs/screenshots/up-to-speed.png) |
+| ![The plug-ins installed on this machine](docs/screenshots/rig.png) | ![Travel Laptop scores 62 against the Primary Rig, with the points each reason costs](docs/screenshots/compare.png) | ![Checklist to bring Travel Laptop back to parity](docs/screenshots/up-to-speed.png) |
 
 ## How syncing works
 
