@@ -209,3 +209,27 @@ fn up_to_speed_crosses_off_what_a_rescan_finds() {
     let p = plan_progress(&golden, &profile, &laptop, &done, &none);
     assert!(p.complete, "{:?}", status(&p));
 }
+
+#[test]
+fn an_older_app_found_later_reads_as_update() {
+    let golden = load("golden.json");
+    let laptop = load("laptop.json");
+    let profile = TargetProfile::default();
+    let none = BTreeSet::new();
+
+    // The plan asked to install iLok License Manager; a rescan finds an old one.
+    let mut later = with_golden(&laptop, &golden, &["app/ilok-license-manager"]);
+    for i in later.items.iter_mut().filter(|i| {
+        i.product_id
+            .as_ref()
+            .is_some_and(|p| p.0 == "app/ilok-license-manager")
+    }) {
+        i.version = Some("5.1.0".into());
+    }
+    assert!(plan_still_covers(&golden, &profile, &laptop, &later));
+    let p = plan_progress(&golden, &profile, &laptop, &later, &none);
+    let step = &p.steps[0];
+    assert_eq!(step.title, "Update iLok License Manager");
+    assert_eq!(step.status, StepStatus::Todo);
+    assert_eq!(step.open, ["iLok License Manager 5.9.0 (you have 5.1.0)"]);
+}

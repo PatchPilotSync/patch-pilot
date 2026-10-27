@@ -31,6 +31,12 @@ pub struct VendorAdapter {
     /// Paths relative to a macOS root (`/` or the home folder). The first that
     /// exists wins. `.app` bundles give a version from their `Info.plist`.
     pub macos_paths: &'static [&'static str],
+    /// Bundle names (without `.app`) to look for in `Applications` and the
+    /// folders right inside it when none of `macos_paths` exists, compared
+    /// case-insensitively as prefixes. A bundle in a subfolder also matches
+    /// as `<folder> <name>`, so `Plugin Alliance/Installation Manager.app`
+    /// matches "Plugin Alliance Installation Manager".
+    pub macos_names: &'static [&'static str],
     /// Executable names inside the Windows install folder, used to open the
     /// app when its uninstall entry has no `DisplayIcon` pointing at it.
     pub windows_exes: &'static [&'static str],
@@ -47,6 +53,7 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Native Access"],
         windows_publisher: Some("Native Instruments"),
         macos_paths: &["Applications/Native Access.app"],
+        macos_names: &["Native Access"],
         windows_exes: &["Native Access.exe"],
         download_url: "https://www.native-instruments.com/en/specials/native-access/",
     },
@@ -57,6 +64,7 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Waves Central"],
         windows_publisher: Some("Waves"),
         macos_paths: &["Applications/Waves Central.app"],
+        macos_names: &["Waves Central"],
         windows_exes: &["Waves Central.exe"],
         download_url: "https://www.waves.com/downloads/central",
     },
@@ -67,6 +75,7 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["UA Connect"],
         windows_publisher: Some("Universal Audio"),
         macos_paths: &["Applications/UA Connect.app"],
+        macos_names: &["UA Connect", "Universal Audio Connect"],
         windows_exes: &["UA Connect.exe"],
         download_url: "https://www.uaudio.com/downloads",
     },
@@ -76,7 +85,11 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         kind: ItemKind::VendorApp,
         windows_display_names: &["Arturia Software Center"],
         windows_publisher: Some("Arturia"),
-        macos_paths: &["Applications/Arturia Software Center.app"],
+        macos_paths: &[
+            "Applications/Arturia Software Center.app",
+            "Applications/Arturia/Arturia Software Center.app",
+        ],
+        macos_names: &["Arturia Software Center"],
         windows_exes: &["Arturia Software Center.exe"],
         download_url: "https://www.arturia.com/support/downloads-manuals",
     },
@@ -90,6 +103,7 @@ pub const ADAPTERS: &[VendorAdapter] = &[
             "Applications/iZotope Product Portal.app",
             "Applications/iZotope/iZotope Product Portal.app",
         ],
+        macos_names: &["iZotope Product Portal"],
         windows_exes: &["iZotope Product Portal.exe"],
         download_url: "https://www.izotope.com/en/products/product-portal.html",
     },
@@ -100,6 +114,10 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Plugin Alliance Installation Manager"],
         windows_publisher: Some("Plugin Alliance"),
         macos_paths: &["Applications/Plugin Alliance Installation Manager.app"],
+        macos_names: &[
+            "Plugin Alliance Installation Manager",
+            "PA Installation Manager",
+        ],
         windows_exes: &["Plugin Alliance Installation Manager.exe"],
         download_url: "https://www.plugin-alliance.com/en/installation-manager.html",
     },
@@ -110,6 +128,7 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["Spitfire Audio"],
         windows_publisher: Some("Spitfire"),
         macos_paths: &["Applications/Spitfire Audio.app"],
+        macos_names: &["Spitfire Audio"],
         windows_exes: &["Spitfire Audio.exe"],
         download_url: "https://www.spitfireaudio.com/info/library-manager/",
     },
@@ -120,6 +139,7 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         windows_display_names: &["iLok License Manager"],
         windows_publisher: Some("PACE"),
         macos_paths: &["Applications/iLok License Manager.app"],
+        macos_names: &["iLok License Manager"],
         windows_exes: &["iLok License Manager.exe"],
         download_url: "https://www.ilok.com/#!license-manager",
     },
@@ -129,8 +149,15 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         kind: ItemKind::LicenseTool,
         windows_display_names: &["PACE License Support"],
         windows_publisher: Some("PACE"),
-        // Presence only: the helper has no Info.plist, so no version on macOS.
-        macos_paths: &["Library/PrivilegedHelperTools/com.paceap.eden.licensed"],
+        // The helper has no Info.plist, so it gives presence only. License
+        // Support also installs iLok License Manager, whose build number makes
+        // the same version as on Windows ("6.0.1 GM (b6847, ...)" → 6.0.1.6847).
+        macos_paths: &[
+            "Library/PrivilegedHelperTools/com.paceap.eden.licensed",
+            "Library/LaunchDaemons/com.paceap.eden.licensed.plist",
+            "Applications/iLok License Manager.app",
+        ],
+        macos_names: &[],
         windows_exes: &[],
         download_url: "https://www.ilok.com/#!license-manager",
     },
@@ -203,15 +230,24 @@ fn windows_matches(adapter: &VendorAdapter, e: &UninstallEntry) -> bool {
 }
 
 /// Look for each adapter's macOS paths under `roots` (normally `/` and the
-/// home folder; tests pass fixture folders).
+/// home folder; tests pass fixture folders), then for its bundle names in
+/// their `Applications` folders, since vendors move apps into subfolders
+/// (`/Applications/Arturia/Arturia Software Center.app`).
 pub fn detect_macos(roots: &[PathBuf]) -> Vec<VendorAppStatus> {
+    let bundles = app_bundles(roots);
     ADAPTERS
         .iter()
         .map(|adapter| {
             let found = roots
                 .iter()
                 .flat_map(|root| adapter.macos_paths.iter().map(move |p| root.join(p)))
-                .find(|p| p.exists());
+                .find(|p| p.exists())
+                .or_else(|| {
+                    bundles
+                        .iter()
+                        .find(|b| b.matches(adapter.macos_names))
+                        .map(|b| b.path.clone())
+                });
             let detection = match found {
                 Some(path) => Detection::Detected {
                     version: app_version(&path),
@@ -250,6 +286,73 @@ pub fn windows_executable(adapter: &VendorAdapter, entries: &[UninstallEntry]) -
     })
 }
 
+/// An `.app` bundle in an `Applications` folder, with the lowercase names it
+/// answers to: its own, and `<folder> <name>` when it's in a subfolder.
+struct Bundle {
+    path: PathBuf,
+    names: Vec<String>,
+}
+
+impl Bundle {
+    fn matches(&self, wanted: &[&str]) -> bool {
+        wanted.iter().any(|w| {
+            let w = w.to_lowercase();
+            self.names.iter().any(|n| n.starts_with(&w))
+        })
+    }
+}
+
+/// `.app` bundles in each root's `Applications` folder and the folders right
+/// inside it, in root order then by name. Reads folder listings only.
+fn app_bundles(roots: &[PathBuf]) -> Vec<Bundle> {
+    let mut out = Vec::new();
+    for root in roots {
+        let apps = root.join("Applications");
+        for entry in sorted_entries(&apps) {
+            let Some(name) = file_name(&entry) else {
+                continue;
+            };
+            if let Some(stem) = app_stem(&name) {
+                out.push(Bundle {
+                    names: vec![stem.to_lowercase()],
+                    path: entry,
+                });
+            } else if entry.is_dir() && !name.starts_with('.') {
+                for inner in sorted_entries(&entry) {
+                    let Some(stem) =
+                        file_name(&inner).and_then(|n| app_stem(&n).map(str::to_owned))
+                    else {
+                        continue;
+                    };
+                    out.push(Bundle {
+                        names: vec![stem.to_lowercase(), format!("{name} {stem}").to_lowercase()],
+                        path: inner,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+fn sorted_entries(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+fn file_name(p: &Path) -> Option<String> {
+    p.file_name().map(|n| n.to_string_lossy().into_owned())
+}
+
+/// `Native Access` for `Native Access.app`; None for anything else.
+fn app_stem(name: &str) -> Option<&str> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    (ext.eq_ignore_ascii_case("app") && !stem.is_empty()).then_some(stem)
+}
+
 fn app_version(path: &Path) -> Option<String> {
     if !path.is_dir() {
         return None;
@@ -258,7 +361,23 @@ fn app_version(path: &Path) -> Option<String> {
     read_bundle_info(path)
         .ok()
         .flatten()
-        .and_then(|b| b.version().map(str::to_owned))
+        .and_then(|b| b.version().map(build_version))
+}
+
+/// PACE writes `6.0.1 GM (b6847, f802503d)` on macOS where Windows says
+/// `6.0.1.6847`; turn the first into the second so they compare. Anything
+/// else is kept as is.
+fn build_version(v: &str) -> String {
+    let tidy = || {
+        let (version, rest) = v.trim().split_once(' ')?;
+        let build = rest.split_once("(b")?.1;
+        let digits: String = build.chars().take_while(char::is_ascii_digit).collect();
+        let numeric = version
+            .split('.')
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+        (numeric && !digits.is_empty()).then(|| format!("{version}.{digits}"))
+    };
+    tidy().unwrap_or_else(|| v.to_owned())
 }
 
 fn non_empty(s: Option<&str>) -> Option<String> {
@@ -314,6 +433,21 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), ADAPTERS.len());
+    }
+
+    #[test]
+    fn pace_build_numbers_read_like_windows_versions() {
+        assert_eq!(build_version("6.0.1 GM (b6847, f802503d)"), "6.0.1.6847");
+        assert_eq!(build_version("2.12.0"), "2.12.0");
+        assert_eq!(build_version("Version 3 (beta)"), "Version 3 (beta)");
+    }
+
+    #[test]
+    fn app_stems() {
+        assert_eq!(app_stem("Native Access.app"), Some("Native Access"));
+        assert_eq!(app_stem("Native Access.APP"), Some("Native Access"));
+        assert_eq!(app_stem("Arturia"), None);
+        assert_eq!(app_stem("notes.txt"), None);
     }
 
     #[test]

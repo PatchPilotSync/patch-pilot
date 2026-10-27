@@ -60,7 +60,8 @@ pub struct Plan {
 struct Manager {
     app: &'static str,
     name: &'static str,
-    /// Lowercase substrings of product vendor names it manages.
+    /// Lowercase vendor names it manages, matched as whole words of the
+    /// product's vendor ("waves" is in "Waves Audio Ltd", not "Wavesfactory").
     vendors: &'static [&'static str],
 }
 
@@ -346,10 +347,18 @@ fn renumber(steps: &mut [Step]) {
 }
 
 fn manager_for(vendor: &str) -> Option<&'static Manager> {
-    let v = vendor.to_lowercase();
-    MANAGERS
-        .iter()
-        .find(|m| m.vendors.iter().any(|needle| v.contains(needle)))
+    let words: Vec<String> = vendor
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect();
+    MANAGERS.iter().find(|m| {
+        m.vendors.iter().any(|needle| {
+            let needle: Vec<&str> = needle.split(' ').collect();
+            words.windows(needle.len()).any(|w| w == needle.as_slice())
+        })
+    })
 }
 
 fn verb(p: &ProductDiff) -> &'static str {
@@ -394,5 +403,28 @@ fn detail(p: &ProductDiff) -> String {
             Some(v) => format!("{} {v}", p.name),
             None => p.name.clone(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vendor_apps_match_whole_vendor_words() {
+        let app = |v: &str| manager_for(v).map(|m| m.app);
+        assert_eq!(app("Waves"), Some("app/waves-central"));
+        assert_eq!(app("Waves Audio Ltd."), Some("app/waves-central"));
+        assert_eq!(app("Wavesfactory"), None);
+        assert_eq!(app("Native Instruments GmbH"), Some("app/native-access"));
+        assert_eq!(
+            app("Brainworx"),
+            Some("app/plugin-alliance-installation-manager")
+        );
+        assert_eq!(
+            app("Plugin Alliance"),
+            Some("app/plugin-alliance-installation-manager")
+        );
+        assert_eq!(app("Acme Audio"), None);
     }
 }
