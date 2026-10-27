@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.29 - 2026-10-27
+
+### Fixed
+
+- More preset folders show up on This machine. Serum and Serum 2 presets are found on a Mac, where Xfer keeps them in the Library's Audio Presets folder. Soundtoys presets are found too, and so are the shared AU and VST3 preset folders for all users.
+- Patch Pilot also finds "Presets" folders inside a plug-in maker's own folder, such as Valhalla VintageVerb, Universal Audio, Baby Audio, Slate Fresh Air or soothe2.
+
 ## 0.4.28 - 2026-10-27
 
 ### Fixed
