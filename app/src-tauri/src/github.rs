@@ -755,26 +755,29 @@ impl Remote for Api {
 
     fn files(&self, commit: &str) -> Result<Vec<RemoteFile>, String> {
         let tree = self.tree_of(commit)?;
-        let body = self.ok(self
-            .http
-            .get(self.url(&format!("git/trees/{tree}?recursive=1"))))?;
-        if body["truncated"].as_bool() == Some(true) {
-            return Err("The repo has more files than GitHub lists at once.".into());
-        }
-        Ok(body["tree"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|e| {
-                e["type"] == "blob" && matches!(e["mode"].as_str(), Some("100644" | "100755"))
-            })
-            .filter_map(|e| {
-                Some(RemoteFile {
-                    path: e["path"].as_str()?.to_owned(),
-                    id: e["sha"].as_str()?.to_owned(),
+        let list = |tree: &str, recursive: bool| {
+            let query = if recursive { "?recursive=1" } else { "" };
+            let body = self.ok(self.http.get(self.url(&format!("git/trees/{tree}{query}"))))?;
+            let entries = body["tree"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| {
+                    let is_tree = e["type"] == "tree";
+                    let file = e["type"] == "blob"
+                        && matches!(e["mode"].as_str(), Some("100644" | "100755"));
+                    (is_tree || file).then(|| {
+                        Some(github::TreeEntry {
+                            path: e["path"].as_str()?.to_owned(),
+                            id: e["sha"].as_str()?.to_owned(),
+                            is_tree,
+                        })
+                    })?
                 })
-            })
-            .collect())
+                .collect();
+            Ok((entries, body["truncated"].as_bool() == Some(true)))
+        };
+        github::walk_tree(&list, &tree)
     }
 
     fn download(&self, id: &str) -> Result<Vec<u8>, String> {

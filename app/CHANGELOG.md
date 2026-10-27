@@ -4,6 +4,16 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.33 - 2026-10-27
+
+### Fixed
+
+- Syncing with GitHub works with big repos: "The repo has more files than GitHub lists at once" no longer appears. Patch Pilot now reads a large repo's file list in pieces.
+
+### Improved
+
+- History and the Installer Vault open quickly on big rigs.
+
 ## 0.4.32 - 2026-10-27
 
 ### Changed

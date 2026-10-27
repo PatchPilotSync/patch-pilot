@@ -175,6 +175,48 @@ pub struct RemoteFile {
     pub id: String,
 }
 
+/// One entry of a tree as GitHub lists it, its path from that tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeEntry {
+    pub path: String,
+    pub id: String,
+    /// A folder; otherwise a file (links and submodules are left out).
+    pub is_tree: bool,
+}
+
+/// A tree's entries, and whether GitHub cut the list short.
+pub type Listing = (Vec<TreeEntry>, bool);
+
+/// Every file under `tree`. `list` lists a tree, all the way down when
+/// asked, and says when GitHub cut that listing short (it stops at about
+/// 100,000 entries or 7 MB). A folder whose whole listing is too big is
+/// listed one level, and each folder in it on its own, so any size of repo
+/// can be read.
+pub fn walk_tree(
+    list: &dyn Fn(&str, bool) -> Result<Listing, String>,
+    tree: &str,
+) -> Result<Vec<RemoteFile>, String> {
+    let mut out = Vec::new();
+    let mut todo = vec![(tree.to_owned(), String::new())];
+    while let Some((tree, prefix)) = todo.pop() {
+        let (entries, cut) = list(&tree, true)?;
+        let (entries, recursive) = if cut {
+            (list(&tree, false)?.0, false)
+        } else {
+            (entries, true)
+        };
+        for e in entries {
+            let path = format!("{prefix}{}", e.path);
+            if !e.is_tree {
+                out.push(RemoteFile { path, id: e.id });
+            } else if !recursive {
+                todo.push((e.id, format!("{path}/")));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The repo, as the app reaches it: reads through GitHub's REST API, a big
 /// first pull as one archive, and pushes over Git's own smart HTTP protocol,
 /// which takes thousands of files in one request.
@@ -952,6 +994,77 @@ mod tests {
             std::fs::read_to_string(pc.dir.join("MacBook/Files/new.txt")).unwrap(),
             "new"
         );
+    }
+
+    #[test]
+    fn reads_a_repo_too_big_to_list_at_once() {
+        // A tree: "a/x", "a/b/y", "a/b/z", "c".
+        let trees: HashMap<&str, Vec<TreeEntry>> = HashMap::from([
+            ("root", vec![dir("a", "ta"), file("c", "3")]),
+            ("ta", vec![file("x", "1"), dir("b", "tb")]),
+            ("tb", vec![file("y", "2"), file("z", "4")]),
+        ]);
+        fn file(path: &str, id: &str) -> TreeEntry {
+            TreeEntry {
+                path: path.into(),
+                id: id.into(),
+                is_tree: false,
+            }
+        }
+        fn dir(path: &str, id: &str) -> TreeEntry {
+            TreeEntry {
+                path: path.into(),
+                id: id.into(),
+                is_tree: true,
+            }
+        }
+        fn all(
+            trees: &HashMap<&str, Vec<TreeEntry>>,
+            t: &str,
+            prefix: &str,
+            out: &mut Vec<TreeEntry>,
+        ) {
+            for e in &trees[t] {
+                let path = format!("{prefix}{}", e.path);
+                out.push(TreeEntry {
+                    path: path.clone(),
+                    ..e.clone()
+                });
+                if e.is_tree {
+                    all(trees, &e.id, &format!("{path}/"), out);
+                }
+            }
+        }
+        // GitHub cuts a whole listing short past `limit` entries.
+        for limit in [100, 3, 1] {
+            let asked = RefCell::new(0);
+            let list = |t: &str, recursive: bool| {
+                *asked.borrow_mut() += 1;
+                if !recursive {
+                    return Ok((trees[t].clone(), false));
+                }
+                let mut out = Vec::new();
+                all(&trees, t, "", &mut out);
+                let cut = out.len() > limit;
+                out.truncate(limit);
+                Ok((out, cut))
+            };
+            let mut files: Vec<(String, String)> = walk_tree(&list, "root")
+                .unwrap()
+                .into_iter()
+                .map(|f| (f.path, f.id))
+                .collect();
+            files.sort();
+            let want = [("a/b/y", "2"), ("a/b/z", "4"), ("a/x", "1"), ("c", "3")];
+            assert_eq!(
+                files,
+                want.map(|(p, i)| (p.to_owned(), i.to_owned())),
+                "limit {limit}"
+            );
+            if limit == 100 {
+                assert_eq!(*asked.borrow(), 1, "one request when it fits");
+            }
+        }
     }
 
     #[test]
