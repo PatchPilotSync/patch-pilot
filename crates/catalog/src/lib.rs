@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use patchpilot_core::{ItemKind, Manifest, ProductId};
+use patchpilot_core::{ItemKind, Manifest, PortablePath, ProductId};
 use serde::{Deserialize, Serialize};
 
 /// Version of the catalog JSON format this build reads.
@@ -315,11 +315,21 @@ impl Catalog {
             .filter_map(|i| i.product_id.clone())
             .chain(m.items.iter().flat_map(|i| i.requires.iter().cloned()))
             .collect();
+        let folders = self.folder_vendors(m);
         let mut resolved: BTreeMap<ProductId, Resolved> = BTreeMap::new();
         for id in plugin_ids {
-            if !resolved.contains_key(&id)
-                && let Some(r) = self.resolve(&id)
-            {
+            if resolved.contains_key(&id) {
+                continue;
+            }
+            let r = match folders.get(&id) {
+                Some(&v) => self.resolve(&ProductId(id.0.replacen(
+                    UNKNOWN,
+                    &self.file.vendors[v].id,
+                    1,
+                ))),
+                None => self.resolve(&id),
+            };
+            if let Some(r) = r {
                 resolved.insert(id, r);
             }
         }
@@ -358,6 +368,39 @@ impl Catalog {
             }
         }
         changed
+    }
+
+    /// Vendors of `unknown/` plug-ins installed in a folder named after a
+    /// known vendor (`VST3/MeldaProduction/Dynamics/MCompressor.vst3`).
+    fn folder_vendors(&self, m: &Manifest) -> BTreeMap<ProductId, usize> {
+        let mut out = BTreeMap::new();
+        for item in m.items.iter().filter(|i| i.kind == ItemKind::Plugin) {
+            let Some(id) = item.product_id.as_ref().filter(|id| {
+                id.0.split_once('/')
+                    .is_some_and(|(vendor, _)| vendor == UNKNOWN)
+            }) else {
+                continue;
+            };
+            let PortablePath::Logical { rel, .. } = &item.path else {
+                continue;
+            };
+            let Some((folder, _)) = rel.split_once('/') else {
+                continue;
+            };
+            if let Some(&v) = self.vendor_by_key.get(&compact(&vendor_slug(folder))) {
+                out.entry(id.clone()).or_insert(v);
+            }
+        }
+        out
+    }
+
+    /// The vendor with this name or alias, if the catalog knows it.
+    pub fn vendor_named(&self, name: &str) -> Option<&Vendor> {
+        let key = compact(&vendor_slug(name));
+        if key.is_empty() {
+            return None;
+        }
+        self.vendor_by_key.get(&key).map(|&v| &self.file.vendors[v])
     }
 
     fn vendor_names(&self, display: &str) -> Vec<String> {
@@ -639,5 +682,77 @@ mod tests {
             ]
         );
         assert_eq!(m.items[3].requires, [id("fabfilter/pro-q-4")]);
+    }
+
+    #[test]
+    fn a_vendor_folder_names_the_vendor() {
+        use patchpilot_core::{Arch, Item, MachineInfo, Os, PathMap, PluginFormat, Product};
+        let mut m = Manifest::new(
+            MachineInfo {
+                id: "m".into(),
+                name: "m".into(),
+                os: Os::Windows,
+                arch: Arch::X86_64,
+                os_version: None,
+                path_map: PathMap::new(Os::Windows),
+            },
+            0,
+        );
+        for (pid, rel) in [
+            (
+                "unknown/mcompressor",
+                "MeldaProduction/Dynamics/MCompressor.vst3",
+            ),
+            ("unknown/loose-thing", "Loose Thing.vst3"),
+            ("unknown/other-thing", "Some Folder/Other Thing.vst3"),
+        ] {
+            m.products.push(Product {
+                canonical_id: pid.into(),
+                vendor: String::new(),
+                name: pid.trim_start_matches("unknown/").into(),
+            });
+            let mut item = Item::plugin(
+                PluginFormat::Vst3,
+                Os::Windows,
+                PortablePath::logical("VST3_SYSTEM", rel),
+            );
+            item.product_id = Some(pid.into());
+            m.items.push(item);
+        }
+        Catalog::bundled().canonicalize(&mut m);
+        let ids: Vec<(&str, &str)> = m
+            .products
+            .iter()
+            .map(|p| (p.canonical_id.0.as_str(), p.vendor.as_str()))
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                ("meldaproduction/mcompressor", "MeldaProduction"),
+                ("unknown/loose-thing", ""),
+                ("unknown/other-thing", ""),
+            ]
+        );
+    }
+
+    #[test]
+    fn vendors_by_any_name() {
+        let c = Catalog::bundled();
+        assert_eq!(
+            c.vendor_named("FabFilter Software Instruments")
+                .map(|v| v.id.as_str()),
+            Some("fabfilter")
+        );
+        assert_eq!(
+            c.vendor_named("Waves Audio Ltd.").map(|v| v.id.as_str()),
+            Some("waves")
+        );
+        assert_eq!(
+            c.vendor_named("XFER  / steve@xferrecords.com")
+                .map(|v| v.id.as_str()),
+            Some("xfer-records")
+        );
+        assert!(c.vendor_named("Nobody Audio").is_none());
+        assert!(c.vendor_named("").is_none());
     }
 }

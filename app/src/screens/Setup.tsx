@@ -10,6 +10,7 @@ import {
   setupView,
   ignoreItems,
   openVendorApp,
+  openWebPage,
   vaultMatches,
   vaultRun,
   vendorApps,
@@ -394,6 +395,20 @@ export interface Actions {
 /** Items listed under a step before "Show all". */
 const SHOWN = 5;
 
+/** `fabfilter.com` for `https://www.fabfilter.com`. */
+function siteName(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+/** A web search for a plug-in whose vendor Patch Pilot doesn't know. */
+function searchUrl(line: string): string {
+  return `https://duckduckgo.com/?q=${encodeURIComponent(`${line} plugin download`)}`;
+}
+
 export function StepRow({
   step: s,
   onTick,
@@ -409,6 +424,7 @@ export function StepRow({
   const finished = isFinished(s);
   const mark = MARK[s.status];
   const [showAll, setShowAll] = useState(false);
+  const web = (url: string) => openWebPage(url).catch((e) => actions.onError(String(e)));
   const box = (
     <span
       aria-hidden="true"
@@ -457,6 +473,15 @@ export function StepRow({
                       Run installer{installer.version ? ` ${installer.version}` : ""}
                     </button>
                   )}
+                  {!installer && s.search && (
+                    <button
+                      className="shrink-0 text-accent-text opacity-0 hover:underline focus:opacity-100 group-hover:opacity-100"
+                      title="Patch Pilot doesn't know this plug-in's vendor. Search the web for it."
+                      onClick={() => web(searchUrl(d))}
+                    >
+                      Search
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -497,6 +522,16 @@ export function StepRow({
         {s.status === "skipped" && <span className="mt-0.5 block text-[11px] text-dim">Marked done by you</span>}
       </span>
       {!finished && s.app && <AppButton app={actions.app(s.app)} onOpen={actions.open} />}
+      {!finished && s.link && (
+        <Button
+          variant="quiet"
+          className="shrink-0 self-start"
+          title={`Opens ${s.link}, where the vendor offers its downloads`}
+          onClick={() => web(s.link!)}
+        >
+          Get from {siteName(s.link)}
+        </Button>
+      )}
       {actions.ignore && s.automatic && !finished && s.open_products.length > 0 && (
         <button
           onClick={() => actions.ignore!(s.title, s.open_products)}

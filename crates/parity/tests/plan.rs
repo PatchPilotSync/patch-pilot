@@ -45,7 +45,7 @@ fn stable_ordered_plan() {
             (
                 5,
                 Phase::Manual,
-                "Install from Acme Audio's installer or website: install 2",
+                "Install from Acme Audio: install 2",
                 vec![1]
             ),
             (
@@ -63,6 +63,11 @@ fn stable_ordered_plan() {
     assert_eq!(
         plan.steps[4].details,
         ["Acme Gate 1.2", "Acme Verb: add AAX"]
+    );
+    // Acme Audio isn't in the catalog: no website to link, but a vendor.
+    assert_eq!(
+        (plan.steps[4].link.as_deref(), plan.steps[4].search),
+        (None, false)
     );
     // Steps that use a vendor app name it, so the app can open it.
     let apps: Vec<_> = plan.steps.iter().map(|s| s.app.as_deref()).collect();

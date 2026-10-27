@@ -174,6 +174,7 @@ pub fn run() {
             vault::vault_reveal,
             vault::vendor_apps,
             vault::open_vendor_app,
+            vault::open_web_page,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Patch Pilot")

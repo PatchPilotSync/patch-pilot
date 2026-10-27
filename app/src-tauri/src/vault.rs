@@ -269,6 +269,13 @@ pub async fn open_vendor_app(id: String) -> Result<Opened, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Open a vendor's `https://` website, or a web search for a plug-in, in
+/// the browser.
+#[tauri::command]
+pub async fn open_web_page(url: String) -> Result<(), String> {
+    patchpilot_local::open::open_url(&url).map_err(|e| e.to_string())
+}
+
 /// Start (or restart) watching Downloads, if there's a vault.
 pub fn watch_downloads(app: &AppHandle) {
     let state = app.state::<DownloadsWatch>();

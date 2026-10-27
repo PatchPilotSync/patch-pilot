@@ -221,6 +221,10 @@ export interface Step {
   after: number[];
   /** Vendor app this step uses (e.g. "native-access"), so it can be opened. */
   app: string | null;
+  /** The vendor's website, for plug-ins from the vendor's own downloads. */
+  link: string | null;
+  /** No known vendor: each plug-in is best found by searching for it. */
+  search: boolean;
 }
 
 export const machines = () => invoke<MachinesView>("machines");
@@ -806,6 +810,8 @@ export const vaultRun = (entryId: string) => invoke<void>("vault_run", { entryId
 export const vaultReveal = (entryId: string | null = null) => invoke<void>("vault_reveal", { entryId });
 export const vendorApps = () => invoke<VendorApp[]>("vendor_apps");
 export const openVendorApp = (id: string) => invoke<"app" | "download_page">("open_vendor_app", { id });
+/** Open an https:// page (a vendor's website, a web search) in the browser. */
+export const openWebPage = (url: string) => invoke<void>("open_web_page", { url });
 export const onVaultChanged = (f: () => void): Promise<UnlistenFn> => listen("vault-changed", () => f());
 
 // New-machine setup (src-tauri/src/setup.rs, patchpilot_parity::SetupProgress).
@@ -820,6 +826,10 @@ export interface SetupStep {
   title: string;
   /** Vendor app or licensing tool adapter ID, for an Open button. */
   app: string | null;
+  /** The vendor's website, for plug-ins from the vendor's own downloads. */
+  link: string | null;
+  /** No known vendor: each open line gets a web search link. */
+  search: boolean;
   status: StepStatus;
   /** Ticked by Patch Pilot after a rescan; false for final checks the user ticks. */
   automatic: boolean;
