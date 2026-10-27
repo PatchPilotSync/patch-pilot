@@ -13,11 +13,19 @@ export function IgnoreButton({
   onIgnore,
   title = "Stop asking for this on this machine. It no longer counts against the score.",
   disabled,
+  reveal = "row",
 }: {
   onIgnore: () => void;
   title?: string;
   disabled?: boolean;
+  /**
+   * Show on hover of the row (the nearest `group`), or of the whole checklist
+   * step (`group/step`), so a step's lines all offer it at once.
+   */
+  reveal?: "row" | "step";
 }) {
+  // One click per button: a second click while the row goes away would ignore twice.
+  const [clicked, setClicked] = useState(false);
   return (
     <button
       type="button"
@@ -26,9 +34,14 @@ export function IgnoreButton({
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (clicked) return;
+        setClicked(true);
+        setTimeout(() => setClicked(false), 2000);
         onIgnore();
       }}
-      className="h-5 shrink-0 rounded px-1.5 text-[11px] text-dim opacity-0 transition-opacity hover:bg-sel hover:text-fg focus:opacity-100 group-hover:opacity-100 disabled:opacity-0"
+      className={`h-5 shrink-0 rounded px-1.5 text-[11px] text-dim opacity-0 hover:bg-sel hover:text-fg focus-visible:opacity-100 disabled:opacity-0 ${
+        reveal === "step" ? "group-hover/step:opacity-100" : "group-hover:opacity-100"
+      }`}
     >
       Ignore
     </button>

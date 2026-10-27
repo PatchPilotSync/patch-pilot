@@ -595,7 +595,7 @@ export function StepRow({
                   )}
                   <span className="min-w-0 truncate">{d}</span>
                   {actions.ignore && s.automatic && s.open_products[n] && (
-                    <IgnoreButton onIgnore={() => actions.ignore!(d, [s.open_products[n]])} />
+                    <IgnoreButton reveal="step" onIgnore={() => actions.ignore!(d, [s.open_products[n]])} />
                   )}
                   {installer && (
                     <button
@@ -668,7 +668,7 @@ export function StepRow({
       {actions.ignore && s.automatic && !finished && s.open_products.length > 0 && (
         <button
           onClick={() => actions.ignore!(s.title, s.open_products)}
-          className="h-6 shrink-0 self-start rounded-[5px] px-2 text-[11px] text-dim opacity-0 transition-opacity hover:bg-sel hover:text-fg focus:opacity-100 group-hover/step:opacity-100"
+          className="h-6 shrink-0 self-start rounded-[5px] px-2 text-[11px] text-dim opacity-0 hover:bg-sel hover:text-fg focus-visible:opacity-100 group-hover/step:opacity-100"
           title="Stop asking for what's left in this step on this machine. It no longer counts against the score."
         >
           Ignore
