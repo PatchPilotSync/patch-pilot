@@ -4,7 +4,7 @@
 //! plug-in catalog's latest release. Only versions that parse and compare as
 //! older raise an alert; an unreadable version never does (decision #17).
 //! Formats are compared like for like where both sides have them, and a
-//! version that only leaves off detail isn't older (decision #87).
+//! version that only leaves off detail isn't older (decision #88).
 //! The alert names where the newer version was seen, so the user can judge it.
 
 use std::collections::BTreeMap;

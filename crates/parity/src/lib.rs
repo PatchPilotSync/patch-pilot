@@ -37,7 +37,7 @@ pub use identity::align_products;
 pub use inventory::{
     AppRow, FormatCount, Inventory, PresetRow, ProductRow, VendorGroup, inventory,
 };
-pub use plan::{OtherFormats, Phase, Plan, Step, up_to_speed};
+pub use plan::{Need, OtherFormats, Phase, Plan, Step, up_to_speed};
 pub use readiness::{TemplateReadiness, required_products, template_readiness};
 pub use report::{ReportOptions, ReportParity, RigReport, rig_report};
 pub use score::{ParityScore, Reason, ScoreWeights, apply_profile, score_machine};
