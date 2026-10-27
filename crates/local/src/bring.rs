@@ -471,14 +471,30 @@ fn same_here(source: &Manifest, f: &FileToBring, dir: &Path) -> bool {
     ) else {
         return false;
     };
-    let theirs = patchpilot_parity::reaper::remap_key_map(
-        &text,
-        &dir.to_string_lossy(),
-        this_os(),
-        from,
-        source.machine.os,
-    );
+    let moved = this_os() == Os::Macos && patchpilot_parity::reaper_keys::mac_form();
+    let theirs = as_sent_before_62(&text, dir, this_os(), moved, from, source.machine.os);
     hash(theirs.as_bytes()) == f.hash
+}
+
+/// This machine's key map `text` (in `dir`, on `os`) as a machine whose
+/// resource folder is `from` (on `from_os`) would have shared it before #62:
+/// with its own paths and, when this Mac keeps its shortcuts `moved` for
+/// macOS (decision #81), in the Windows form.
+fn as_sent_before_62(
+    text: &str,
+    dir: &Path,
+    os: Os,
+    moved: bool,
+    from: &str,
+    from_os: Os,
+) -> String {
+    let text =
+        patchpilot_parity::reaper::remap_key_map(text, &dir.to_string_lossy(), os, from, from_os);
+    if moved {
+        patchpilot_parity::reaper_keys::for_mac(&text)
+    } else {
+        text
+    }
 }
 
 /// The hash of the copy of `rel` below `dir` (where `root` is here) as
@@ -1333,6 +1349,23 @@ mod tests {
         let left = drop_same_here(&golden, Some(&mac), list);
         let rels: Vec<_> = left.iter().map(|f| f.rel.as_str()).collect();
         assert_eq!(rels, ["Scripts/b.lua"]);
+    }
+
+    #[test]
+    fn a_moved_mac_key_map_matches_one_shared_before_62() {
+        // A Primary Rig scanned before #62 holds the PC's own paths; this
+        // Mac's copy has its own and Cmd+H moved to Control (decision #81).
+        let pc = "SCR 4 0 RS1 \"Custom: a.lua\" \"C:\\R\\Scripts\\a.lua\"\nKEY 9 72 40001 0\n";
+        let mac = "SCR 4 0 RS1 \"Custom: a.lua\" \"/Users/j/R/Scripts/a.lua\"\nKEY 33 72 40001 0\n";
+        let here = Path::new("/Users/j/R");
+        assert_eq!(
+            as_sent_before_62(mac, here, Os::Macos, true, r"C:\R", Os::Windows),
+            pc
+        );
+        assert_ne!(
+            as_sent_before_62(mac, here, Os::Macos, false, r"C:\R", Os::Windows),
+            pc
+        );
     }
 
     #[test]

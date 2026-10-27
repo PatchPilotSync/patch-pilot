@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.22 - 2026-10-27
+
+### Fixed
+
+- On a Mac with moved Reaper shortcuts, Bring over no longer keeps offering a key map that's already here ("Already here" and the button stayed).
+
 ## 0.4.21 - 2026-10-27
 
 ### Fixed
