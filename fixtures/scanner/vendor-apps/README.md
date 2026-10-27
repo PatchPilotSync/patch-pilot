@@ -8,4 +8,7 @@ by design (CLAUDE.md rule 6).
 - `macos/root/` stands in for `/`, `macos/home/` for `~`. Covers a nested
   install path (iZotope), a per-user install (UA Connect in `~/Applications`),
   a broken `Info.plist` (Spitfire: detected, no version) and the PACE helper,
-  which is presence-only.
+  which is presence-only. Arturia Software Center sits in an `Arturia`
+  subfolder and the Plugin Alliance app is `Plugin Alliance/Installation
+  Manager.app`, both found by name; `Wavesfactory/Trackspacer.app` must not
+  count as Waves Central.

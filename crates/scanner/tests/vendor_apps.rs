@@ -80,6 +80,12 @@ fn macos_bundles() {
     assert_eq!(found["izotope-product-portal"].as_deref(), Some("1.6.2"));
     assert_eq!(found["ilok-license-manager"].as_deref(), Some("5.9.1"));
     assert_eq!(found["ua-connect"].as_deref(), Some("1.4.0"));
+    // In vendor subfolders, found by bundle name.
+    assert_eq!(found["arturia-software-center"].as_deref(), Some("2.11.0"));
+    assert_eq!(
+        found["plugin-alliance-installation-manager"].as_deref(),
+        Some("1.5.0")
+    );
     // Broken plist: installed, version unknown.
     assert_eq!(found["spitfire-audio"].as_deref(), Some(""));
     // Presence-only helper.

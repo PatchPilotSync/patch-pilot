@@ -222,10 +222,18 @@ fn plan_step(
     let mut open_lines = Vec::new();
     let mut finished = Vec::new();
     let mut open_products = Vec::new();
+    // Something missing when the plan was made can turn up older since
+    // (an old Arturia Software Center found): say what's left now.
+    let live_line = |p: &ProductId| {
+        live.steps.iter().find_map(|l| {
+            let i = l.products.iter().position(|x| x == p)?;
+            l.details.get(i).cloned()
+        })
+    };
     for (i, p) in s.products.iter().enumerate() {
         let line = s.details.get(i).cloned().unwrap_or_else(|| p.0.clone());
         if open.contains(p) {
-            open_lines.push(line);
+            open_lines.push(live_line(p).unwrap_or(line));
             open_products.push(p.clone());
         } else {
             finished.push(line);
@@ -254,7 +262,12 @@ fn plan_step(
         key,
         number: Some(s.number),
         group: s.phase.title().to_owned(),
-        title: s.title.clone(),
+        // "Install X" becomes "Update X" when that's what's left.
+        title: live
+            .steps
+            .iter()
+            .find(|l| !s.products.is_empty() && l.products == s.products)
+            .map_or_else(|| s.title.clone(), |l| l.title.clone()),
         app: s.app.clone(),
         status,
         automatic: true,
