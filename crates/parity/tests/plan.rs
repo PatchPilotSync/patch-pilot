@@ -45,7 +45,7 @@ fn stable_ordered_plan() {
             (
                 5,
                 Phase::Manual,
-                "Install from Acme Audio: install 2",
+                "Install from Acme Audio: install 1",
                 vec![1]
             ),
             (
@@ -60,9 +60,16 @@ fn stable_ordered_plan() {
         plan.steps[2].details,
         ["Kontakt 7 7.10.1 (you have 7.9.0)", "Massive X 1.4.2"]
     );
+    // Acme Verb is here without its AAX: installed, with the formats noted.
+    assert_eq!(plan.steps[4].details, ["Acme Gate 1.2"]);
+    let other: Vec<_> = plan
+        .other_formats
+        .iter()
+        .map(|o| (o.name.as_str(), o.here.clone(), o.missing.clone()))
+        .collect();
     assert_eq!(
-        plan.steps[4].details,
-        ["Acme Gate 1.2", "Acme Verb: add AAX"]
+        other,
+        [("Acme Verb", vec!["VST3".to_owned()], vec!["AAX".to_owned()])]
     );
     // Acme Audio isn't in the catalog: no website to link, but a vendor.
     assert_eq!(

@@ -25,7 +25,7 @@
     { "id": "ik-multimedia", "name": "IK Multimedia", "aliases": ["IK Multimedia Production", "IKMultimedia"], "website": "https://www.ikmultimedia.com" },
     { "id": "image-line", "name": "Image-Line", "aliases": ["Image-Line Software", "Image Line"], "website": "https://www.image-line.com" },
     { "id": "izotope", "name": "iZotope", "website": "https://www.izotope.com" },
-    { "id": "kilohearts", "name": "Kilohearts", "aliases": ["Kilohearts AB"], "website": "https://kilohearts.com" },
+    { "id": "kilohearts", "name": "Kilohearts", "aliases": ["Kilohearts AB", "kHs"], "website": "https://kilohearts.com" },
     { "id": "klanghelm", "name": "Klanghelm", "website": "https://klanghelm.com" },
     { "id": "korg", "name": "Korg", "website": "https://www.korg.com" },
     { "id": "leapwing-audio", "name": "Leapwing Audio", "website": "https://www.leapwingaudio.com" },
