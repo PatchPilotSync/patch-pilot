@@ -4,6 +4,18 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.26 - 2026-10-27
+
+### Changed
+
+- Compare says what the numbers under the score mean: "Why 72, not 100", then each reason with the points it costs, such as "205 plug-ins are missing −41 points". Reasons worth less than a point share one line instead of showing −0.
+- On the machine your Primary Rig came from, "New since v3" now reads "Not in v3 yet". Hover over it to see why: most are files Patch Pilot started tracking after that version was saved.
+- A Modified file offers "Use this machine's copy in Primary Rig".
+
+### Fixed
+
+- A Reaper key map you haven't touched no longer shows as Modified just because Patch Pilot now fingerprints key maps differently.
+
 ## 0.4.25 - 2026-10-27
 
 ### Fixed
