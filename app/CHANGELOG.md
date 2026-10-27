@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.30 - 2026-10-27
+
+### Fixed
+
+- Ignore in a Set up or Get Up To Speed step works on the first click, even when Patch Pilot's window wasn't in front. Every line in a step shows its Ignore while you point at the step, instead of some lines showing it and others not.
+
 ## 0.4.29 - 2026-10-27
 
 ### Fixed
