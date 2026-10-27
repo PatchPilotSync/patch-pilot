@@ -151,6 +151,17 @@ jobs:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           releaseBody: ${{ needs.prepare.outputs.notes }}
           updaterJsonPreferNsis: true
+      # The bundle must carry a real (ad-hoc) signature for the bundle id, not
+      # just the linker's one, or macOS asks for Documents on every launch
+      # (decision #84). A failure here stops the publish job.
+      - name: Check the Mac bundle's signature
+        if: runner.os == 'macOS'
+        run: |
+          app="app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Patch Pilot.app"
+          codesign --verify --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | tee sig.txt
+          grep -q '^Identifier=com.patchpilot.app$' sig.txt
+          /usr/libexec/PlistBuddy -c 'Print :NSDocumentsFolderUsageDescription' "$app/Contents/Info.plist"
 
   publish:
     name: Publish release
