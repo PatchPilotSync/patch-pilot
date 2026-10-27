@@ -778,3 +778,50 @@ fn keeps_the_files_each_file_needs() {
         .unwrap();
     assert_eq!(item.needs_files, m.items[i].needs_files);
 }
+
+#[test]
+fn golden_takes_new_fingerprints_of_untouched_files() {
+    let pc = fixture_manifest();
+    let i = pc
+        .items
+        .iter()
+        .position(|i| i.content_hash.is_some())
+        .unwrap();
+    let old = pc.items[i].content_hash.clone();
+    let mut store = Store::open_in_memory().unwrap();
+    store
+        .save_manifest(&pc, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    store
+        .save_golden(&pc, Some(&pc.machine.id), None, 2)
+        .unwrap();
+
+    // A newer Patch Pilot hashes the same, untouched file differently.
+    let mut rehashed = pc.clone();
+    rehashed.generated_at += 60;
+    rehashed.items[i].content_hash = Some(format!("blake3:{}", "b".repeat(64)).try_into().unwrap());
+    store
+        .save_manifest(&rehashed, SnapshotReason::Scan, 3)
+        .unwrap();
+    let g = store.golden(None).unwrap().unwrap();
+    assert_eq!(
+        g.manifest.items[i].content_hash,
+        rehashed.items[i].content_hash
+    );
+    assert_eq!(
+        store.golden(Some(1)).unwrap().unwrap().manifest.items[i].content_hash,
+        rehashed.items[i].content_hash
+    );
+
+    // Edited since (new modified time): the Primary Rig keeps its copy's hash.
+    let mut edited = rehashed.clone();
+    edited.generated_at += 60;
+    edited.items[i].mtime = edited.items[i].mtime.map(|t| t + 10);
+    store
+        .save_manifest(&edited, SnapshotReason::Scan, 4)
+        .unwrap();
+    assert_eq!(
+        store.golden(None).unwrap().unwrap().manifest.items[i].content_hash,
+        old
+    );
+}

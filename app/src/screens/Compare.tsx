@@ -23,6 +23,7 @@ import {
   vendorApps,
   type BringView,
   type ComparisonRow,
+  type Reason,
   type FileToBring,
   type MachineCard,
   type MachineComparison,
@@ -423,6 +424,34 @@ function MachineItem({ m, active, onClick }: { m: MachineCard; active: boolean; 
   );
 }
 
+/** What the score lost to, in points off 100. Reasons worth under a point fold into one line. */
+function ReasonList({ score, reasons }: { score: number; reasons: Reason[] }) {
+  const big = reasons.filter((r) => Math.round(r.points) >= 1);
+  const small = reasons.filter((r) => Math.round(r.points) < 1);
+  return (
+    <div className="flex flex-col gap-0.5 text-xs text-dim">
+      <p className="text-[11px]" title="Each item weighs by kind; anything a template needs counts three times as much.">
+        Why {score}, not 100
+      </p>
+      <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
+        {big.map((r) => {
+          const n = Math.round(r.points);
+          return (
+            <li key={r.text}>
+              {r.text} <span className="tabular-nums text-fg">−{n} point{n === 1 ? "" : "s"}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {small.length > 0 && (
+        <p>
+          Under a point each: {small.map((r) => r.text).join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Empty({ text }: { text: string }) {
   return <p className="p-6 text-dim">{text}</p>;
 }
@@ -538,13 +567,7 @@ function Diff({
               />
             ))}
           </div>
-          <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-dim">
-            {c.reasons.map((r) => (
-              <li key={r.text}>
-                <span className="tabular-nums text-fg">−{Math.round(r.points)}</span> {r.text}
-              </li>
-            ))}
-          </ul>
+          <ReasonList score={c.score} reasons={c.reasons} />
         </div>
       ) : (
         <p className="text-xs text-ok">At parity with the Primary Rig.</p>
@@ -673,7 +696,7 @@ function Diff({
             <Folder
               key={s}
               title={
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2" title={stateHint(s, machine, data.golden_version)}>
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[s]}`} aria-hidden="true" />
                   {stateLabel(s, machine, data.golden_version)}
                 </span>
@@ -965,16 +988,17 @@ function versionPair(r: ComparisonRow): string {
 
 /**
  * The Primary Rig is a saved copy of the machine it was made from, so on that
- * machine "Not in Primary" reads as missing from itself: say "new since" instead.
+ * machine "Not in Primary" reads as missing from itself: say "not in v<n> yet" instead.
  */
 function stateLabel(s: ParityState, m: MachineCard, version: number): string {
-  if (m.golden_source && s === "extra") return `New since v${version}`;
+  if (m.golden_source && s === "extra") return `Not in v${version} yet`;
   return STATE_LABEL[s];
 }
 
 function stateHint(s: ParityState, m: MachineCard, version: number): string {
   if (m.golden_source && s === "extra")
-    return `Added or found here after Primary Rig v${version} was saved. Doesn't affect the score.`;
+    return `Here, but not in Primary Rig v${version}: added after it was saved, or a kind of file Patch Pilot started tracking since. Doesn't affect the score.`;
+  if (m.golden_source && s === "modified") return `Changed here after Primary Rig v${version} was saved.`;
   if (m.golden_source && s === "newer_than_golden") return `Updated here after Primary Rig v${version} was saved.`;
   return STATE_HINT[s];
 }
@@ -1069,7 +1093,7 @@ function SuggestionsNotice({
           {r.state !== "extra"
             ? `${r.golden_version ?? "?"} → ${r.machine_version ?? "?"}`
             : source
-              ? `new since v${v}`
+              ? `not in v${v}`
               : "not in Primary Rig"}
         </span>
       </button>
@@ -1084,7 +1108,7 @@ function SuggestionsNotice({
   return (
     <Notice
       text={
-        source ? `New on ${where} since Primary Rig v${v}: ${what}` : `Could go into the Primary Rig from ${where}: ${what}`
+        source ? `On ${where}, not in Primary Rig v${v} yet: ${what}` : `Could go into the Primary Rig from ${where}: ${what}`
       }
       open={open}
       onToggle={() => setOpen(!open)}
@@ -1300,6 +1324,16 @@ function Detail({
               ? `Comes with the ${along} file${along === 1 ? "" : "s"} it needs. `
               : ""}
             {bring.hint}
+          </p>
+        </div>
+      )}
+      {row.state === "modified" && row.machine_items.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <Button variant="quiet" disabled={suggest.busy} onClick={() => suggest.add([row.product_id])} className="self-start">
+            Use {machine.name}'s copy in Primary Rig
+          </Button>
+          <p className="text-[11px] leading-relaxed text-dim">
+            Makes a new Primary Rig version with this copy, so other machines get it.
           </p>
         </div>
       )}
