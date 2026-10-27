@@ -12,6 +12,10 @@ body {
   height: 100%;
   background: #ffffff;
   color: #6e6e73;
+}
+/* body, never html: Tailwind's sizes are in rem, so a smaller html font
+   shrinks every text size and spacing in the app with it. */
+body {
   font: 12.5px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 #boot {
