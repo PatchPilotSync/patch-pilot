@@ -148,6 +148,12 @@ pub fn inspect(path: &Path, products: &[Product]) -> Option<InboxItem> {
 pub fn installable_products<'a>(manifests: impl IntoIterator<Item = &'a Manifest>) -> Vec<Product> {
     let mut out: BTreeMap<String, Product> = BTreeMap::new();
     for m in manifests {
+        let by_id: BTreeMap<&str, &Product> = m
+            .products
+            .iter()
+            .rev()
+            .map(|p| (p.canonical_id.0.as_str(), p))
+            .collect();
         for item in &m.items {
             if !matches!(
                 item.kind,
@@ -155,7 +161,11 @@ pub fn installable_products<'a>(manifests: impl IntoIterator<Item = &'a Manifest
             ) {
                 continue;
             }
-            let Some(p) = item.product_id.as_ref().and_then(|id| m.product(id)) else {
+            let Some(p) = item
+                .product_id
+                .as_ref()
+                .and_then(|id| by_id.get(id.0.as_str()).copied())
+            else {
                 continue;
             };
             out.entry(p.canonical_id.0.clone())

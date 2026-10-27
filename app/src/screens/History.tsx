@@ -11,7 +11,7 @@ import {
   type HistoryView,
   type ProductChange,
 } from "../api";
-import { Badge, Button, Folder, useFolders } from "../ui";
+import { Badge, Button, Folder, Loading, useFolders } from "../ui";
 
 interface Props {
   /** Bumped when another window or a rescan changed the data. */
@@ -25,14 +25,21 @@ type Open =
   | { kind: "back"; id: number; plan: GoBackPlan }
   | { kind: "details"; id: number };
 
+/** The last History shown, so reopening the tab shows it at once while it refreshes. */
+let lastView: HistoryView | null = null;
+
 export function History({ refreshKey, onError }: Props) {
-  const [view, setView] = useState<HistoryView | null>(null);
+  const [view, setViewState] = useState<HistoryView | null>(lastView);
+  const setView = useCallback((v: HistoryView) => {
+    lastView = v;
+    setViewState(v);
+  }, []);
   const [open, setOpen] = useState<Open | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     loadHistory().then(setView, (e) => onError(String(e)));
-  }, [refreshKey, onError]);
+  }, [refreshKey, onError, setView]);
 
   const run = useCallback(
     async (f: () => Promise<HistoryView | void>) => {
@@ -49,10 +56,10 @@ export function History({ refreshKey, onError }: Props) {
         setBusy(false);
       }
     },
-    [onError],
+    [onError, setView],
   );
 
-  if (!view) return null;
+  if (!view) return <Loading text="Loading History…" compact />;
 
   return (
     <div className="flex flex-col pb-6">
