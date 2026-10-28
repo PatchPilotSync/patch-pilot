@@ -28,13 +28,14 @@ import { History } from "./screens/History";
 import { Rig } from "./screens/Rig";
 import { Vault } from "./screens/Vault";
 import { Scanning } from "./screens/Scanning";
+import { Settings } from "./screens/Settings";
 import { Setup, SetupOffer } from "./screens/Setup";
 import { Welcome } from "./screens/Welcome";
 import { resetTour, Tour, tourPending } from "./Tour";
 import { Loading, Mark } from "./ui";
 import { UpdateBar } from "./Update";
 
-type Tab = "rig" | "compare" | "history" | "vault" | "setup";
+type Tab = "rig" | "compare" | "history" | "vault" | "setup" | "settings";
 
 export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -123,6 +124,8 @@ export default function App() {
       setTab("rig");
       setSyncSetupAt(Date.now());
     });
+    // The tray menu's Settings…
+    const unlistenSettings = listen("open-settings", () => setTab("settings"));
     const unlistenReplay = listen("replay-first-run", () => {
       resetTour();
       setReplay(true);
@@ -135,6 +138,7 @@ export default function App() {
       unlistenChanged.then((f) => f());
       unlistenVault.then((f) => f());
       unlistenReplay.then((f) => f());
+      unlistenSettings.then((f) => f());
       unlistenSyncSetup.then((f) => f());
       unlistenProgress.then((f) => f());
       unlistenUpdateScan.then((f) => f());
@@ -212,6 +216,12 @@ export default function App() {
           <button onClick={() => setTour(true)} className="text-dim hover:text-fg">
             How it works
           </button>
+          <button
+            onClick={() => setTab("settings")}
+            className={tab === "settings" ? "font-medium text-fg" : "text-dim hover:text-fg"}
+          >
+            Settings
+          </button>
         </nav>
       )}
       {replay && (
@@ -250,6 +260,14 @@ export default function App() {
           <Scanning progress={progress} updated={updateScan && !scanning} />
         ) : !overview.machine || replay ? (
           <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
+        ) : tab === "settings" ? (
+          <Settings
+            machines={view?.machines ?? []}
+            link={sync}
+            refreshKey={dataVersion}
+            onLink={() => setLinking(true)}
+            onError={onError}
+          />
         ) : tab === "setup" ? (
           <Setup onRescan={() => scan(null)} onError={onError} onChange={setSetup} />
         ) : tab === "vault" ? (

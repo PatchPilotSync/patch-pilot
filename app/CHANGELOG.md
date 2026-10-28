@@ -4,6 +4,15 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.37 - 2026-10-28
+
+### New
+
+- Settings, in the top bar and in the tray menu: everything you can set for this machine in one place. How it syncs (cloud folder, GitHub or home network), Choose what syncs, text size, light or dark, Open at login, Drift alerts, linked machines, everything you've hidden with Ignore (to bring it back), and the version with Check for Updates.
+- Text size: four steps from Smaller to Largest, for easier reading. Each machine keeps its own.
+- Theme: match the system, or always light or always dark.
+- Compare shows which templates need each missing plug-in, with a button to show each template in Finder or Explorer.
+
 ## 0.4.36 - 2026-10-27
 
 ### New

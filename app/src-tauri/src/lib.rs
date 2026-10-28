@@ -16,6 +16,7 @@ mod mac_keys;
 mod reaper;
 mod report;
 mod rig;
+mod settings;
 mod setup;
 mod sync;
 mod transfer;
@@ -86,6 +87,7 @@ pub fn run() {
             github::setup(app);
             lan::setup(app);
             tray::setup(app)?;
+            settings::apply(app);
             background::apply_login_default(app);
             if background::launched_at_login() {
                 tray::set_dock_icon(app, false);
@@ -97,6 +99,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_version,
+            settings::settings_view,
+            settings::set_open_at_login,
+            settings::set_drift_alerts,
+            settings::set_text_size,
+            settings::set_theme,
             reveal_path,
             rig::overview,
             rig::scan_machine,

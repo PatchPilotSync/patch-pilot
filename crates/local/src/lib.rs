@@ -24,6 +24,7 @@ pub mod setup;
 pub mod sync;
 pub mod sync_prefs;
 pub mod transfer;
+pub mod ui_prefs;
 pub mod up_to_speed;
 pub mod vault;
 mod watch;
