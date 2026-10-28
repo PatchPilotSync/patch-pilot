@@ -1,6 +1,6 @@
 [package]
 name = "patchpilot-app"
-version = "0.4.38"
+version = "0.4.39"
 description = "Patch Pilot desktop app"
 edition = "2024"
 rust-version = "1.88"
@@ -48,6 +48,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"
 # The Rig Report's Save dialog. Rust writes the file, so no fs permissions.
 tauri-plugin-dialog = "2"
+# Local time for notification quiet hours (decision #97).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

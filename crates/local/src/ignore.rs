@@ -129,6 +129,73 @@ pub fn unignore(store: &mut Store, machine: &str, key: &str, now: i64) -> Result
     Ok(())
 }
 
+/// A DAW Settings can stop watching on a machine (decision #97).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Daw {
+    Reaper,
+    Live,
+}
+
+impl Daw {
+    pub const ALL: [Daw; 2] = [Daw::Reaper, Daw::Live];
+
+    /// The ignore that turning it off adds, listed under Hidden items.
+    pub fn label(self) -> &'static str {
+        match self {
+            Daw::Reaper => "Reaper (not used on this machine)",
+            Daw::Live => "Ableton Live (not used on this machine)",
+        }
+    }
+
+    /// Everything of the DAW's own folders: its files, templates and settings.
+    pub fn rules(self) -> Vec<Matcher> {
+        let roots: &[&str] = match self {
+            Daw::Reaper => &[patchpilot_parity::reaper::REAPER_RESOURCES],
+            Daw::Live => &[
+                patchpilot_parity::ableton::ABLETON_USER_LIBRARY,
+                patchpilot_parity::ableton::ABLETON_PREFS,
+            ],
+        };
+        roots
+            .iter()
+            .map(|r| Matcher::PathGlob(format!("{r}/**")))
+            .collect()
+    }
+}
+
+/// Whether `machine` watches `daw`: no ignore of its folders is in force there.
+pub fn daw_watched(store: &Store, machine: &str, daw: Daw) -> Result<bool, String> {
+    let key = patchpilot_core::ignore_key(&daw.rules());
+    Ok(!store
+        .ignores_for(machine)
+        .map_err(err)?
+        .iter()
+        .any(|e| e.key() == key))
+}
+
+/// Stop or start watching `daw` on `machine`. Off is an ignore of the DAW's
+/// folders on this machine, so the score, Get Up To Speed, Bring over and
+/// alerts stop asking for its files, and scans skip it; on takes it back.
+pub fn set_daw_watched(
+    store: &mut Store,
+    machine: &str,
+    daw: Daw,
+    on: bool,
+    now: i64,
+) -> Result<(), String> {
+    if on {
+        unignore(
+            store,
+            machine,
+            &patchpilot_core::ignore_key(&daw.rules()),
+            now,
+        )
+    } else {
+        ignore(store, machine, daw.label(), daw.rules(), false, now)
+    }
+}
+
 /// Distinct Primary Rig products with an item one of `rules` matches.
 fn hidden_products(golden: &Manifest, rules: &[Matcher]) -> usize {
     golden
@@ -244,5 +311,48 @@ mod tests {
         ignore(&mut store, "laptop", "B", rules, false, 2).unwrap();
         let c = patchpilot_parity::compare(&golden, &store.target_for("laptop").unwrap(), &laptop);
         assert_eq!(patchpilot_parity::suggestions(&c).count(), 0);
+    }
+
+    #[test]
+    fn a_daw_turned_off_leaves_the_score_and_comes_back() {
+        let mut golden = rig("studio", &["acme/a"]);
+        let laptop = rig("laptop", &["acme/a"]);
+        let mut template = Item::plugin(
+            PluginFormat::Vst3,
+            Os::Windows,
+            PortablePath::logical(
+                patchpilot_parity::reaper::REAPER_RESOURCES,
+                "TrackTemplates/Drums.RTrackTemplate",
+            ),
+        );
+        template.kind = patchpilot_core::ItemKind::DawAsset;
+        template.format = None;
+        template.product_id = Some(ProductId("reaper-template/Drums.RTrackTemplate".into()));
+        golden.products.push(Product {
+            canonical_id: ProductId("reaper-template/Drums.RTrackTemplate".into()),
+            vendor: "Reaper".into(),
+            name: "Drums".into(),
+        });
+        golden.items.push(template);
+        let mut store = Store::open_in_memory().unwrap();
+        crate::save_scan(&mut store, &golden).unwrap();
+        store.save_golden(&golden, Some("studio"), None, 1).unwrap();
+        crate::save_scan(&mut store, &laptop).unwrap();
+        let score = |s: &Store| {
+            let g = s.golden(None).unwrap().unwrap().manifest;
+            patchpilot_parity::compare(&g, &s.target_for("laptop").unwrap(), &laptop).score
+        };
+        assert!(score(&store) < 100);
+        assert!(daw_watched(&store, "laptop", Daw::Reaper).unwrap());
+
+        set_daw_watched(&mut store, "laptop", Daw::Reaper, false, 2).unwrap();
+        assert_eq!(score(&store), 100);
+        assert!(!daw_watched(&store, "laptop", Daw::Reaper).unwrap());
+        assert!(daw_watched(&store, "laptop", Daw::Live).unwrap());
+        assert!(daw_watched(&store, "studio", Daw::Reaper).unwrap());
+
+        set_daw_watched(&mut store, "laptop", Daw::Reaper, true, 3).unwrap();
+        assert!(score(&store) < 100);
+        assert!(daw_watched(&store, "laptop", Daw::Reaper).unwrap());
     }
 }

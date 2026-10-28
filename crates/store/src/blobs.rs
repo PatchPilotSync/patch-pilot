@@ -73,6 +73,47 @@ impl BlobStore {
         self.path(hash).is_ok_and(|p| p.is_file())
     }
 
+    /// Remove blobs not in `keep` whose files are older than `min_age`, so a
+    /// blob just written for a restore point not yet recorded stays. Returns
+    /// the bytes freed.
+    pub fn remove_unused(
+        &self,
+        keep: &std::collections::HashSet<String>,
+        min_age: std::time::Duration,
+    ) -> u64 {
+        let mut freed = 0;
+        let Ok(dirs) = std::fs::read_dir(&self.dir) else {
+            return 0;
+        };
+        for dir in dirs.flatten() {
+            let prefix = dir.file_name().to_string_lossy().into_owned();
+            let Ok(files) = std::fs::read_dir(dir.path()) else {
+                continue;
+            };
+            for file in files.flatten() {
+                let hash = format!("{PREFIX}{prefix}{}", file.file_name().to_string_lossy());
+                let Ok(meta) = file.metadata() else {
+                    continue;
+                };
+                let old = meta
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.elapsed().ok())
+                    .is_some_and(|age| age >= min_age);
+                // Only real blobs: never a temp file or anything else in the folder.
+                if old
+                    && meta.is_file()
+                    && !keep.contains(&hash)
+                    && self.path(&hash).is_ok()
+                    && std::fs::remove_file(file.path()).is_ok()
+                {
+                    freed += meta.len();
+                }
+            }
+        }
+        freed
+    }
+
     fn path(&self, hash: &str) -> Result<PathBuf> {
         let hex = hash
             .strip_prefix(PREFIX)
@@ -95,6 +136,25 @@ fn io(path: &Path, source: std::io::Error) -> StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_only_unused_blobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = BlobStore::new(dir.path());
+        let kept = blobs.put(b"kept").unwrap();
+        let gone = blobs.put(b"gone").unwrap();
+        std::fs::write(dir.path().join("notes.txt"), "not a blob").unwrap();
+        let keep = std::collections::HashSet::from([kept.clone()]);
+        // Too new to remove yet.
+        assert_eq!(
+            blobs.remove_unused(&keep, std::time::Duration::from_secs(3600)),
+            0
+        );
+        assert_eq!(blobs.remove_unused(&keep, std::time::Duration::ZERO), 4);
+        assert!(blobs.contains(&kept));
+        assert!(!blobs.contains(&gone));
+        assert!(dir.path().join("notes.txt").exists());
+    }
 
     #[test]
     fn round_trip_and_dedupe() {

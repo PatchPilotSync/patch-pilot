@@ -46,6 +46,10 @@ fn check(app: &AppHandle) {
     let Ok(alerts) = patchpilot_local::golden::check_alerts(&store, dir, this.as_deref()) else {
         return;
     };
+    // Quiet hours (decision #97): skipped, not saved for later; the app shows drift anyway.
+    if !crate::settings::may_notify() {
+        return;
+    }
     for alert in alerts {
         // Best effort: a missing notification permission shouldn't break anything.
         let _ = app

@@ -220,6 +220,10 @@ fn sync_now(app: &AppHandle) -> Result<Option<SyncReport>, String> {
 }
 
 fn notify(app: &AppHandle, report: &SyncReport) {
+    // Settings (decision #97): off, or in quiet hours. The app still shows it all.
+    if !crate::settings::app_prefs().sync_notices || !crate::settings::may_notify() {
+        return;
+    }
     let state = autosync::load_state(&app_dir().unwrap_or_default());
     let mut lines = Vec::new();
     if !report.placed.is_empty() {

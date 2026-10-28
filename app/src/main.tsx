@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { onUiChanged, settingsView, type Theme } from "./api";
+import { onUiChanged, settingsView, type SettingsView } from "./api";
 import App from "./App";
 import { Tray } from "./screens/Tray";
 import "./index.css";
@@ -9,12 +9,16 @@ import "./index.css";
 // One front end, two windows: the main window and the tray popover.
 const isTray = getCurrentWindow().label === "tray";
 
-// Settings can pin light or dark (decision #96); "system" follows the OS.
-function applyTheme(theme: Theme) {
-  if (theme === "system") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = theme;
+// Settings can pin light or dark (decision #96; "system" follows the OS) and
+// draw everything a little tighter (compact, decision #97).
+function applyLook(v: SettingsView) {
+  const root = document.documentElement.dataset;
+  if (v.theme === "system") delete root.theme;
+  else root.theme = v.theme;
+  if (v.compact) root.density = "compact";
+  else delete root.density;
 }
-settingsView().then((v) => applyTheme(v.theme), () => {});
-onUiChanged((v) => applyTheme(v.theme));
+settingsView().then(applyLook, () => {});
+onUiChanged(applyLook);
 
 createRoot(document.getElementById("root")!).render(<StrictMode>{isTray ? <Tray /> : <App />}</StrictMode>);

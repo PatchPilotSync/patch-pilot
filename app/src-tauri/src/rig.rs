@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use patchpilot_core::{Manifest, Os};
+use patchpilot_local::ignore::Daw;
 use patchpilot_local::{ScanOptions, Stage};
 use patchpilot_parity::{Inventory, inventory};
 use patchpilot_store::{Store, StoreError};
@@ -198,7 +199,16 @@ fn scan_blocking(
         .or_else(|| store.machine(&id).ok().map(|m| m.name))
         .unwrap_or_else(|| "This machine".to_owned());
 
-    let scan = patchpilot_local::scan_this_machine(ScanOptions::standard(id.clone(), name), |s| {
+    // Settings' extra plug-in folders and DAWs not used here (decision #97).
+    let prefs = patchpilot_local::app_prefs::load(patchpilot_local::app_dir(&db));
+    let watched = |daw| patchpilot_local::ignore::daw_watched(&store, &id, daw).unwrap_or(true);
+    let opts = ScanOptions {
+        extra_roots: prefs.extra_roots(),
+        watch_reaper: watched(Daw::Reaper),
+        watch_live: watched(Daw::Live),
+        ..ScanOptions::standard(id.clone(), name)
+    };
+    let scan = patchpilot_local::scan_this_machine(opts, |s| {
         let step = match s {
             Stage::VendorApps => 1,
             Stage::Plugins => 2,

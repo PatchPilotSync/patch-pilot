@@ -76,6 +76,8 @@ pub fn run() {
         .manage(tray::LastHidden::default())
         .setup(|app| {
             let app = app.handle();
+            // Before anything opens the store (Settings' Start over).
+            settings::finish_reset();
             mac_keys::setup(app);
             sync::setup(app);
             alerts::setup(app);
@@ -88,8 +90,12 @@ pub fn run() {
             lan::setup(app);
             tray::setup(app)?;
             settings::apply(app);
+            {
+                let handle = app.clone();
+                std::thread::spawn(move || settings::prune_restore_points(&handle));
+            }
             background::apply_login_default(app);
-            if background::launched_at_login() {
+            if background::launched_at_login() && !settings::app_prefs().window_at_login {
                 tray::set_dock_icon(app, false);
             } else {
                 tray::show_main(app);
@@ -104,6 +110,11 @@ pub fn run() {
             settings::set_drift_alerts,
             settings::set_text_size,
             settings::set_theme,
+            settings::set_compact,
+            settings::set_app_prefs,
+            settings::set_daw_watched,
+            settings::open_data_folder,
+            settings::reset_this_machine,
             reveal_path,
             rig::overview,
             rig::scan_machine,
