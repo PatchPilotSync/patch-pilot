@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* Theme "Mica + Frost": Windows 11 flyout shapes in macOS frosted-glass colours.
-   Light and dark follow the OS setting. Components use the semantic colours
+   Light and dark follow the OS setting unless Settings picks one. Components use the semantic colours
    below (bg-canvas, text-dim, border-line, ...) rather than raw palette ones. */
 
 :root {
@@ -22,8 +22,13 @@
   --pp-bad: #d70015;
 }
 
+/* Settings can pin light or dark (decision #96): data-theme on <html>. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --pp-canvas: #1e1e22;
     --pp-panel: #26262b;
     --pp-fg: #f2f2f7;
@@ -38,6 +43,23 @@
     --pp-warn: #ffd60a;
     --pp-bad: #ff6961;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --pp-canvas: #1e1e22;
+  --pp-panel: #26262b;
+  --pp-fg: #f2f2f7;
+  --pp-dim: #a1a1a8;
+  --pp-line: #34343a;
+  --pp-sel: #34343a;
+  --pp-track: #3a3a40;
+  --pp-accent: #0a64f0;
+  --pp-on-accent: #ffffff;
+  --pp-accent-text: #6aa5ff;
+  --pp-ok: #32d74b;
+  --pp-warn: #ffd60a;
+  --pp-bad: #ff6961;
 }
 
 @theme inline {

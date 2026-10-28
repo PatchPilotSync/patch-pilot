@@ -54,6 +54,7 @@ export function IgnoredToggle({
   machine,
   onError,
   what = (v) => (v.hidden ? `${v.hidden} item${v.hidden === 1 ? "" : "s"}` : ""),
+  listed = false,
 }: {
   ignores: IgnoreView[];
   /** The machine they're on; null for this one. */
@@ -61,8 +62,10 @@ export function IgnoredToggle({
   onError: (e: string) => void;
   /** How much each one hides, e.g. "12 files". */
   what?: (v: IgnoreView) => string;
+  /** Always open, with no "N ignored" toggle (Settings). */
+  listed?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(listed);
   const [busy, setBusy] = useState(false);
   if (!ignores.length) return null;
   const run = (p: Promise<void>) => {
@@ -71,16 +74,18 @@ export function IgnoredToggle({
   };
   return (
     <div className="text-[11px]">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="text-dim underline-offset-2 hover:text-fg hover:underline"
-      >
-        {ignores.length} ignored{open ? "" : "…"}
-      </button>
+      {!listed && (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="text-dim underline-offset-2 hover:text-fg hover:underline"
+        >
+          {ignores.length} ignored{open ? "" : "…"}
+        </button>
+      )}
       {open && (
-        <ul className="mt-1 flex flex-col">
+        <ul className={`${listed ? "" : "mt-1 "}flex flex-col`}>
           {ignores.map((v) => (
             <li key={v.key} className="flex h-7 items-center gap-2 rounded-[5px] px-1 hover:bg-sel/50">
               <span className="min-w-0 flex-1 truncate text-xs" title={v.label}>

@@ -57,10 +57,13 @@ export function BackupLine({
   onError,
   fresh,
   openAt,
+  choices = true,
 }: {
   onError: (e: string) => void;
   fresh: boolean;
   openAt?: number;
+  /** Choose what syncs inside Show; Settings lists it on its own instead. */
+  choices?: boolean;
 }) {
   const [view, setView, load] = useBackupView(onError);
   const [sync, setSync] = useSyncView(onError, view);
@@ -184,7 +187,7 @@ export function BackupLine({
         onToggle={() => setOpen((o) => !o)}
         toggle={[view.settings.folder ? (offerRestore ? "Sync with…" : "Show") : "Set up", "Hide"]}
       >
-        <Details view={view} onView={setView} sync={sync} onSync={setSync} onError={onError} />
+        <Details view={view} onView={setView} sync={sync} onSync={setSync} choices={choices} onError={onError} />
       </Notice>
       <Conflicts sync={sync} onSync={setSync} onError={onError} />
     </>
@@ -366,6 +369,7 @@ function Details({
   onView,
   sync,
   onSync,
+  choices = true,
   onError,
 }: {
   view: BackupView;
@@ -373,6 +377,7 @@ function Details({
   /** Absent in Set up's restore, which only restores. */
   sync?: SyncView;
   onSync?: (v: SyncView) => void;
+  choices?: boolean;
   onError: (e: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
@@ -556,7 +561,7 @@ function Details({
       )}
       {last && last.skipped.length > 0 && <Skipped files={last.skipped} onError={onError} />}
       {sync?.on && <SyncSummary sync={sync} />}
-      {sync?.on && <SyncChoices onError={onError} />}
+      {sync?.on && choices && <SyncChoices onError={onError} />}
       {/* While syncing, this machine's own backups would only offer its own files back. */}
       <Restore
         sets={view.sets}
@@ -670,10 +675,11 @@ function SyncSummary({ sync }: { sync: SyncView }) {
 /**
  * Sync preferences (decision #80): a checkbox per kind of file or setting,
  * under Reaper, Ableton Live and Plug-ins. A kind turned off stays this
- * machine's own: it neither comes here nor goes from here.
+ * machine's own: it neither comes here nor goes from here. Settings shows
+ * the same list, always open (`listed`).
  */
-function SyncChoices({ onError }: { onError: (e: string) => void }) {
-  const [open, setOpen] = useState(false);
+export function SyncChoices({ onError, listed = false }: { onError: (e: string) => void; listed?: boolean }) {
+  const [open, setOpen] = useState(listed);
   const [kinds, setKinds] = useState<SyncKind[] | null>(null);
   useEffect(() => {
     syncPrefsView().then(setKinds, (e) => onError(String(e)));
@@ -693,9 +699,11 @@ function SyncChoices({ onError }: { onError: (e: string) => void }) {
 
   return (
     <div className="text-[11px]">
-      <Button variant="link" className="h-5 px-0" onClick={() => setOpen(!open)}>
-        Choose what syncs{off > 0 ? ` (${off} kept on this machine only)` : ""} {open ? "▾" : "▸"}
-      </Button>
+      {!listed && (
+        <Button variant="link" className="h-5 px-0" onClick={() => setOpen(!open)}>
+          Choose what syncs{off > 0 ? ` (${off} kept on this machine only)` : ""} {open ? "▾" : "▸"}
+        </Button>
+      )}
       {open && (
         <div className="mt-1 flex flex-col gap-2">
           {apps.map((app) => (

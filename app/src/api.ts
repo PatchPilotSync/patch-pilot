@@ -1072,3 +1072,28 @@ export const findDuplicates = () => invoke<Duplicates>("find_duplicates");
 /** Remove the extra copies as one restore point (History can undo it), then rescan. */
 export const cleanUpDuplicates = (choices: { keep: string; remove: string[] }[]) =>
   invoke<CleanUp>("clean_up_duplicates", { choices });
+
+// ---- Settings (decision #96) ----
+
+export type Theme = "system" | "light" | "dark";
+
+/** Mirrors `SettingsView` in `src-tauri/src/settings.rs`. */
+export interface SettingsView {
+  open_at_login: boolean;
+  drift_alerts: boolean;
+  /** The main window's zoom, one of `text_sizes`; 1 is the default. */
+  text_size: number;
+  theme: Theme;
+  text_sizes: number[];
+}
+
+export const settingsView = () => invoke<SettingsView>("settings_view");
+export const setOpenAtLogin = (on: boolean) => invoke<SettingsView>("set_open_at_login", { on });
+export const setDriftAlerts = (on: boolean) => invoke<SettingsView>("set_drift_alerts", { on });
+export const setTextSize = (size: number) => invoke<SettingsView>("set_text_size", { size });
+export const setTheme = (theme: Theme) => invoke<SettingsView>("set_theme", { theme });
+/** Text size or theme changed, in either window. */
+export const onUiChanged = (f: (v: SettingsView) => void): Promise<UnlistenFn> =>
+  listen<SettingsView>("ui-changed", (e) => f(e.payload));
+/** The tray menu changed Open at Login or Drift Alerts. */
+export const onSettingsChanged = (f: () => void): Promise<UnlistenFn> => listen("settings-changed", f);

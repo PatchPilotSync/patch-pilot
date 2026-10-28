@@ -33,6 +33,7 @@ const ICON: &[u8] = include_bytes!("../icons/tray-white@2x.png");
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Patch Pilot", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     // Temporary, for testing onboarding: shows the welcome screen and tour again
     // without touching any saved data. Remove before a public launch.
     let replay = MenuItem::with_id(app, "replay", "Replay First Run", true, None::<&str>)?;
@@ -65,11 +66,17 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         crate::autosync::enabled(),
         None::<&str>,
     )?;
-    app.manage(SyncItem(sync.clone()));
+    app.manage(Checks {
+        at_login: at_login.clone(),
+        alerts: alerts.clone(),
+        sync: sync.clone(),
+    });
     let quit = MenuItem::with_id(app, "quit", "Quit Patch Pilot", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&open, &updates, &replay, &at_login, &alerts, &sync, &quit],
+        &[
+            &open, &settings, &updates, &replay, &at_login, &alerts, &sync, &quit,
+        ],
     )?;
 
     TrayIconBuilder::with_id(ID)
@@ -80,6 +87,10 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => show_main(app),
+            "settings" => {
+                show_main(app);
+                let _ = app.emit_to(MAIN, "open-settings", ());
+            }
             "replay" => {
                 show_main(app);
                 let _ = app.emit_to(MAIN, "replay-first-run", ());
@@ -98,10 +109,12 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                     autolaunch.disable()
                 };
                 let _ = at_login.set_checked(autolaunch.is_enabled().unwrap_or(false));
+                let _ = app.emit_to(MAIN, crate::settings::SETTINGS_CHANGED, ());
             }
             "alerts" => {
                 crate::alerts::set_enabled(alerts.is_checked().unwrap_or(true));
                 let _ = alerts.set_checked(crate::alerts::enabled());
+                let _ = app.emit_to(MAIN, crate::settings::SETTINGS_CHANGED, ());
             }
             "sync" => {
                 let on = sync.is_checked().unwrap_or(false);
@@ -152,13 +165,27 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// The tray menu's "Keep Files in Sync" item, to keep its tick current.
-struct SyncItem(CheckMenuItem<tauri::Wry>);
+/// The tray menu's ticked items, to keep them current when Settings changes them.
+struct Checks {
+    at_login: CheckMenuItem<tauri::Wry>,
+    alerts: CheckMenuItem<tauri::Wry>,
+    sync: CheckMenuItem<tauri::Wry>,
+}
 
 /// Make the tray's "Keep Files in Sync" tick match the setting.
 pub fn refresh_sync_check(app: &AppHandle) {
-    if let Some(item) = app.try_state::<SyncItem>() {
-        let _ = item.0.set_checked(crate::autosync::enabled());
+    if let Some(checks) = app.try_state::<Checks>() {
+        let _ = checks.sync.set_checked(crate::autosync::enabled());
+    }
+}
+
+/// Make the tray's Open at Login and Drift Alerts ticks match the settings.
+pub fn refresh_checks(app: &AppHandle) {
+    if let Some(checks) = app.try_state::<Checks>() {
+        let _ = checks
+            .at_login
+            .set_checked(app.autolaunch().is_enabled().unwrap_or(false));
+        let _ = checks.alerts.set_checked(crate::alerts::enabled());
     }
 }
 
