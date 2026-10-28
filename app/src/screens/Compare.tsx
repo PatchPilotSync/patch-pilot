@@ -34,6 +34,7 @@ import {
   type SetupProgress,
   type SetupStep,
   type SuggestionGroup,
+  type TemplateReadiness,
   type VaultMatch,
   type VendorApp,
 } from "../api";
@@ -41,10 +42,12 @@ import { IgnoreButton, IgnoredToggle, pathRules, productRules, useIgnores } from
 import { bringSummary, isReaperScript, isTemplate, Needs } from "../bring";
 import { OtherFormatsNote, StepExtras, StepList, useQuickSteps, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
+import { TemplateLine } from "../Templates";
 import {
   Badge,
   Button,
   buildTree,
+  Chevron,
   Folder,
   FolderControls,
   FolderTree,
@@ -633,7 +636,7 @@ function Diff({
           </p>
         )}
 
-        <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} />
+        <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} onError={onError} />
         <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
         <div className="px-2">
           <IgnoredToggle ignores={data.ignores} machine={machine.is_this_machine ? null : machine.id} onError={onError} />
@@ -799,8 +802,8 @@ interface NeededPlugin {
   vendor: string;
   /** Its comparison row, when the Primary Rig has it. */
   row: ComparisonRow | null;
-  /** Template paths, e.g. `FXChains/Bus Glue.RfxChain`. */
-  templates: string[];
+  /** The templates that use it, A to Z. */
+  templates: TemplateReadiness[];
 }
 
 /** The not-ready templates of one app, with the plug-ins they lack. */
@@ -818,18 +821,21 @@ function templateApp(productId: string): string {
 
 /**
  * Templates that would open with empty plug-in slots: one line, expandable to
- * the plug-ins they lack, grouped by the app the templates belong to.
+ * the plug-ins they lack, grouped by the app the templates belong to. Each
+ * plug-in opens to the templates that use it.
  */
 function TemplatesNotice({
   data,
   selected,
   onSelect,
   onPlan,
+  onError,
 }: {
   data: MachineComparison;
   selected: ComparisonRow | null;
   onSelect: (r: ComparisonRow) => void;
   onPlan: () => void;
+  onError: (e: string) => void;
 }) {
   const c = data.comparison;
   const [open, setOpen] = useState(false);
@@ -850,16 +856,22 @@ function TemplatesNotice({
           p = { id, ...(row ? { name: row.name, vendor: row.vendor } : nameFromId(id)), row, templates: [] };
           group.plugins.set(id, p);
         }
-        p.templates.push(t.name);
+        p.templates.push(t);
       }
     }
     return [...byApp]
       .map(([app, g]): AppTemplates => ({
         app,
         templates: g.templates,
-        plugins: [...g.plugins.values()].sort(
-          (a, b) => b.templates.length - a.templates.length || a.name.localeCompare(b.name),
-        ),
+        plugins: [...g.plugins.values()]
+          .map((p) => ({ ...p, templates: p.templates.sort((a, b) => a.name.localeCompare(b.name)) }))
+          // In the Primary Rig first: those count in the score.
+          .sort(
+            (a, b) =>
+              Number(!a.row) - Number(!b.row) ||
+              b.templates.length - a.templates.length ||
+              a.name.localeCompare(b.name),
+          ),
       }))
       .sort((a, b) => a.app.localeCompare(b.app));
   }, [c]);
@@ -869,26 +881,26 @@ function TemplatesNotice({
   const p = new Set(apps.flatMap((a) => a.plugins.map((n) => n.id))).size;
   const anyInGolden = apps.some((a) => a.plugins.some((n) => n.row));
   const anyOutside = apps.some((a) => a.plugins.some((n) => !n.row));
-  const who = data.machine.is_this_machine ? "this machine doesn't" : `${data.machine.name} doesn't`;
+  const who = data.machine.is_this_machine ? "this machine doesn't have" : `${data.machine.name} doesn't have`;
   return (
     <Notice
       tone="warn"
       text={
-        <>
-          {t} {apps.length === 1 ? `${apps[0].app} ` : ""}template{t === 1 ? "" : "s"} need{t === 1 ? "s" : ""}{" "}
-          {p === 1 ? "a plug-in" : `${p} plug-ins`} {who} have
-        </>
+        <span title={`${plural(t, "template")} use ${plural(p, "plug-in")} ${who}`}>
+          {t} {apps.length === 1 ? `${apps[0].app} ` : ""}
+          {t === 1 ? `template is missing ${p === 1 ? "a plug-in" : "plug-ins"}` : "templates are missing plug-ins"}
+        </span>
       }
       open={open}
       onToggle={() => setOpen(!open)}
     >
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 text-dim">
+      <div className="flex flex-wrap items-center gap-x-2">
+        <p className="min-w-[12rem] flex-1 text-dim">
           They'd open with empty plug-in slots.
           {anyOutside && " Only plug-ins in the Primary Rig count in the score."}
         </p>
         {anyInGolden && (
-          <Button variant="link" onClick={onPlan} className="h-6 shrink-0 px-2">
+          <Button variant="link" onClick={onPlan} className="-ml-2 h-6 shrink-0 px-2">
             {data.machine.is_this_machine ? "Open Up To Speed" : "See its checklist"}
           </Button>
         )}
@@ -899,17 +911,29 @@ function TemplatesNotice({
             key={a.app}
             title={a.app}
             count={a.plugins.length}
-            className="px-2"
+            className="rounded-[5px] px-2"
             // A lone app needs no extra click.
             open={apps.length === 1 || folders.isOpen(a.app)}
             onToggle={() => folders.toggle(a.app)}
-            badges={
-              <span className="text-[11px] text-dim">
-                {a.templates} template{a.templates === 1 ? "" : "s"}
-              </span>
-            }
+            badges={<span className="shrink-0 text-[11px] text-dim">{plural(a.templates, "template")}</span>}
           >
-            <AppGroup group={a} selected={selected} onSelect={onSelect} />
+            <ul className="flex flex-col">
+              {a.plugins.map((n, i) => (
+                <NeededPluginRow
+                  heading={!n.row && (i === 0 || a.plugins[i - 1].row) ? "Not in the Primary Rig" : undefined}
+                  key={n.id}
+                  plugin={n}
+                  here={data.machine.is_this_machine}
+                  open={folders.isOpen(`${a.app}/${n.id}`)}
+                  onToggle={() => {
+                    folders.toggle(`${a.app}/${n.id}`);
+                    if (n.row) onSelect(n.row);
+                  }}
+                  selected={selected?.product_id === n.id}
+                  onError={onError}
+                />
+              ))}
+            </ul>
           </Folder>
         ))}
       </div>
@@ -917,59 +941,52 @@ function TemplatesNotice({
   );
 }
 
-function AppGroup({
-  group: g,
+/** A missing plug-in that opens to the templates that use it. */
+function NeededPluginRow({
+  plugin: n,
+  heading,
+  here,
+  open,
+  onToggle,
   selected,
-  onSelect,
+  onError,
 }: {
-  group: AppTemplates;
-  selected: ComparisonRow | null;
-  onSelect: (r: ComparisonRow) => void;
+  plugin: NeededPlugin;
+  /** A divider label above this row. */
+  heading?: string;
+  here: boolean;
+  open: boolean;
+  onToggle: () => void;
+  selected: boolean;
+  onError: (e: string) => void;
 }) {
   return (
-    <div>
-      <ul className="flex flex-col pl-4">
-        {g.plugins.map((n) => {
-          const body = (
-            <>
-              <span className="shrink-0">
-                {n.name}
-                {n.vendor && <span className="ml-1.5 text-dim">{n.vendor}</span>}
-              </span>
-              {!n.row && <Badge>not in Primary Rig</Badge>}
-              <span className="min-w-0 flex-1 truncate text-right text-[11px] text-dim">
-                {n.templates.length === 1
-                  ? templateLabel(n.templates[0])
-                  : `${n.templates.length} templates · ${n.templates.map(templateLabel).join(", ")}`}
-              </span>
-            </>
-          );
-          const look = "flex h-6 w-full items-center gap-2 rounded-[5px] px-2 text-left";
-          return (
-            <li key={n.id} title={`Used by:\n${n.templates.join("\n")}`}>
-              {n.row ? (
-                <button
-                  onClick={() => n.row && onSelect(n.row)}
-                  className={`${look} ${selected?.product_id === n.id ? "bg-sel" : "hover:bg-sel/50"}`}
-                >
-                  {body}
-                </button>
-              ) : (
-                <div className={look}>{body}</div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+    <li>
+      {heading && <p className="pb-0.5 pl-5 pt-1.5 text-[11px] text-dim">{heading}</p>}
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`flex h-6 w-full items-center gap-1.5 rounded-[5px] pl-5 pr-2 text-left ${selected ? "bg-sel" : "hover:bg-sel/50"}`}
+      >
+        <Chevron open={open} />
+        <span className="max-w-[70%] shrink-0 truncate">{n.name}</span>
+        <span className="min-w-0 flex-1 truncate text-dim">{n.vendor}</span>
+        <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-dim">
+          {plural(n.templates.length, "template")}
+        </span>
+      </button>
+      {open && (
+        <ul className="pb-1">
+          {n.templates.map((t) => (
+            <TemplateLine key={t.product_id} template={t} here={here} className="pl-9 pr-2" onError={onError} />
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 
-/** `FXChains/Vocals/Bus Glue.RfxChain` -> `Bus Glue`. */
-function templateLabel(path: string): string {
-  const file = path.split("/").pop() ?? path;
-  return file.replace(/\.(rfxchain|rtracktemplate|rpp)$/i, "");
-}
+const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 
 /** A readable name for a product ID (`acme-audio/acme-verb`) the comparison has no row for. */
 function nameFromId(id: string): { name: string; vendor: string } {
