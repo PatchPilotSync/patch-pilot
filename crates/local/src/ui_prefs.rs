@@ -18,6 +18,8 @@ pub struct UiPrefs {
     /// One of [`TEXT_SIZES`]; 1.0 is the default.
     pub text_size: f64,
     pub theme: Theme,
+    /// Compact draws every gap and row a little tighter (decision #97).
+    pub compact: bool,
 }
 
 impl Default for UiPrefs {
@@ -25,6 +27,7 @@ impl Default for UiPrefs {
         Self {
             text_size: 1.0,
             theme: Theme::System,
+            compact: false,
         }
     }
 }
@@ -67,6 +70,16 @@ pub fn set_theme(app_dir: &Path, theme: Theme) -> Result<UiPrefs, String> {
         app_dir,
         UiPrefs {
             theme,
+            ..load(app_dir)
+        },
+    )
+}
+
+pub fn set_compact(app_dir: &Path, compact: bool) -> Result<UiPrefs, String> {
+    save(
+        app_dir,
+        UiPrefs {
+            compact,
             ..load(app_dir)
         },
     )

@@ -1085,6 +1085,26 @@ export interface SettingsView {
   text_size: number;
   theme: Theme;
   text_sizes: number[];
+  compact: boolean;
+  prefs: AppPrefs;
+  /** This machine watches Reaper / Ableton Live (decision #97). */
+  reaper: boolean;
+  live: boolean;
+  data_dir: string;
+}
+
+/** Mirrors `AppPrefs` in `crates/local/src/app_prefs.rs` (decision #97). */
+export interface AppPrefs {
+  rescan: "on_changes" | "daily" | "manual";
+  rescan_after_update: boolean;
+  /** Local hours 0-23; `from` after `to` wraps past midnight. */
+  quiet_hours: { from: number; to: number } | null;
+  sync_notices: boolean;
+  update_notices: boolean;
+  window_at_login: boolean;
+  extra_folders: { format: PluginFormat; path: string }[];
+  /** Forget restore points older than this; null keeps them all. */
+  restore_days: number | null;
 }
 
 export const settingsView = () => invoke<SettingsView>("settings_view");
@@ -1092,6 +1112,13 @@ export const setOpenAtLogin = (on: boolean) => invoke<SettingsView>("set_open_at
 export const setDriftAlerts = (on: boolean) => invoke<SettingsView>("set_drift_alerts", { on });
 export const setTextSize = (size: number) => invoke<SettingsView>("set_text_size", { size });
 export const setTheme = (theme: Theme) => invoke<SettingsView>("set_theme", { theme });
+export const setCompact = (compact: boolean) => invoke<SettingsView>("set_compact", { compact });
+export const setAppPrefs = (prefs: AppPrefs) => invoke<SettingsView>("set_app_prefs", { prefs });
+export const setDawWatched = (daw: "reaper" | "live", on: boolean) =>
+  invoke<SettingsView>("set_daw_watched", { daw, on });
+export const openDataFolder = () => invoke<void>("open_data_folder");
+/** Start over at the next launch; restart the app after. */
+export const resetThisMachine = () => invoke<void>("reset_this_machine");
 /** Text size or theme changed, in either window. */
 export const onUiChanged = (f: (v: SettingsView) => void): Promise<UnlistenFn> =>
   listen<SettingsView>("ui-changed", (e) => f(e.payload));

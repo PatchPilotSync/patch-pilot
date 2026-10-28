@@ -3,6 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { settingsView } from "./api";
 import { Button } from "./ui";
 
 // Self-update (decision #32). Checks at launch and again when the window is
@@ -36,6 +37,12 @@ export function UpdateBar() {
       // Dev builds have no release to compare against.
       if (import.meta.env.DEV) return;
       lastCheck = Date.now();
+      // Settings can turn the offers off (decision #97); Check for Updates still asks.
+      const offers = await settingsView().then(
+        (v) => v.prefs.update_notices,
+        () => true,
+      );
+      if (!offers) return;
       try {
         const update = await check();
         // Keep whatever the bar is already showing (an install in progress,

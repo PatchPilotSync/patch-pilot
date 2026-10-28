@@ -6,6 +6,7 @@
 //! picked.
 
 mod anonymize;
+pub mod app_prefs;
 pub mod apps;
 pub mod autosync;
 pub mod backup;
@@ -19,6 +20,7 @@ pub mod lan;
 pub mod mac_keys;
 pub mod open;
 pub mod reaper_extras;
+pub mod reset;
 pub mod restore;
 pub mod setup;
 pub mod sync;
@@ -59,6 +61,11 @@ pub struct ScanOptions {
     /// Ableton User Library and Live preferences folder; `None` finds the
     /// standard ones when `default_folders` is set.
     pub ableton: Option<AbletonDirs>,
+    /// Read Reaper's templates, scripts and settings (Settings' "DAWs on
+    /// this machine", decision #97). Its CLAP cache is read either way.
+    pub watch_reaper: bool,
+    /// Read Ableton Live's User Library and preferences.
+    pub watch_live: bool,
 }
 
 /// Where Ableton Live keeps what Patch Pilot shares. Either may be missing.
@@ -80,6 +87,8 @@ impl ScanOptions {
             vendor_apps: true,
             reaper_dir: None,
             ableton: None,
+            watch_reaper: true,
+            watch_live: true,
         }
     }
 }
@@ -140,10 +149,13 @@ pub fn scan_this_machine(
         opts.default_folders
             .then(|| default_reaper_dir(os, &dirs))?
     });
-    let ableton = opts.ableton.or_else(|| {
-        opts.default_folders
-            .then(|| default_ableton_dirs(os, &dirs))
-    });
+    let ableton = opts
+        .ableton
+        .or_else(|| {
+            opts.default_folders
+                .then(|| default_ableton_dirs(os, &dirs))
+        })
+        .filter(|_| opts.watch_live);
 
     stage(Stage::VendorApps);
     let vendor_apps = if opts.vendor_apps {
@@ -170,6 +182,7 @@ pub fn scan_this_machine(
     let mut manifest = output.manifest;
 
     stage(Stage::Templates);
+    let reaper_dir = reaper_dir.filter(|_| opts.watch_reaper);
     let templates = match &reaper_dir {
         Some(dir) => add_templates(&mut manifest, dir),
         None => 0,

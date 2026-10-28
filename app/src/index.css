@@ -62,6 +62,12 @@
   --pp-bad: #ff6961;
 }
 
+/* Compact (decision #97): every Tailwind gap, padding and row height scales
+   with --spacing, so one value tightens the whole layout; text keeps its size. */
+:root[data-density="compact"] {
+  --spacing: 0.2rem;
+}
+
 @theme inline {
   --color-canvas: var(--pp-canvas);
   --color-panel: var(--pp-panel);

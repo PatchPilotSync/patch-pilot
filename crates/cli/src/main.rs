@@ -238,6 +238,8 @@ fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
             vendor_apps: !no_vendor_apps,
             reaper_dir,
             ableton: None,
+            watch_reaper: true,
+            watch_live: true,
         },
         |_| {},
     )?;

@@ -866,3 +866,44 @@ fn golden_takes_new_fingerprints_of_untouched_files() {
         old
     );
 }
+
+#[test]
+fn prunes_old_restore_points_but_keeps_ones_a_newer_undo_needs() {
+    use patchpilot_store::{FileRecord, NewRestorePoint, RestoreKind};
+    let mut store = Store::open_in_memory().unwrap();
+    let file = |hash: &str| FileRecord {
+        path: "/x".into(),
+        before_hash: Some(hash.into()),
+        after_hash: None,
+    };
+    let mut add = |at: i64, kind: RestoreKind, undoes: Option<i64>, machine: &str, hash: &str| {
+        store
+            .add_restore_point(&NewRestorePoint {
+                machine_id: machine,
+                created_at: at,
+                kind,
+                label: "t",
+                daw: None,
+                undoes,
+                files: &[file(hash)],
+            })
+            .unwrap()
+    };
+    let old = add(10, RestoreKind::Change, None, "m1", "blake3:a");
+    let undone = add(20, RestoreKind::Change, None, "m1", "blake3:b");
+    add(200, RestoreKind::Undo, Some(undone), "m1", "blake3:c");
+    add(10, RestoreKind::Change, None, "m2", "blake3:d");
+    assert_eq!(store.prune_restore_points("m1", 100).unwrap(), 1);
+    let left: Vec<i64> = store
+        .restore_points("m1")
+        .unwrap()
+        .iter()
+        .map(|r| r.id)
+        .collect();
+    assert!(!left.contains(&old) && left.contains(&undone));
+    let blobs = store.restore_blobs().unwrap();
+    assert!(!blobs.contains("blake3:a"));
+    for h in ["blake3:b", "blake3:c", "blake3:d"] {
+        assert!(blobs.contains(h), "{h}");
+    }
+}

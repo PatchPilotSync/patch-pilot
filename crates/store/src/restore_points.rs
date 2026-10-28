@@ -123,6 +123,28 @@ impl Store {
         Ok(())
     }
 
+    /// Forget a machine's restore points made before `before` (unix seconds),
+    /// except one a newer undo still points at. Their files stay as they are;
+    /// only the way back is gone. Returns how many went.
+    pub fn prune_restore_points(&mut self, machine_id: &str, before: i64) -> Result<usize> {
+        Ok(self.conn.execute(
+            "DELETE FROM restore_points
+             WHERE machine_id = ?1 AND created_at < ?2
+               AND id NOT IN (SELECT undoes FROM restore_points
+                              WHERE undoes IS NOT NULL AND created_at >= ?2)",
+            params![machine_id, before],
+        )?)
+    }
+
+    /// Every blob a restore point (any machine's) still needs.
+    pub fn restore_blobs(&self) -> Result<std::collections::HashSet<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT before_hash FROM restore_point_files WHERE before_hash IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// A machine's restore points, newest first.
     pub fn restore_points(&self, machine_id: &str) -> Result<Vec<RestorePointRecord>> {
         let mut stmt = self.conn.prepare(&format!(

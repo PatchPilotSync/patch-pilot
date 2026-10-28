@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use patchpilot_local::FolderWatch;
+use patchpilot_local::app_prefs::Rescan;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -33,6 +34,8 @@ const AFTER_UPDATE_SCAN_DELAY: Duration = Duration::from_secs(3);
 pub const UPDATE_SCAN: &str = "update-scan";
 /// How often to look again while a scan the user started is still running.
 const BUSY_RETRY: Duration = Duration::from_secs(2);
+/// Settings' "Once a day too" (decision #97): a sleeping thread, no polling.
+const DAILY: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub struct Watcher {
     /// `true` asks for the visible after-update rescan.
@@ -66,18 +69,41 @@ pub fn start(app: &AppHandle) {
     let _ = thread::Builder::new()
         .name("patchpilot-rescan".to_owned())
         .spawn(move || rescans(&handle, &rx));
-    let updated = scanned_by_older_version(app);
-    let _ = thread::Builder::new()
-        .name("patchpilot-startup-scan".to_owned())
-        .spawn(move || {
-            thread::sleep(if updated {
-                AFTER_UPDATE_SCAN_DELAY
-            } else {
-                STARTUP_SCAN_DELAY
+    // Settings (decision #97): the after-update rescan can be turned off, and
+    // "Only when I press Rescan" skips the catch-up scan too.
+    let prefs = crate::settings::app_prefs();
+    let updated = prefs.rescan_after_update && scanned_by_older_version(app);
+    if updated || prefs.rescan != Rescan::Manual {
+        let tx = tx.clone();
+        let _ = thread::Builder::new()
+            .name("patchpilot-startup-scan".to_owned())
+            .spawn(move || {
+                thread::sleep(if updated {
+                    AFTER_UPDATE_SCAN_DELAY
+                } else {
+                    STARTUP_SCAN_DELAY
+                });
+                let _ = tx.send(updated);
             });
-            let _ = tx.send(updated);
+    }
+    let _ = thread::Builder::new()
+        .name("patchpilot-daily-scan".to_owned())
+        .spawn(move || {
+            loop {
+                thread::sleep(DAILY);
+                if crate::settings::app_prefs().rescan == Rescan::Daily && tx.send(false).is_err() {
+                    break;
+                }
+            }
         });
     rewatch(app);
+}
+
+/// Settings changed when to rescan: start or stop watching to match.
+pub fn prefs_changed(app: &AppHandle) {
+    if app.try_state::<Watcher>().is_some() {
+        rewatch(app);
+    }
 }
 
 /// True when this machine's latest scan wasn't made by this version of
@@ -106,6 +132,15 @@ pub fn update_scan_running(watcher: tauri::State<'_, Watcher>) -> bool {
 /// created the first CLAP folder.
 fn rewatch(app: &AppHandle) {
     let state = app.state::<Watcher>();
+    if crate::settings::app_prefs().rescan == Rescan::Manual {
+        for slot in [&state.watch, &state.apps, &state.settings] {
+            if let Ok(mut w) = slot.lock() {
+                *w = None;
+            }
+        }
+        set_tooltip(app, &[]);
+        return;
+    }
     let watching = restart(
         &state.watch,
         patchpilot_local::watched_folders(),

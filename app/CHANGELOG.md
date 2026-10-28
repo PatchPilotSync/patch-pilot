@@ -4,6 +4,19 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.39 - 2026-10-28
+
+### New
+
+More in Settings:
+
+- Scanning: rescan when folders change (as before), also once a day, or only when you press Rescan; turn off the rescan right after an update; add plug-in folders outside the standard ones (a second drive, say).
+- DAWs on this machine: untick Reaper or Ableton Live on a machine that doesn't use it, and its files stop counting against that machine's score and checklist.
+- Layout: Compact draws everything a little tighter.
+- Startup: show the window too when Patch Pilot opens at login.
+- Notifications: turn "Files kept in sync" notifications and update offers on or off, and set quiet hours (say 10 PM to 8 AM) with no notifications.
+- Data: keep undo history forever, a year, 90 or 30 days; show the data folder; start over on this machine (the old data is kept aside, nothing else is touched).
+
 ## 0.4.38 - 2026-10-28
 
 ### New
