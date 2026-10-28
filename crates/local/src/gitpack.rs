@@ -420,6 +420,11 @@ mod tests {
         // Check every object and always use index-pack, as GitHub does.
         git(&["config", "receive.fsckObjects", "true"]);
         git(&["config", "transfer.unpackLimit", "1"]);
+        // No gc or maintenance after a push: newer Git runs them detached,
+        // and a repack writing a temp pack mid-fsck fails the test.
+        git(&["config", "receive.autogc", "false"]);
+        git(&["config", "gc.auto", "0"]);
+        git(&["config", "maintenance.auto", "false"]);
         let push = |old: &str, files: &[(&str, &[u8])], parent: Option<&str>| {
             let map: BTreeMap<String, String> = files
                 .iter()
