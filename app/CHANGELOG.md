@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.37 - 2026-10-28
+
+### Improved
+
+- See which templates need a missing plug-in: on Compare, open "N templates are missing plug-ins" and click a plug-in to list the templates, track templates, FX chains and racks that use it, with their kind and folder. Hover one for its full path, or click the folder icon to show it in Finder or Explorer. Get Up To Speed's template list works the same way.
+- No more cut-off names and counts in that list: plug-ins that aren't in your Primary Rig now sit together under one label instead of a tag on every row.
+
 ## 0.4.36 - 2026-10-27
 
 ### New
