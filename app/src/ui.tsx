@@ -129,7 +129,7 @@ export function timeAgo(unixSeconds: number): string {
 
 const TONE_DOT = { accent: "bg-accent", warn: "bg-warn", ok: "bg-ok", bad: "bg-bad", dim: "bg-dim" } as const;
 
-function Chevron({ open }: { open: boolean }) {
+export function Chevron({ open }: { open: boolean }) {
   return (
     <svg
       width="10"

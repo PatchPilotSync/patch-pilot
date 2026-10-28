@@ -140,6 +140,22 @@ fn readiness_names_the_missing_plugin() {
 }
 
 #[test]
+fn readiness_says_where_each_template_is() {
+    let mut m = machine(ALL);
+    assert!(template_readiness(&m).iter().all(|t| t.path.is_none()));
+    m.machine.path_map = PathMap::new(Os::Windows).with_root(REAPER_RESOURCES, r"C:\Reaper\");
+    let ready = template_readiness(&m);
+    let lead = ready
+        .iter()
+        .find(|t| t.name.ends_with("Lead Vocal.RTrackTemplate"))
+        .unwrap();
+    assert_eq!(
+        lead.path.as_deref(),
+        Some(r"C:\Reaper\TrackTemplates\Vocals\Lead Vocal.RTrackTemplate")
+    );
+}
+
+#[test]
 fn score_reason_says_templates_need_it() {
     let golden = machine(ALL);
     let all_but_comp: Vec<_> = ALL.iter().copied().filter(|n| *n != "Acme Comp").collect();

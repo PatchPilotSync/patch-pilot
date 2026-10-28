@@ -11,6 +11,9 @@ pub struct TemplateReadiness {
     pub product_id: ProductId,
     /// Display name, e.g. `TrackTemplates/Vocals/Lead Vocal.RTrackTemplate`.
     pub name: String,
+    /// Where it is on that machine, as the machine's OS spells it. `None` when
+    /// its root isn't mapped there. Only openable on the machine itself.
+    pub path: Option<String>,
     /// Required products the machine has no item for. Empty = ready.
     pub missing: Vec<ProductId>,
 }
@@ -48,6 +51,7 @@ pub fn template_readiness(machine: &Manifest) -> Vec<TemplateReadiness> {
                     .collect(),
                 product_id: id,
                 name,
+                path: machine.machine.path_map.resolve(&i.path),
             })
         })
         .collect()

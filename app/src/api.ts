@@ -190,7 +190,10 @@ export interface Reason {
 
 export interface TemplateReadiness {
   product_id: string;
+  /** Path below its app's folder, e.g. `TrackTemplates/Vocals/Lead Vocal.RTrackTemplate`. */
   name: string;
+  /** Full path on its machine, when known. */
+  path: string | null;
   missing: string[];
 }
 

@@ -26,6 +26,7 @@ import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
 import { IgnoreButton, IgnoredToggle, productRules, useIgnores } from "../Ignore";
 import { AppButton } from "./Compare";
+import { TemplateLine } from "../Templates";
 import { Button, Folder, Label, Notice, scoreColor, timeAgo, useFolders } from "../ui";
 
 interface Props {
@@ -278,11 +279,16 @@ function Progress({
                 </span>
               }
             >
-              <ul className="pl-6 pr-2">
+              <ul>
                 {notReady.map((t) => (
-                  <li key={t.product_id} className="truncate py-0.5">
-                    {t.name} <span className="text-dim">needs {t.missing.length}</span>
-                  </li>
+                  <TemplateLine
+                    key={t.product_id}
+                    template={t}
+                    here
+                    extra={`needs ${t.missing.length} plug-in${t.missing.length === 1 ? "" : "s"}`}
+                    className="pl-6 pr-2"
+                    onError={onError}
+                  />
                 ))}
               </ul>
             </Folder>
