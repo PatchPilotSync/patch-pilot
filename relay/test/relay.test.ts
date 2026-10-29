@@ -121,6 +121,16 @@ describe("link mailbox", () => {
     pc.ws.close();
   });
 
+  it("answers keep-alive pings itself instead of forwarding them", async () => {
+    const pc = await socket("https://relay.test/v1/link/PPPP");
+    pc.ws.send("ping");
+    expect(await pc.next()).toBe("pong");
+    pc.ws.send("pc-hello");
+    const mac = await socket("https://relay.test/v1/link/PPPP");
+    expect(await mac.next()).toBe("pc-hello");
+    pc.ws.close();
+  });
+
   it("forwards binary frames unchanged", async () => {
     const pc = await socket("https://relay.test/v1/link/BBBB");
     pc.ws.send(new Uint8Array([1, 2, 3]));
