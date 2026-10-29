@@ -4,6 +4,17 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.42 - 2026-10-29
+
+### New
+
+- See how much drive space every machine has. Compare and the tray show each machine's free space, and turn it amber when a drive is nearly full. Compare's side panel lists each drive with what's on it (plug-ins, presets, DAW files, home folder, Installer Vault), and This machine has a new Drives section. Linked machines share their numbers.
+- A "Running out of space" line appears on This machine and in Get Up To Speed when a drive is nearly full.
+
+### Changed
+
+- Bring over, big files and Run installer check for room first, and tell you which drive is too full instead of stopping halfway.
+
 ## 0.4.41 - 2026-10-29
 
 ### Changed
