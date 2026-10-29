@@ -20,6 +20,7 @@ pub mod ignore;
 pub mod lan;
 pub mod mac_keys;
 pub mod open;
+pub mod reaper_ext;
 pub mod reaper_extras;
 pub mod reset;
 pub mod restore;
@@ -198,6 +199,7 @@ pub fn scan_this_machine(
             dir,
             home_dir().as_deref(),
         ));
+        reaper_ext::add_extensions(&mut manifest, dir);
     }
     let ableton = ableton.map_or(0, |dirs| add_ableton(&mut manifest, &dirs));
     if opts.default_folders {
