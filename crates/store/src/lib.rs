@@ -541,6 +541,9 @@ impl Store {
                 report.skipped_own_machine |= Some(id.as_str()) == this_machine;
                 continue;
             }
+            if self.removed_scan(id, m.manifest.generated_at)? {
+                continue;
+            }
             let info = self.save_manifest(&m.manifest, SnapshotReason::Imported, now)?;
             let name = m.manifest.machine.name.clone();
             if info.unchanged {
@@ -807,6 +810,67 @@ impl Store {
             [id],
             |r| r.get(0),
         )?)
+    }
+
+    /// Forget another machine and every scan of it (decision #99), and keep it
+    /// out of later imports until it scans again. Primary Rig versions made
+    /// from it stay. False if it wasn't here.
+    pub fn remove_machine(&mut self, id: &str, now: i64) -> Result<bool> {
+        if id.starts_with("golden@") || !self.machine_exists(id)? {
+            return Ok(false);
+        }
+        let last: Option<i64> = self.conn.query_row(
+            "SELECT MAX(generated_at) FROM snapshots WHERE machine_id = ?1",
+            [id],
+            |r| r.get(0),
+        )?;
+        // Dependents go first, by hand: with foreign keys on, each deleted item
+        // would scan all of `snapshot_items` (no index leads with item_id),
+        // which takes minutes on a big rig with a long history.
+        self.conn.pragma_update(None, "foreign_keys", "OFF")?;
+        let result = (|| {
+            let tx = self.conn.transaction()?;
+            tx.execute(
+                "INSERT INTO removed_machines (id, removed_at, last_generated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (id) DO UPDATE SET removed_at = ?2, last_generated_at = ?3",
+                params![id, now, last],
+            )?;
+            for sql in [
+                "UPDATE restore_points SET snapshot_id = NULL
+                     WHERE snapshot_id IN (SELECT id FROM snapshots WHERE machine_id = ?1)",
+                "DELETE FROM snapshot_items
+                     WHERE snapshot_id IN (SELECT id FROM snapshots WHERE machine_id = ?1)",
+                "DELETE FROM snapshots WHERE machine_id = ?1",
+                "DELETE FROM dependencies
+                     WHERE asset_item_id IN (SELECT id FROM items WHERE machine_id = ?1)",
+                "DELETE FROM items WHERE machine_id = ?1",
+                "DELETE FROM path_maps WHERE machine_id = ?1",
+                "DELETE FROM events WHERE machine_id = ?1",
+                "DELETE FROM decisions WHERE machine_id = ?1",
+                "DELETE FROM machines WHERE id = ?1",
+            ] {
+                tx.execute(sql, [id])?;
+            }
+            tx.commit()
+        })();
+        self.conn.pragma_update(None, "foreign_keys", "ON")?;
+        result?;
+        Ok(true)
+    }
+
+    /// Whether a scan of this machine stays out because the user removed the
+    /// machine: it isn't newer than the last scan it had here, nor than the
+    /// removal. Scan times come from the other machine's clock.
+    fn removed_scan(&self, id: &str, generated_at: i64) -> Result<bool> {
+        let cut: Option<(i64, Option<i64>)> = self
+            .conn
+            .query_row(
+                "SELECT removed_at, last_generated_at FROM removed_machines WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(cut.is_some_and(|(at, last)| generated_at <= at.max(last.unwrap_or(i64::MIN))))
     }
 
     /// Every machine with saved scans (not Primary Rig versions), by name.

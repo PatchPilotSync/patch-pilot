@@ -441,3 +441,86 @@ export function FolderTree<T>({
 export function isConflictCopy(path: string): boolean {
   return /conflicted copy|conflict copy|\(conflict\)|-conflict-/i.test(path);
 }
+
+/** One choice in a {@link ContextMenu}. */
+export interface MenuItem {
+  label: string;
+  onSelect: () => void;
+  danger?: boolean;
+}
+
+/**
+ * A right-click menu at the pointer, kept inside the window. Closes on a
+ * choice, a click elsewhere, Escape, scrolling or the window losing focus.
+ */
+export function ContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  items: MenuItem[];
+  onClose: () => void;
+}) {
+  const [at, setAt] = useState({ x, y });
+  const place = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setAt({
+        x: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
+        y: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
+      });
+      el.focus();
+    },
+    [x, y],
+  );
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", key);
+    window.addEventListener("blur", onClose);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("blur", onClose);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      onMouseDown={onClose}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <div
+        ref={place}
+        role="menu"
+        tabIndex={-1}
+        style={{ left: at.x, top: at.y }}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="fixed min-w-40 rounded-md border border-line bg-panel p-1 text-xs shadow-lg outline-none"
+      >
+        {items.map((i) => (
+          <button
+            key={i.label}
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              i.onSelect();
+            }}
+            className={`block w-full rounded px-2.5 py-1.5 text-left hover:bg-sel ${i.danger ? "text-bad" : ""}`}
+          >
+            {i.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

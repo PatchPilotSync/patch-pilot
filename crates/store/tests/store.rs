@@ -30,6 +30,7 @@ const TABLES: &[&str] = &[
     "golden_versions",
     "restore_points",
     "restore_point_files",
+    "removed_machines",
 ];
 
 #[test]
@@ -81,7 +82,7 @@ fn opening_from_many_threads_at_once_migrates_once() {
             // A database one schema version behind, as an update finds it.
             Store::open(&path).unwrap();
             let conn = rusqlite::Connection::open(&path).unwrap();
-            conn.execute_batch("DROP INDEX items_machine_kind").unwrap();
+            conn.execute_batch("DROP TABLE removed_machines").unwrap();
             conn.pragma_update(None, "user_version", LATEST_VERSION - 1)
                 .unwrap();
         }
@@ -906,4 +907,96 @@ fn prunes_old_restore_points_but_keeps_ones_a_newer_undo_needs() {
     for h in ["blake3:b", "blake3:c", "blake3:d"] {
         assert!(blobs.contains(h), "{h}");
     }
+}
+
+#[test]
+fn a_removed_machine_stays_out_until_it_scans_again() {
+    let studio = fixture_manifest();
+    let mut mac = studio.clone();
+    mac.machine.id = "mac-0001".into();
+    mac.machine.name = "Travel Mac".into();
+    mac.generated_at = 50;
+
+    let mut store = Store::open_in_memory().unwrap();
+    store
+        .save_manifest(&studio, SnapshotReason::FirstScan, 1)
+        .unwrap();
+    store
+        .save_golden(&studio, Some(&studio.machine.id), None, 2)
+        .unwrap();
+    store
+        .save_manifest(&mac, SnapshotReason::Imported, 3)
+        .unwrap();
+    store
+        .set_ignore(&IgnoreEntry {
+            machine_id: Some(mac.machine.id.clone()),
+            label: "Serum".into(),
+            rules: vec![],
+            at: 4,
+            undone: false,
+        })
+        .unwrap();
+    let bundle = {
+        let mut other = Store::open_in_memory().unwrap();
+        other
+            .save_manifest(&mac, SnapshotReason::FirstScan, 3)
+            .unwrap();
+        other
+            .export_bundle(&[mac.machine.id.clone()], None, 5)
+            .unwrap()
+    };
+
+    assert!(store.remove_machine(&mac.machine.id, 100).unwrap());
+    assert!(!store.remove_machine(&mac.machine.id, 100).unwrap());
+    assert!(!store.remove_machine("golden@1", 100).unwrap());
+    let names: Vec<_> = store
+        .machines()
+        .unwrap()
+        .into_iter()
+        .map(|m| m.name)
+        .collect();
+    assert_eq!(names, std::slice::from_ref(&studio.machine.name));
+    assert!(store.snapshots(&mac.machine.id).unwrap().is_empty());
+    assert!(store.ignores().unwrap().is_empty());
+    // The Primary Rig and the other machine are untouched.
+    assert_eq!(
+        store.golden(None).unwrap().unwrap().manifest.items,
+        studio.items
+    );
+    assert_eq!(
+        store
+            .latest_manifest(&studio.machine.id)
+            .unwrap()
+            .unwrap()
+            .items,
+        studio.items
+    );
+    let fk: Vec<String> = store
+        .connection()
+        .prepare("PRAGMA foreign_key_check")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(fk.is_empty(), "{fk:?}");
+
+    // Its old scan coming back (a linked machine, the relay) stays out.
+    let report = store
+        .import_bundle(&bundle, Some(&studio.machine.id), 110)
+        .unwrap();
+    assert!(report.machines_added.is_empty() && report.machines_unchanged.is_empty());
+    assert_eq!(store.machines().unwrap().len(), 1);
+
+    // A scan made after the removal brings it back.
+    let mut fresh = bundle.clone();
+    fresh.machines[0].manifest.generated_at = 200;
+    let report = store
+        .import_bundle(&fresh, Some(&studio.machine.id), 210)
+        .unwrap();
+    assert_eq!(
+        report.machines_added,
+        std::slice::from_ref(&mac.machine.name)
+    );
+    assert_eq!(store.machines().unwrap().len(), 2);
 }
