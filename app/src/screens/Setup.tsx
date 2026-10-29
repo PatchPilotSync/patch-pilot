@@ -24,10 +24,22 @@ import { RestoreFromBackup } from "../Backup";
 import { BigFiles } from "../BigFiles";
 import { BringOver } from "../BringOver";
 import { ReaperExtras } from "../ReaperExtras";
-import { IgnoreButton, IgnoredToggle, productRules, useIgnores } from "../Ignore";
+import { IgnoreButton, IgnoredNotice, productRules, useIgnores } from "../Ignore";
 import { AppButton } from "./Compare";
 import { TemplateLine } from "../Templates";
-import { Button, Folder, Label, Notice, scoreColor, timeAgo, useFolders } from "../ui";
+import {
+  Button,
+  Folder,
+  Glyph,
+  Label,
+  Notice,
+  Panel,
+  scoreColor,
+  Tile,
+  timeAgo,
+  useFolders,
+  type GlyphName,
+} from "../ui";
 
 interface Props {
   onRescan: () => void;
@@ -116,45 +128,44 @@ function Start({
     "studio-clone": "Everything on the Primary Rig.",
     travel: "Leaves out AAX and anything over 20 GB.",
   };
+  const glyph: Record<string, GlyphName> = { "studio-clone": "desktop", travel: "laptop" };
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-4 px-6 py-8">
-      <div>
-        <h1 className="text-base font-semibold">Set up this machine</h1>
-        <p className="mt-1 text-xs leading-relaxed text-dim">
-          Patch Pilot lists what this machine needs from your Primary Rig, in the order to do it: licences and
-          vendor apps first, then plug-ins, then your DAW files. It never installs or copies plug-ins for you. As
-          you install things, it ticks them off after each rescan, and you get a report at the end.
-        </p>
+      <div className="flex items-start gap-3">
+        <Tile name="laptop" className="mt-px" />
+        <div>
+          <h1 className="text-base font-semibold">Set up this machine</h1>
+          <p className="mt-1 text-xs leading-relaxed text-dim">
+            Patch Pilot lists what this machine needs from your Primary Rig, in the order to do it: licences and
+            vendor apps first, then plug-ins, then your DAW files. It never installs or copies plug-ins for you. As
+            you install things, it ticks them off after each rescan, and you get a report at the end.
+          </p>
+        </div>
       </div>
-      <fieldset className="flex flex-col gap-1">
-        <legend className="mb-1 text-[11px] text-dim">What should this machine have?</legend>
-        {choices.map((p) => (
-          <label key={p.id ?? ""} className="flex items-baseline gap-2 rounded-md px-2 py-1.5 hover:bg-sel/50">
-            <input
-              type="radio"
-              name="profile"
-              className="accent-accent"
+      <fieldset>
+        <legend className="mb-1.5 text-[11px] text-dim">What should this machine have?</legend>
+        <Panel divided>
+          {choices.map((p) => (
+            <Choice
+              key={p.id ?? ""}
+              glyph={(p.id && glyph[p.id]) || (p.id ? "sliders" : "star")}
+              name={p.name}
+              hint={p.id ? hint[p.id] : undefined}
               checked={!fromBackup && profile === p.id}
-              onChange={() => {
+              onChoose={() => {
                 setProfile(p.id);
                 setFromBackup(false);
               }}
             />
-            <span className="font-medium">{p.name}</span>
-            {p.id && hint[p.id] && <span className="text-xs text-dim">{hint[p.id]}</span>}
-          </label>
-        ))}
-        <label className="flex items-baseline gap-2 rounded-md px-2 py-1.5 hover:bg-sel/50">
-          <input
-            type="radio"
-            name="profile"
-            className="accent-accent"
+          ))}
+          <Choice
+            glyph="cloud"
+            name="Sync with a backup"
+            hint="Your files, from a cloud folder."
             checked={fromBackup}
-            onChange={() => setFromBackup(true)}
+            onChoose={() => setFromBackup(true)}
           />
-          <span className="font-medium">Sync with a backup</span>
-          <span className="text-xs text-dim">Your files, from a cloud folder.</span>
-        </label>
+        </Panel>
       </fieldset>
       {fromBackup ? (
         <div className="text-xs">
@@ -166,6 +177,32 @@ function Start({
         </div>
       )}
     </div>
+  );
+}
+
+/** One answer to "What should this machine have?": an icon, its name and a line, picked with a radio. */
+function Choice({
+  glyph,
+  name,
+  hint,
+  checked,
+  onChoose,
+}: {
+  glyph: GlyphName;
+  name: string;
+  hint?: string;
+  checked: boolean;
+  onChoose: () => void;
+}) {
+  return (
+    <label className={`flex min-h-11 cursor-pointer items-center gap-2.5 px-2 py-1.5 ${checked ? "bg-sel/60" : "hover:bg-sel/40"}`}>
+      <Tile name={glyph} tone={checked ? "accent" : "dim"} />
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium">{name}</span>
+        {hint && <span className="block truncate text-xs text-dim">{hint}</span>}
+      </span>
+      <input type="radio" name="profile" className="mr-1 accent-accent" checked={checked} onChange={onChoose} />
+    </label>
   );
 }
 
@@ -217,8 +254,8 @@ function Progress({
   const notReady = p.templates.filter((t) => t.missing.length > 0);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
-      <header className="flex items-center gap-4">
+    <div className="flex flex-col pb-6">
+      <header className="flex items-center gap-4 px-4 py-2.5">
         <span className={`text-3xl font-semibold leading-none tracking-tight tabular-nums ${scoreColor(p.score_now)}`}>
           {p.score_now}
         </span>
@@ -236,67 +273,84 @@ function Progress({
           Rescan
         </Button>
       </header>
-      <div className="h-[3px] overflow-hidden rounded-full bg-track" aria-hidden="true">
-        <div className="h-full rounded-full bg-accent" style={{ width: `${p.total ? (done / p.total) * 100 : 100}%` }} />
-      </div>
+      <ProgressEdge done={done} total={p.total} />
 
-      {p.complete && !a.finished_at ? (
-        <div className="flex items-center gap-3 rounded-md bg-ok/10 px-3 py-2 text-xs">
-          <span className="flex-1">
-            <span className="font-medium text-ok">This machine is ready.</span>{" "}
-            <span className="text-dim">Every step is done and every template has its plug-ins.</span>
-          </span>
-          <Button onClick={onFinish}>Finish and see the report</Button>
-        </div>
-      ) : (
-        <p className="text-xs text-dim">
-          Work down the list. Patch Pilot rescans when your plug-in folders change, or press Rescan.
-        </p>
-      )}
-
-      <StepList steps={steps} scope="setup" onTick={(key, d) => quick.tick(key, d, onTick(key, d))} actions={actions} />
-      <OtherFormatsNote items={p.other_formats} />
-      <StepExtras steps={steps} onError={onError} />
-      <IgnoredToggle ignores={ignores} machine={null} onError={onError} />
-
-      <div>
-        <Label className="pb-0.5 pt-1">Templates</Label>
-        {p.templates.length === 0 ? (
-          <p className="text-xs text-dim">No templates on this machine yet.</p>
-        ) : notReady.length === 0 ? (
-          <p className="text-xs text-ok">All {p.templates.length} templates have every plug-in they use.</p>
+      <Panel className="mx-3 mt-3 p-1">
+        {p.complete && !a.finished_at ? (
+          <Notice
+            tone="ok"
+            icon="check"
+            text={
+              <>
+                <span className="font-medium text-ok">This machine is ready.</span>{" "}
+                <span className="text-dim">Every step is done and every template has its plug-ins.</span>
+              </>
+            }
+            actions={
+              <Button onClick={onFinish} className="h-6 shrink-0 px-2.5">
+                Finish and see the report
+              </Button>
+            }
+          />
         ) : (
-          <div className="-mx-2 text-xs">
-            <Folder
-              title={`${notReady.length} still missing plug-ins`}
-              count={p.templates.length}
-              className="px-2"
-              open={templatesOpen}
-              onToggle={() => setTemplatesOpen((o) => !o)}
-              badges={
-                <span className="text-[11px] text-dim">
-                  {p.templates_ready} of {p.templates.length} ready
-                </span>
-              }
-            >
-              <ul>
-                {notReady.map((t) => (
-                  <TemplateLine
-                    key={t.product_id}
-                    template={t}
-                    here
-                    extra={`needs ${t.missing.length} plug-in${t.missing.length === 1 ? "" : "s"}`}
-                    className="pl-6 pr-2"
-                    onError={onError}
-                  />
-                ))}
-              </ul>
-            </Folder>
-          </div>
+          <Notice
+            icon="info"
+            text={<span className="text-dim">Work down the list. Patch Pilot rescans when your plug-in folders change, or press Rescan.</span>}
+          />
         )}
-      </div>
+        <OtherFormatsNote items={p.other_formats} />
+        <IgnoredNotice ignores={ignores} machine={null} onError={onError} />
+      </Panel>
 
-      <div className="pt-2">
+      <StepList
+        steps={steps}
+        scope="setup"
+        onTick={(key, d) => quick.tick(key, d, onTick(key, d))}
+        actions={actions}
+        className="mx-3 mt-3"
+      />
+      <StepExtras steps={steps} onError={onError} className="mx-3 mt-3" />
+
+      <Label className="px-4 pb-1 pt-4">Templates</Label>
+      <Panel className="mx-3 p-1">
+        {p.templates.length === 0 ? (
+          <Notice tone="dim" icon="doc" text={<span className="text-dim">No templates on this machine yet.</span>} />
+        ) : notReady.length === 0 ? (
+          <Notice
+            tone="ok"
+            icon="doc"
+            text={<span className="text-ok">All {p.templates.length} templates have every plug-in they use.</span>}
+          />
+        ) : (
+          <Notice
+            tone="warn"
+            icon="doc"
+            text={
+              <>
+                {notReady.length} of {p.templates.length} templates still miss plug-ins.
+                <span className="text-dim"> {p.templates_ready} ready.</span>
+              </>
+            }
+            open={templatesOpen}
+            onToggle={() => setTemplatesOpen((o) => !o)}
+          >
+            <ul className="-mx-2">
+              {notReady.map((t) => (
+                <TemplateLine
+                  key={t.product_id}
+                  template={t}
+                  here
+                  extra={`needs ${t.missing.length} plug-in${t.missing.length === 1 ? "" : "s"}`}
+                  className="px-2"
+                  onError={onError}
+                />
+              ))}
+            </ul>
+          </Notice>
+        )}
+      </Panel>
+
+      <div className="px-4 pt-3">
         <Button variant="quiet" onClick={onClose} className="-ml-3">
           Stop setup
         </Button>
@@ -390,27 +444,29 @@ export function OtherFormatsNote({ items }: { items: OtherFormats[] }) {
   if (!items.length) return null;
   const n = items.length;
   return (
-    <div className="-mx-2 text-xs">
-      <Folder
-        title={`${n} plug-in${n === 1 ? " is" : "s are"} here in another format`}
-        count={n}
-        className="px-2"
-        open={open}
-        onToggle={() => setOpen((o) => !o)}
-        badges={<span className="text-[11px] text-dim">Counted as installed</span>}
-      >
-        <ul className="pl-6 pr-2">
-          {items.map((o) => (
-            <li key={o.product_id} className="flex gap-2 py-0.5">
-              <span className="min-w-0 truncate">{o.name}</span>
-              <span className="shrink-0 text-dim">
-                {o.here.join(", ")} here · Primary Rig also has {o.missing.join(", ")}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Folder>
-    </div>
+    <Notice
+      tone="dim"
+      icon="knob"
+      text={
+        <>
+          {n} plug-in{n === 1 ? " is" : "s are"} here in another format.
+          <span className="text-dim"> Counted as installed.</span>
+        </>
+      }
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
+    >
+      <ul>
+        {items.map((o) => (
+          <li key={o.product_id} className="flex gap-2 py-0.5">
+            <span className="min-w-0 truncate">{o.name}</span>
+            <span className="shrink-0 text-dim">
+              {o.here.join(", ")} here · Primary Rig also has {o.missing.join(", ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Notice>
   );
 }
 
@@ -425,10 +481,18 @@ const isReaperStep = (s: SetupStep) =>
  * for them: the "Up to date" line, or files the plan doesn't count. Otherwise
  * they sit inside their step.
  */
-export function StepExtras({ steps, onError }: { steps: SetupStep[]; onError: (e: string) => void }) {
+export function StepExtras({
+  steps,
+  onError,
+  className = "",
+}: {
+  steps: SetupStep[];
+  onError: (e: string) => void;
+  className?: string;
+}) {
   const open = steps.filter((s) => !isFinished(s));
   return (
-    <div className="flex flex-col gap-2">
+    <div className={`flex flex-col gap-2 empty:hidden ${className}`}>
       {!open.some(isBringStep) && (
         <>
           <BringOver onError={onError} />
@@ -449,12 +513,14 @@ export function StepList({
   scope,
   onTick,
   actions,
+  className = "",
 }: {
   steps: SetupStep[];
   /** Keeps remembered open/closed state apart per checklist. */
   scope: string;
   onTick: (key: string, done: boolean) => void;
   actions: Actions;
+  className?: string;
 }) {
   const groups: [string, SetupStep[]][] = [];
   for (const s of steps) {
@@ -465,25 +531,28 @@ export function StepList({
   const folders = useFolders(`steps.${scope}`, (g) => groups.find(([n]) => n === g)?.[1].some((s) => !isFinished(s)) ?? true);
   // Reaper setup covers both Reaper steps, so it shows once, in the first.
   const reaperKey = steps.find((s) => !isFinished(s) && isReaperStep(s))?.key;
+  if (!groups.length) return null;
   return (
-    <div className="-mx-2 flex flex-col">
+    <Panel divided className={className}>
       {groups.map(([group, ss]) => {
         const done = ss.filter(isFinished).length;
+        const all = done === ss.length;
         return (
           <Folder
             key={group}
             title={group}
             count={ss.length}
-            className="px-2"
+            icon={<Tile name={GROUP_GLYPH[group] ?? "list"} tone={all ? "ok" : "accent"} />}
+            className="pl-3 pr-4"
             open={folders.isOpen(group)}
             onToggle={() => folders.toggle(group)}
             badges={
-              <span className={`text-[11px] tabular-nums ${done === ss.length ? "text-ok" : "text-dim"}`}>
-                {done === ss.length ? "Done" : `${done} of ${ss.length}`}
+              <span className={`text-[11px] tabular-nums ${all ? "text-ok" : "text-dim"}`}>
+                {all ? "Done" : `${done} of ${ss.length}`}
               </span>
             }
           >
-            <ol className="flex flex-col pl-4">
+            <ol className="flex flex-col pb-1">
               {ss.map((s) => (
                 <li key={s.key}>
                   <StepRow step={s} onTick={onTick} actions={actions} reaper={s.key === reaperKey} />
@@ -493,15 +562,36 @@ export function StepList({
           </Folder>
         );
       })}
+    </Panel>
+  );
+}
+
+/** The checklist's groups (plan phases, then the final checks) as icons. */
+const GROUP_GLYPH: Record<string, GlyphName> = {
+  Foundation: "key",
+  "Vendor apps": "apps",
+  "Manual steps": "list",
+  "Final checks": "flag",
+};
+
+/** A checklist screen's header edge: a line that fills as steps get done, green once all are. */
+export function ProgressEdge({ done, total }: { done: number; total: number }) {
+  return (
+    <div className="h-[3px] shrink-0 bg-track" aria-hidden="true">
+      <div
+        className={`h-full transition-[width] duration-300 ${done >= total ? "bg-ok" : "bg-accent"}`}
+        style={{ width: `${total ? (done / total) * 100 : 100}%` }}
+      />
     </div>
   );
 }
 
-const MARK: Record<SetupStep["status"], { icon: string; className: string }> = {
-  done: { icon: "✓", className: "bg-ok text-on-accent" },
-  skipped: { icon: "✓", className: "bg-dim text-on-accent" },
-  partly: { icon: "", className: "border border-warn bg-warn/20" },
-  todo: { icon: "", className: "border border-line" },
+/** A step's box: green with a tick when Patch Pilot sees it done, grey when you marked it, amber when partly there. */
+const MARK: Record<SetupStep["status"], { glyph: GlyphName | null; className: string }> = {
+  done: { glyph: "check", className: "bg-ok/15 text-ok" },
+  skipped: { glyph: "check", className: "bg-sel text-dim" },
+  partly: { glyph: "minus", className: "bg-warn/15 text-warn" },
+  todo: { glyph: null, className: "border border-dim/50" },
 };
 
 export interface Actions {
@@ -552,25 +642,27 @@ export function StepRow({
   const [showAll, setShowAll] = useState(false);
   const web = (url: string) => openWebPage(url).catch((e) => actions.onError(String(e)));
   const box = (
-    <span
-      aria-hidden="true"
-      className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] text-[9px] font-bold ${mark.className}`}
-    >
-      {mark.icon}
+    <span className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] ${mark.className}`}>
+      {mark.glyph && <Glyph name={mark.glyph} size={12} />}
     </span>
   );
   return (
-    <div className="group/step flex gap-2.5 rounded-[5px] px-2 py-1.5 hover:bg-sel/50">
+    <div className="group/step flex gap-2.5 py-1.5 pl-16 pr-3 hover:bg-sel/40">
       {s.automatic ? (
-        box
+        <span aria-hidden="true" className="mt-px">
+          {box}
+        </span>
       ) : (
-        <input
-          type="checkbox"
+        // The final checks are the user's to tick: the same box, as a checkbox.
+        <button
+          role="checkbox"
+          aria-checked={finished}
           aria-label={s.title}
-          className="mt-0.5 accent-accent"
-          checked={finished}
-          onChange={(e) => onTick(s.key, e.target.checked)}
-        />
+          onClick={() => onTick(s.key, !finished)}
+          className="mt-px self-start rounded-[5px] hover:brightness-110"
+        >
+          {box}
+        </button>
       )}
       <span className="min-w-0 flex-1">
         <span className={finished ? "text-dim line-through" : ""}>
@@ -706,8 +798,8 @@ function Report({
 }) {
   const [note, setNote] = useState<string | null>(null);
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
-      <header className="flex items-center gap-2">
+    <div className="flex flex-col pb-6">
+      <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
         <h1 className="flex-1 text-sm font-semibold">Setup report</h1>
         <Button
           variant="quiet"
@@ -728,8 +820,8 @@ function Report({
         </Button>
         <Button onClick={onClose}>Done</Button>
       </header>
-      {note && <p className="text-xs text-dim">{note}</p>}
-      <pre className="whitespace-pre-wrap rounded-md border border-line bg-panel p-3 font-mono text-[11px] leading-relaxed">
+      {note && <p className="px-4 pt-3 text-xs text-dim">{note}</p>}
+      <pre className="mx-3 mt-3 whitespace-pre-wrap rounded-lg border border-line bg-panel p-3 font-mono text-[11px] leading-relaxed">
         {text}
       </pre>
     </div>

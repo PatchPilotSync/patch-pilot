@@ -42,9 +42,9 @@ import {
   type VaultMatch,
   type VendorApp,
 } from "../api";
-import { IgnoreButton, IgnoredToggle, pathRules, productRules, useIgnores } from "../Ignore";
+import { IgnoreButton, IgnoredNotice, pathRules, productRules, useIgnores } from "../Ignore";
 import { bringSummary, isReaperScript, isTemplate, Needs } from "../bring";
-import { OtherFormatsNote, StepExtras, StepList, useQuickSteps, type Actions } from "./Setup";
+import { OtherFormatsNote, ProgressEdge, StepExtras, StepList, useQuickSteps, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
 import { TemplateLine } from "../Templates";
 import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
@@ -59,17 +59,23 @@ import {
   Folder,
   FolderControls,
   FolderTree,
+  Glyph,
   inputClass,
   isConflictCopy,
   Label,
   Loading,
   Notice,
+  Panel,
   Pill,
   ScoreBar,
   scoreColor,
+  Tile,
   timeAgo,
+  TONE_TINT,
   treeItems,
   useFolders,
+  type GlyphName,
+  type Tone,
 } from "../ui";
 
 const STATE_ORDER: ParityState[] = [
@@ -84,18 +90,35 @@ const STATE_ORDER: ParityState[] = [
   "in_parity",
 ];
 
-/** Status dot colour for each parity state. */
-const STATE_DOT: Record<ParityState, string> = {
-  missing: "bg-bad",
-  incomplete: "bg-warn",
-  outdated: "bg-warn",
-  modified: "bg-warn",
-  version_unknown: "bg-warn",
-  newer_than_golden: "bg-ok",
-  extra: "bg-dim",
-  not_applicable: "bg-dim",
-  in_parity: "bg-ok",
+/** Each parity state's icon and colour (decision #109): red for missing, amber for what needs a look. */
+const STATE_TILE: Record<ParityState, [GlyphName, Tone]> = {
+  missing: ["x", "bad"],
+  incomplete: ["layers", "warn"],
+  outdated: ["download", "warn"],
+  modified: ["pencil", "warn"],
+  version_unknown: ["question", "warn"],
+  newer_than_golden: ["up", "ok"],
+  extra: ["plus", "dim"],
+  not_applicable: ["minus", "dim"],
+  in_parity: ["check", "ok"],
 };
+
+/** What a row is, as an icon: a plug-in, an app, a template, a script... */
+function kindGlyph(r: ComparisonRow): GlyphName {
+  if (r.product_id.startsWith("presets/")) return "folder";
+  if (r.product_id.startsWith("reaper-script/") || isReapack(r.product_id)) return "code";
+  if (r.product_id.startsWith("reaper-theme/")) return "image";
+  if (r.product_id.startsWith("reaper-config/")) return "sliders";
+  const kind: Record<ComparisonRow["kind"], GlyphName> = {
+    plugin: "knob",
+    vendor_app: "apps",
+    license_tool: "key",
+    daw_asset: "doc",
+    folder: "folder",
+    config: "sliders",
+  };
+  return kind[r.kind] ?? "knob";
+}
 
 /** States whose folder starts open in the diff: the ones that need work. */
 const OPEN_STATES: ParityState[] = ["missing", "incomplete", "outdated", "modified", "version_unknown"];
@@ -152,6 +175,7 @@ function byVendor(rows: ComparisonRow[]): [string, ComparisonRow[]][] {
 function DiffRow({
   r,
   label,
+  pad,
   selected,
   onSelect,
   showVendor,
@@ -160,6 +184,8 @@ function DiffRow({
   r: ComparisonRow;
   /** Shown instead of the name, e.g. just the file name inside a path folder. */
   label?: string;
+  /** Left padding in pixels, to line up with the folder title above. */
+  pad: number;
   selected: ComparisonRow | null;
   onSelect: (r: ComparisonRow) => void;
   showVendor: boolean;
@@ -168,13 +194,12 @@ function DiffRow({
 }) {
   return (
     <li
-      className={`group flex items-center rounded-[5px] ${
-        selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/50"
-      }`}
+      className={`group flex items-center pr-3 ${selected?.product_id === r.product_id ? "bg-sel" : "hover:bg-sel/60"}`}
     >
       <button
         onClick={() => onSelect(r)}
-        className="flex h-7 min-w-0 flex-1 items-center gap-2.5 px-2 text-left"
+        style={{ paddingLeft: pad }}
+        className="flex h-7 min-w-0 flex-1 items-center gap-2.5 pr-1 text-left"
       >
         <span className="min-w-0 flex-1 truncate" title={label ? r.name : undefined}>
           {label ?? r.name}
@@ -347,8 +372,9 @@ export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Pr
 
   return (
     <div className="flex h-full min-h-0">
-      <aside className="flex w-52 shrink-0 flex-col border-r border-line bg-panel">
-        <div className="px-4 pb-1.5 pt-3 text-[11px] text-dim">Machines</div>
+      {/* Both side panes narrow on a small window, so the list in the middle keeps room for names. */}
+      <aside className="flex w-52 shrink-0 flex-col border-r border-line bg-panel max-lg:w-44">
+        <Label className="px-4 pb-1.5 pt-3">Machines</Label>
         <ul className="flex flex-1 flex-col gap-0.5 overflow-auto px-2">
           {view.machines.map((m) => (
             <MachineItem
@@ -404,7 +430,7 @@ export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Pr
 
       {/* Up To Speed is a checklist with nothing to select, so it gets the room. */}
       {!plan && (
-        <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel">
+        <aside className="w-64 shrink-0 overflow-auto border-l border-line bg-panel max-lg:w-52">
           {row && data ? (
             <Detail
               row={row}
@@ -416,11 +442,16 @@ export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Pr
             />
           ) : (
             <div className="flex flex-col gap-5 p-4">
-              <p className="text-xs text-dim">Select a row to see its versions here and on the Primary Rig.</p>
+              <p className="flex items-start gap-2 text-xs text-dim">
+                <Glyph name="info" className="mt-px" />
+                Select a row to see its versions here and on the Primary Rig.
+              </p>
               {card && card.disks.length > 0 && (
                 <section className="flex flex-col gap-2">
                   <Label>{card.is_this_machine ? "Drives on this machine" : `Drives on ${card.name}`}</Label>
-                  <DiskList disks={card.disks} os={card.os} showWhen={!card.is_this_machine} />
+                  <div className="rounded-lg border border-line bg-canvas px-3 py-2.5">
+                    <DiskList disks={card.disks} os={card.os} showWhen={!card.is_this_machine} />
+                  </div>
                 </section>
               )}
             </div>
@@ -455,7 +486,7 @@ function MachineItem({
 
   if (confirm) {
     return (
-      <li className="flex flex-col gap-1.5 rounded-md bg-sel px-2.5 py-2">
+      <li className="flex flex-col gap-1.5 rounded-md border border-line bg-canvas px-2.5 py-2 shadow-sm">
         <span className="font-medium">Remove {m.name}?</span>
         <span className="text-[11px] leading-snug text-dim">
           Its scans here are forgotten. The Primary Rig stays as it is. If it scans again while linked, it comes back.
@@ -503,8 +534,8 @@ function MachineItem({
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY });
         }}
-        className={`flex w-full flex-col gap-1.5 rounded-md px-2.5 py-2 text-left ${
-          active ? "bg-sel" : "hover:bg-sel/50"
+        className={`flex w-full flex-col gap-1.5 rounded-md border px-2.5 py-2 text-left ${
+          active ? "border-line bg-canvas shadow-sm" : "border-transparent hover:bg-sel/50"
         }`}
       >
         <span className="flex w-full items-baseline gap-2">
@@ -627,8 +658,8 @@ function Diff({
   const hasWork = c.rows.some((r) => ["missing", "incomplete", "outdated"].includes(r.state));
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
-      <header className="flex items-center gap-4">
+    <div className="flex flex-col pb-6">
+      <header className="flex items-center gap-4 border-b border-line px-4 py-2.5">
         <span className={`text-3xl font-semibold leading-none tracking-tight tabular-nums ${scoreColor(c.score)}`}>
           {c.score}
         </span>
@@ -657,239 +688,262 @@ function Diff({
           ))}
       </header>
 
-      {c.reasons.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex h-1.5 overflow-hidden rounded-full bg-track" aria-hidden="true">
-            <span className="bg-ok" style={{ width: `${c.score}%` }} />
-            {c.reasons.map((r, i) => (
-              <span
-                key={r.text}
-                className="bg-bad"
-                style={{ width: `${r.points}%`, opacity: Math.max(1 - i * 0.15, 0.35) }}
-              />
-            ))}
+      {/* The score and what it lost to, then one line each for what can be done about it, as on This machine. */}
+      <Panel divided className="mx-3 mt-3">
+        {c.reasons.length > 0 ? (
+          <div className="flex flex-col gap-1.5 px-3 py-2.5">
+            <div className="flex h-1.5 overflow-hidden rounded-full bg-track" aria-hidden="true">
+              <span className="bg-ok" style={{ width: `${c.score}%` }} />
+              {c.reasons.map((r, i) => (
+                <span
+                  key={r.text}
+                  className="bg-bad"
+                  style={{ width: `${r.points}%`, opacity: Math.max(1 - i * 0.15, 0.35) }}
+                />
+              ))}
+            </div>
+            <ReasonList score={c.score} reasons={c.reasons} />
           </div>
-          <ReasonList score={c.score} reasons={c.reasons} />
-        </div>
-      ) : (
-        <p className="text-xs text-ok">At parity with the Primary Rig.</p>
-      )}
+        ) : (
+          <div className="p-1">
+            <Notice tone="ok" icon="check" text={<span className="text-ok">At parity with the Primary Rig.</span>} />
+          </div>
+        )}
 
-      <div className="-mx-2 flex flex-col">
-        {bring.scripts.files.length > 0 && (
-          <Notice
-            text={
-              <>
-                {bring.scripts.files.length.toLocaleString()} Reaper script file
-                {bring.scripts.files.length === 1 ? "" : "s"}{" "}
-                {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
-                {bring.scripts.tooLarge > 0 && (
-                  <span className="text-dim"> ({bring.scripts.tooLarge} too large to send)</span>
-                )}
-              </>
-            }
-            actions={
-              <Button
-                variant="link"
-                disabled={bring.busy}
-                onClick={() => bring.bring(bring.scripts.files, bring.scripts.tooLarge)}
-                className="h-6 shrink-0 px-2"
-                title={`Every script and ReaPack package, each with the files it needs. ${bring.hint}`}
-              >
-                {bring.from ? "Copy all Reaper scripts here" : "Bring over all Reaper scripts"}
-              </Button>
-            }
+        <div className="flex flex-col p-1 empty:hidden">
+          {bring.scripts.files.length > 0 && (
+            <Notice
+              icon="code"
+              text={
+                <>
+                  {bring.scripts.files.length.toLocaleString()} Reaper script file
+                  {bring.scripts.files.length === 1 ? "" : "s"}{" "}
+                  {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
+                  {bring.scripts.tooLarge > 0 && (
+                    <span className="text-dim"> ({bring.scripts.tooLarge} too large to send)</span>
+                  )}
+                </>
+              }
+              actions={
+                <Button
+                  variant="link"
+                  disabled={bring.busy}
+                  onClick={() => bring.bring(bring.scripts.files, bring.scripts.tooLarge)}
+                  className="h-6 shrink-0 px-2"
+                  title={`Every script and ReaPack package, each with the files it needs. ${bring.hint}`}
+                >
+                  {bring.from ? "Copy all Reaper scripts here" : "Bring over all Reaper scripts"}
+                </Button>
+              }
+            />
+          )}
+
+          {bring.templates.files.length > 0 && (
+            <Notice
+              icon="doc"
+              text={
+                <>
+                  {bring.templates.files.length.toLocaleString()} template
+                  {bring.templates.files.length === 1 ? "" : "s"}{" "}
+                  {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
+                  {bring.templates.tooLarge > 0 && (
+                    <span className="text-dim"> ({bring.templates.tooLarge} too large to send)</span>
+                  )}
+                </>
+              }
+              actions={
+                <Button
+                  variant="link"
+                  disabled={bring.busy}
+                  onClick={() => bring.bring(bring.templates.files, bring.templates.tooLarge)}
+                  className="h-6 shrink-0 px-2"
+                  title={`Every Reaper track and project template and Ableton template. ${bring.hint}`}
+                >
+                  {bring.from ? "Copy all templates here" : "Bring over all templates"}
+                </Button>
+              }
+            />
+          )}
+
+          {bring.message && (
+            <p className="px-2 py-1 text-xs text-ok">
+              {bring.message.text}
+              {bring.message.warn && <span className="text-warn"> {bring.message.warn}</span>}
+            </p>
+          )}
+
+          <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} onError={onError} />
+          <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
+          <IgnoredNotice
+            ignores={data.ignores}
+            machine={machine.is_this_machine ? null : machine.id}
+            name={machine.name}
+            onError={onError}
           />
-        )}
-
-        {bring.templates.files.length > 0 && (
-          <Notice
-            text={
-              <>
-                {bring.templates.files.length.toLocaleString()} template
-                {bring.templates.files.length === 1 ? "" : "s"}{" "}
-                {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
-                {bring.templates.tooLarge > 0 && (
-                  <span className="text-dim"> ({bring.templates.tooLarge} too large to send)</span>
-                )}
-              </>
-            }
-            actions={
-              <Button
-                variant="link"
-                disabled={bring.busy}
-                onClick={() => bring.bring(bring.templates.files, bring.templates.tooLarge)}
-                className="h-6 shrink-0 px-2"
-                title={`Every Reaper track and project template and Ableton template. ${bring.hint}`}
-              >
-                {bring.from ? "Copy all templates here" : "Bring over all templates"}
-              </Button>
-            }
-          />
-        )}
-
-        {bring.message && (
-          <p className="px-2 py-1 text-xs text-ok">
-            {bring.message.text}
-            {bring.message.warn && <span className="text-warn"> {bring.message.warn}</span>}
-          </p>
-        )}
-
-        <TemplatesNotice data={data} selected={selected} onSelect={onSelect} onPlan={onPlan} onError={onError} />
-        <SuggestionsNotice data={data} selected={selected} onSelect={onSelect} suggest={suggest} />
-        <div className="px-2">
-          <IgnoredToggle ignores={data.ignores} machine={machine.is_this_machine ? null : machine.id} onError={onError} />
         </div>
-      </div>
+      </Panel>
 
       {/* Filters by state, then the rest of the filters with the folders' controls, so neither row wraps. */}
-      <div className="-mx-1 flex flex-wrap items-center gap-0.5">
-        {STATE_ORDER.filter((s) => s !== "in_parity" && counts.get(s)).map((s) => (
-          <Pill key={s} active={states.has(s)} onClick={() => toggle(s)}>
-            {stateLabel(s, machine, data.golden_version)} <span className="tabular-nums opacity-70">{counts.get(s)}</span>
-          </Pill>
-        ))}
-      </div>
-      <div className="-mt-1.5 flex items-center gap-1.5 border-b border-line pb-2">
-        {!states.size && counts.get("in_parity") ? (
-          <label className="mr-1.5 flex shrink-0 items-center gap-1.5 text-xs text-dim">
-            <input
-              type="checkbox"
-              className="accent-accent"
-              checked={showParity}
-              onChange={(e) => setShowParity(e.target.checked)}
-            />
-            {STATE_LABEL.in_parity} <span className="tabular-nums opacity-70">{counts.get("in_parity") ?? 0}</span>
-          </label>
-        ) : null}
-        <select
-          value={vendor}
-          onChange={(e) => setVendor(e.target.value)}
-          aria-label="Vendor"
-          className={`h-6 max-w-32 ${inputClass}`}
-        >
-          <option value="">All vendors</option>
-          {vendors.map((v) => (
-            <option key={v}>{v}</option>
-          ))}
-        </select>
-        <select
-          value={format}
-          onChange={(e) => setFormat(e.target.value as PluginFormat | "")}
-          aria-label="Format"
-          className={`h-6 ${inputClass}`}
-        >
-          <option value="">All formats</option>
-          {formats.map((f) => (
-            <option key={f} value={f}>
-              {FORMAT_LABEL[f]}
-            </option>
-          ))}
-        </select>
-        <span className="flex-1" />
-        <FolderControls ids={shownStates.map((st) => st as string)} folders={folders} className="-mr-2 shrink-0" />
-      </div>
+      <Panel divided className="mx-3 mt-3">
+        <div className="flex flex-col gap-1 px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-0.5">
+            {STATE_ORDER.filter((s) => s !== "in_parity" && counts.get(s)).map((s) => (
+              <Pill key={s} active={states.has(s)} onClick={() => toggle(s)}>
+                {stateLabel(s, machine, data.golden_version)}{" "}
+                <span className="tabular-nums opacity-70">{counts.get(s)}</span>
+              </Pill>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 pl-1">
+            {!states.size && counts.get("in_parity") ? (
+              <label className="mr-1.5 flex shrink-0 items-center gap-1.5 text-xs text-dim">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={showParity}
+                  onChange={(e) => setShowParity(e.target.checked)}
+                />
+                {STATE_LABEL.in_parity} <span className="tabular-nums opacity-70">{counts.get("in_parity") ?? 0}</span>
+              </label>
+            ) : null}
+            <select
+              value={vendor}
+              onChange={(e) => setVendor(e.target.value)}
+              aria-label="Vendor"
+              className={`h-6 max-w-32 ${inputClass}`}
+            >
+              <option value="">All vendors</option>
+              {vendors.map((v) => (
+                <option key={v}>{v}</option>
+              ))}
+            </select>
+            <select
+              value={format}
+              onChange={(e) => setFormat(e.target.value as PluginFormat | "")}
+              aria-label="Format"
+              className={`h-6 ${inputClass}`}
+            >
+              <option value="">All formats</option>
+              {formats.map((f) => (
+                <option key={f} value={f}>
+                  {FORMAT_LABEL[f]}
+                </option>
+              ))}
+            </select>
+            <span className="flex-1" />
+            <FolderControls ids={shownStates.map((st) => st as string)} folders={folders} className="shrink-0" />
+          </div>
+        </div>
 
-      <div className="-mx-2 -mt-1 flex flex-col">
         {shownStates.map((s) => {
           const all = rows.filter((r) => r.state === s);
           const subs = subGroups(all);
+          const [glyph, tone] = STATE_TILE[s];
           return (
             <Folder
               key={s}
-              title={
-                <span className="flex items-center gap-2" title={stateHint(s, machine, data.golden_version)}>
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATE_DOT[s]}`} aria-hidden="true" />
-                  {stateLabel(s, machine, data.golden_version)}
-                </span>
-              }
+              title={<span title={stateHint(s, machine, data.golden_version)}>{stateLabel(s, machine, data.golden_version)}</span>}
               count={all.length}
-              className="rounded-[5px] px-2"
+              icon={<Tile name={glyph} tone={tone} />}
+              className="pl-3 pr-4"
               open={filtered || folders.isOpen(s)}
               onToggle={() => folders.toggle(s)}
             >
-              {subs ? (
-                subs.map(([name, rs]) => {
-                  const id = `${s}/${name}`;
-                  return (
-                    <Folder
-                      key={id}
-                      title={name}
-                      count={rs.length}
-                      className="rounded-[5px] pl-6 pr-2"
-                      open={folders.isOpen(id)}
-                      onToggle={() => folders.toggle(id)}
-                      actions={
-                        <>
-                          <IgnoreFolder label={name === REAPER_FILES ? "Reaper files" : name} rows={rs} ignore={ignore} />
-                          {name === REAPER_FILES && <BringButton rows={rs} bring={bring} />}
-                        </>
-                      }
-                    >
-                      {name === REAPER_FILES ? (
-                        <FolderTree
-                          node={buildTree(rs, reaperDirs, id)}
-                          folders={folders}
-                          indent={40}
-                          actions={(node) => (
-                            <>
-                              <IgnoreFolder label={node.name} rows={treeItems(node)} ignore={ignore} />
-                              <BringButton rows={treeItems(node)} bring={bring} />
-                            </>
-                          )}
-                          renderItems={(items, indent) => (
-                            <ul style={{ paddingLeft: indent }}>
-                              {items.map((r) => (
-                                <DiffRow
-                                  key={r.product_id}
-                                  r={r}
-                                  label={reaperFileLabel(r.name)}
-                                  selected={selected}
-                                  onSelect={onSelect}
-                                  showVendor={false}
-                                  ignore={ignore}
-                                />
-                              ))}
-                            </ul>
-                          )}
-                        />
-                      ) : (
-                        <ul className="pl-8">
-                          {rs.map((r) => (
-                            <DiffRow
-                              key={r.product_id}
-                              r={r}
-                              selected={selected}
-                              onSelect={onSelect}
-                              showVendor={false}
-                              ignore={ignore}
-                            />
-                          ))}
-                        </ul>
-                      )}
-                    </Folder>
-                  );
-                })
-              ) : (
-                <ul className="pl-4">
-                  {all.map((r) => (
-                    <DiffRow key={r.product_id} r={r} selected={selected} onSelect={onSelect} showVendor ignore={ignore} />
-                  ))}
-                </ul>
-              )}
+              <div className="pb-1">
+                {subs ? (
+                  subs.map(([name, rs]) => {
+                    const id = `${s}/${name}`;
+                    return (
+                      <Folder
+                        key={id}
+                        title={name}
+                        count={rs.length}
+                        className="pr-3"
+                        indent={60}
+                        open={folders.isOpen(id)}
+                        onToggle={() => folders.toggle(id)}
+                        actions={
+                          <>
+                            <IgnoreFolder label={name === REAPER_FILES ? "Reaper files" : name} rows={rs} ignore={ignore} />
+                            {name === REAPER_FILES && <BringButton rows={rs} bring={bring} />}
+                          </>
+                        }
+                      >
+                        {name === REAPER_FILES ? (
+                          <FolderTree
+                            node={buildTree(rs, reaperDirs, id)}
+                            folders={folders}
+                            indent={76}
+                            actions={(node) => (
+                              <>
+                                <IgnoreFolder label={node.name} rows={treeItems(node)} ignore={ignore} />
+                                <BringButton rows={treeItems(node)} bring={bring} />
+                              </>
+                            )}
+                            renderItems={(items, indent) => (
+                              <ul>
+                                {items.map((r) => (
+                                  <DiffRow
+                                    key={r.product_id}
+                                    r={r}
+                                    label={reaperFileLabel(r.name)}
+                                    pad={indent}
+                                    selected={selected}
+                                    onSelect={onSelect}
+                                    showVendor={false}
+                                    ignore={ignore}
+                                  />
+                                ))}
+                              </ul>
+                            )}
+                          />
+                        ) : (
+                          <ul>
+                            {rs.map((r) => (
+                              <DiffRow
+                                key={r.product_id}
+                                r={r}
+                                pad={76}
+                                selected={selected}
+                                onSelect={onSelect}
+                                showVendor={false}
+                                ignore={ignore}
+                              />
+                            ))}
+                          </ul>
+                        )}
+                      </Folder>
+                    );
+                  })
+                ) : (
+                  <ul>
+                    {all.map((r) => (
+                      <DiffRow
+                        key={r.product_id}
+                        r={r}
+                        pad={64}
+                        selected={selected}
+                        onSelect={onSelect}
+                        showVendor
+                        ignore={ignore}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
             </Folder>
           );
         })}
         {!rows.length && (states.size > 0 || vendor || format) && (
-          <p className="px-2 text-dim">Nothing to show with these filters.</p>
+          <p className="px-4 py-2.5 text-xs text-dim">Nothing to show with these filters.</p>
         )}
-        {c.unresolved > 0 && (
-          <p className="px-2 text-[11px] text-dim">
-            {c.unresolved} file{c.unresolved === 1 ? "" : "s"} on this machine couldn't be identified, so{" "}
-            {c.unresolved === 1 ? "it isn't" : "they aren't"} compared.
-          </p>
-        )}
-      </div>
+      </Panel>
+      {c.unresolved > 0 && (
+        <p className="px-4 pt-2 text-[11px] text-dim">
+          {c.unresolved} file{c.unresolved === 1 ? "" : "s"} on this machine couldn't be identified, so{" "}
+          {c.unresolved === 1 ? "it isn't" : "they aren't"} compared.
+        </p>
+      )}
     </div>
   );
 }
@@ -984,6 +1038,7 @@ function TemplatesNotice({
   return (
     <Notice
       tone="warn"
+      icon="doc"
       text={
         <span title={`${plural(t, "template")} use ${plural(p, "plug-in")} ${who}`}>
           {t} {apps.length === 1 ? `${apps[0].app} ` : ""}
@@ -1155,7 +1210,12 @@ function SuggestionsNotice({
   const folders = useFolders("suggestions");
   const rows = data.comparison.rows.filter((r) => data.suggested.includes(r.product_id));
   const ignored = data.comparison.rows.filter((r) => data.suggested_ignored.includes(r.product_id));
-  if (!rows.length) return <IgnoredSuggestions rows={ignored} suggest={suggest} />;
+  if (!rows.length)
+    return ignored.length ? (
+      <div className="px-2 py-1">
+        <IgnoredSuggestions rows={ignored} suggest={suggest} />
+      </div>
+    ) : null;
   // By kind, then by unit: a script package or all of ReaPack is one row.
   const groups = new Map<SuggestionGroup, Map<string, ComparisonRow[]>>();
   for (const r of rows) {
@@ -1223,6 +1283,7 @@ function SuggestionsNotice({
   );
   return (
     <Notice
+      icon="star"
       text={
         source ? `On ${where}, not in Primary Rig v${v} yet: ${what}` : `Could go into the Primary Rig from ${where}: ${what}`
       }
@@ -1381,19 +1442,21 @@ function Detail({
   const along = file ? bring.needs.withNeeds([fileKey(file)]).size - 1 : 0;
   return (
     <div className="flex flex-col gap-4 p-4">
-      <div>
-        <div className="text-sm font-semibold">{row.name}</div>
-        <div className="text-xs text-dim">{row.vendor || "Unknown vendor"}</div>
+      <div className="flex items-start gap-2.5">
+        <Tile name={kindGlyph(row)} className="mt-px" />
+        <div className="min-w-0">
+          <div className="break-words text-sm font-semibold">{row.name}</div>
+          <div className="text-xs text-dim">{row.vendor || "Unknown vendor"}</div>
+        </div>
       </div>
-      <p className="text-xs leading-relaxed">
-        <span className="mr-1.5 inline-flex items-center gap-1.5 font-medium">
-          <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[row.state]}`} aria-hidden="true" />
-          {stateLabel(row.state, machine, version)}.
-        </span>
-        <span className="text-dim">{stateHint(row.state, machine, version)}</span>
-      </p>
-      <Side title="Primary Rig" items={row.golden_items} />
-      <Side title={machine.name} items={row.machine_items} />
+      <div className="flex flex-col items-start gap-1.5">
+        <StateChip state={row.state} label={stateLabel(row.state, machine, version)} />
+        <p className="text-xs leading-relaxed text-dim">{stateHint(row.state, machine, version)}</p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Side title="Primary Rig" glyph="star" items={row.golden_items} />
+        <Side title={machine.name} glyph="desktop" items={row.machine_items} />
+      </div>
       {row.product_id.startsWith("presets/") && (
         <p className="text-xs leading-relaxed text-dim">
           A preset folder with files in it (empty ones are skipped). Patch Pilot compares a fingerprint of its files to
@@ -1478,10 +1541,24 @@ function Detail({
   );
 }
 
-function Side({ title, items }: { title: string; items: ComparisonRow["golden_items"] }) {
+/** A parity state as a small tinted label with its icon, e.g. "Outdated". */
+function StateChip({ state, label }: { state: ParityState; label: string }) {
+  const [glyph, tone] = STATE_TILE[state];
   return (
-    <div>
-      <div className="mb-1 text-[11px] text-dim">{title}</div>
+    <span className={`inline-flex h-6 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-xs font-medium ${TONE_TINT[tone]}`}>
+      <Glyph name={glyph} size={12} />
+      {label}
+    </span>
+  );
+}
+
+function Side({ title, glyph, items }: { title: string; glyph: GlyphName; items: ComparisonRow["golden_items"] }) {
+  return (
+    <div className="rounded-lg border border-line bg-canvas px-2.5 py-2">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-dim">
+        <Glyph name={glyph} size={12} />
+        <span className="min-w-0 truncate">{title}</span>
+      </div>
       {items.length === 0 ? (
         <p className="text-xs text-bad">Not installed</p>
       ) : (
@@ -1687,9 +1764,10 @@ function PlanView({
       }),
     );
   const steps = quick.steps;
+  const done = steps.filter((s) => s.status === "done" || s.status === "skipped").length;
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
-      <header className="flex items-center gap-4">
+    <div className="flex flex-col pb-6">
+      <header className="flex items-center gap-4 px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">
             {here ? `Up To Speed: ${name}` : `${name}'s checklist`}
@@ -1702,24 +1780,27 @@ function PlanView({
         </div>
         {progress && (
           <span className="text-xs tabular-nums text-dim">
-            {steps.filter((s) => s.status === "done" || s.status === "skipped").length} of {progress.total}
+            {done} of {progress.total}
           </span>
         )}
         <Button variant="quiet" onClick={onBack} className="shrink-0 whitespace-nowrap">
           Back to Compare
         </Button>
       </header>
-      {here && <LowDiskNotice disks={disks} os={os} />}
-      {here && <ReaperExtensionsNotice onError={onError} />}
-      {here && <ReaperStartupNotice onError={onError} />}
-      {progress && steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
-      {progress?.complete && steps.length > 0 && (
-        <p className="text-xs font-medium text-ok">Every step is done.</p>
-      )}
-      <StepList steps={steps} scope={`plan.${id}`} onTick={tick} actions={actions} />
-      {progress && <OtherFormatsNote items={progress.other_formats} />}
-      {here && progress && <StepExtras steps={steps} onError={onError} />}
-      <IgnoredToggle ignores={ignores} machine={here ? null : id} onError={onError} />
+      <ProgressEdge done={done} total={progress?.total ?? 0} />
+      <Panel className="mx-3 mt-3 p-1 empty:hidden">
+        {here && <LowDiskNotice disks={disks} os={os} />}
+        {here && <ReaperExtensionsNotice onError={onError} />}
+        {here && <ReaperStartupNotice onError={onError} />}
+        {progress && steps.length === 0 && <Notice tone="ok" icon="check" text="Nothing to do." />}
+        {progress?.complete && steps.length > 0 && (
+          <Notice tone="ok" icon="check" text={<span className="font-medium text-ok">Every step is done.</span>} />
+        )}
+        {progress && <OtherFormatsNote items={progress.other_formats} />}
+        <IgnoredNotice ignores={ignores} machine={here ? null : id} name={name} onError={onError} />
+      </Panel>
+      <StepList steps={steps} scope={`plan.${id}`} onTick={tick} actions={actions} className="mx-3 mt-3" />
+      {here && progress && <StepExtras steps={steps} onError={onError} className="mx-3 mt-3" />}
     </div>
   );
 }

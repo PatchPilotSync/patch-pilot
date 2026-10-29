@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fixReaperFolders, reaperExtras, restoreReapack, type ReaperExtras as Extras } from "./api";
-import { Badge, Button, Card, Folder, useFolders } from "./ui";
+import { Badge, Button, Card, Folder, Tile, useFolders } from "./ui";
 
 /**
  * Reaper extras (decision #52): the Primary Rig's ReaPack repositories and
@@ -51,6 +51,7 @@ export function ReaperExtras({ onError }: { onError: (e: string) => void }) {
 
   return (
     <Card
+      icon={<Tile name="sliders" tone={parts.length ? "accent" : "ok"} className="" />}
       title="Reaper setup"
       sub={parts.length ? parts.join(" · ") : "Matches the Primary Rig."}
       actions={
