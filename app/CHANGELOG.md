@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.49 - 2026-10-29
+
+### Changed
+
+- The Installer Vault, History and Settings look like This machine now. The Vault shows installers to add and installers you have in rounded panels grouped by vendor, each with a small icon. History is grouped by day, with an icon for each kind of entry. Settings puts each section under a small heading with its icon.
+
 ## 0.4.48 - 2026-10-29
 
 ### Changed
