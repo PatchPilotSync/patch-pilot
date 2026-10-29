@@ -15,6 +15,7 @@ import {
 } from "../api";
 import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
 import { ReaperExtensionsNotice } from "../ReaperExtensions";
+import { ReaperStartupNotice } from "../ReaperStartup";
 import { Duplicates } from "../Duplicates";
 import { Badge, Button, Folder, FolderControls, inputClass, Label, Notice, Pill, timeAgo, useFolders } from "../ui";
 
@@ -125,6 +126,7 @@ export function Rig({
         <BigFiles onError={() => {}} compact />
         <LowDiskNotice disks={machine.disks} os={machine.os} />
         <ReaperExtensionsNotice onError={onError} />
+        <ReaperStartupNotice onError={onError} />
         {alerts.length > 0 && <Updates alerts={alerts} />}
         {/* Only real read problems land here; a plug-in with no version number is normal. */}
         {warnings.length > 0 && (

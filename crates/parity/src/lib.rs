@@ -8,6 +8,7 @@ pub mod reaper_ext;
 pub mod reaper_folders;
 pub mod reaper_keys;
 pub mod reaper_links;
+pub mod reaper_startup;
 
 mod ini;
 

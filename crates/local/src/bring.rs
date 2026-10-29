@@ -20,6 +20,7 @@ use patchpilot_parity::presets::{self, ROOT_PREFIX, is_preset_file, is_preset_ro
 use patchpilot_parity::reaper::{
     REAPER_RESOURCES, ResourceKind, portable_key_map, reaper_resource_dir, resource_kind,
 };
+use patchpilot_parity::reaper_startup;
 use patchpilot_store::Store;
 use serde::Serialize;
 
@@ -71,12 +72,18 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         // Templates, scripts and themes aren't Reaper's settings, and Reaper
         // reads them when they are used, so writing them while it runs is safe.
         guard: || Ok(()),
-        // Key maps travel with this machine's resource folder spelled portably.
+        // Key maps travel with this machine's resource folder spelled
+        // portably; of S&M.ini, only the startup action travels, set into
+        // this machine's own file (decision #105).
         view: |dir, rel, bytes| match resource_kind(rel) {
             Some(ResourceKind::KeyMap) => portable_key_map(bytes, dir, this_os()),
+            Some(ResourceKind::StartupAction) => reaper_startup::view(&bytes),
             _ => bytes,
         },
-        merge: |_, _, incoming| Ok(incoming),
+        merge: |rel, current, incoming| match resource_kind(rel) {
+            Some(ResourceKind::StartupAction) => reaper_startup::merge(current, &incoming),
+            _ => Ok(incoming),
+        },
         daw: None,
         // Key maps and menus are Reaper's own settings: only while it's closed.
         closed_daw: |rel| {
@@ -1220,6 +1227,42 @@ mod tests {
         assert_eq!((reaper.closed_daw)("Scripts/a.lua"), None);
         assert_eq!((reaper.kind)("reaper-kb.ini"), Some("Key map"));
         assert_eq!((reaper.kind)("reaper.ini"), None);
+        assert_eq!((reaper.closed_daw)("S&M.ini"), Some(Daw::Reaper));
+        assert_eq!((reaper.kind)("S&M.ini"), Some("Startup action"));
+    }
+
+    #[test]
+    fn only_the_startup_action_of_sws_settings_travels() {
+        let tmp = tempfile::tempdir().unwrap();
+        let here = tmp.path();
+        let pc = "[General]\r\nBeta=1\r\n[Misc]\r\nGlobalStartupAction=_aa\r\n";
+        let mac = "[General]\nBeta=0\n[RESOURCE_VIEW]\nLastPath=/Users/j\n";
+        std::fs::write(here.join("S&M.ini"), mac).unwrap();
+        let reaper = &SHARED_ROOTS[0];
+        let shared = (reaper.view)(here, "S&M.ini", pc.as_bytes().to_vec());
+        assert_eq!(shared, b"[Misc]\nGlobalStartupAction=_aa\n");
+        assert!(would_change(
+            here,
+            REAPER_RESOURCES,
+            "S&M.ini",
+            shared.clone()
+        ));
+        let merged = (reaper.merge)("S&M.ini", Some(mac.as_bytes()), shared.clone()).unwrap();
+        assert_eq!(
+            String::from_utf8(merged.clone()).unwrap(),
+            format!("{mac}\n[Misc]\nGlobalStartupAction=_aa\n")
+        );
+        std::fs::write(here.join("S&M.ini"), merged).unwrap();
+        assert!(!would_change(
+            here,
+            REAPER_RESOURCES,
+            "S&M.ini",
+            shared.clone()
+        ));
+        assert_eq!(
+            shared_hash(here, REAPER_RESOURCES, "S&M.ini"),
+            Some(patchpilot_sync::content_hash(&shared))
+        );
     }
 
     #[test]

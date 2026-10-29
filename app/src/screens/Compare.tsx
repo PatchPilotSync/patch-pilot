@@ -16,6 +16,7 @@ import {
   openVendorApp,
   planProgress,
   planTick,
+  reaperFileLabel,
   STATE_HINT,
   STATE_LABEL,
   SUGGESTION_GROUP,
@@ -48,6 +49,7 @@ import { formatSize } from "./VaultTriage";
 import { TemplateLine } from "../Templates";
 import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
 import { ReaperExtensionsNotice } from "../ReaperExtensions";
+import { ReaperStartupNotice } from "../ReaperStartup";
 import {
   Badge,
   Button,
@@ -841,7 +843,7 @@ function Diff({
                                 <DiffRow
                                   key={r.product_id}
                                   r={r}
-                                  label={r.name.split("/").pop()}
+                                  label={reaperFileLabel(r.name)}
                                   selected={selected}
                                   onSelect={onSelect}
                                   showVendor={false}
@@ -1709,6 +1711,7 @@ function PlanView({
       </header>
       {here && <LowDiskNotice disks={disks} os={os} />}
       {here && <ReaperExtensionsNotice onError={onError} />}
+      {here && <ReaperStartupNotice onError={onError} />}
       {progress && steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       {progress?.complete && steps.length > 0 && (
         <p className="text-xs font-medium text-ok">Every step is done.</p>

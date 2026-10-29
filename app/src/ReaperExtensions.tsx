@@ -5,6 +5,7 @@ import {
   reaperExtensions,
   revealPath,
   SHOW_IN_FOLDER,
+  SWS_INI,
   type ExtensionCheck,
   type ExtensionFixAction,
   type ExtensionState,
@@ -67,7 +68,7 @@ const STATUS_BADGE: Record<ExtensionState["status"], string> = {
 
 /** "nvk_FOLDER_ITEMS - Reposition.lua and 33 more scripts", by file name. */
 function usedBy(scripts: string[]): string {
-  const name = (s: string) => s.split("/").pop() ?? s;
+  const name = (s: string) => (s === SWS_INI ? "Reaper's startup action" : (s.split("/").pop() ?? s));
   if (scripts.length === 0) return "";
   if (scripts.length === 1) return `Used by ${name(scripts[0])}`;
   return `Used by ${name(scripts[0])} and ${scripts.length - 1} more script${scripts.length === 2 ? "" : "s"}`;
