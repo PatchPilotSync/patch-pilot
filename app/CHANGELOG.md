@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.46 - 2026-10-29
+
+### Changed
+
+- The status lines at the top of This machine look nicer. Primary Rig, Sync & backup and the other lines sit together in one panel, each with a small icon in its status colour: green when all is well and in sync, amber when something needs a look, blue when there's something to do. All plug-ins gets a matching panel.
+
 ## 0.4.45 - 2026-10-29
 
 ### Changed
