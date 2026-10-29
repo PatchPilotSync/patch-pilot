@@ -51,8 +51,8 @@ export interface Disk {
   label?: string | null;
   total: number;
   free: number;
-  /** "plugins" | "presets" | "daw" | "home" | "vault"; others from newer builds are skipped. */
-  holds: string[];
+  /** "plugins" | "presets" | "daw" | "home" | "vault"; others from newer builds are skipped. Left out when the drive holds none of them. */
+  holds?: string[];
   measured_at: number;
 }
 

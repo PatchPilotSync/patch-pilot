@@ -39,7 +39,7 @@ export function isLow(d: Disk): boolean {
 
 /** Drives holding something Patch Pilot uses; a full backup or archive drive isn't worth a warning. */
 function inUse(disks: Disk[]): Disk[] {
-  const used = disks.filter((d) => d.holds.length > 0);
+  const used = disks.filter((d) => (d.holds?.length ?? 0) > 0);
   return used.length > 0 ? used : disks;
 }
 
@@ -55,14 +55,14 @@ export function diskLabel(d: Disk): string {
 
 /** What a drive holds, in words: "plug-ins, presets and DAW files". */
 function holdsLabel(d: Disk): string {
-  const parts = d.holds.map((h) => HOLDS[h]).filter(Boolean);
+  const parts = (d.holds ?? []).map((h) => HOLDS[h]).filter(Boolean);
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : (parts[0] ?? "");
 }
 
 /** Every drive on one line each, for a tooltip. */
 export function disksTitle(disks: Disk[], os: Os): string {
   return disks
-    .map((d) => `${diskLabel(d)}: ${formatBytes(d.free, os)} free of ${formatBytes(d.total, os)}${d.holds.length ? ` (${holdsLabel(d)})` : ""}`)
+    .map((d) => `${diskLabel(d)}: ${formatBytes(d.free, os)} free of ${formatBytes(d.total, os)}${(d.holds?.length ?? 0) ? ` (${holdsLabel(d)})` : ""}`)
     .join("\n");
 }
 
@@ -137,7 +137,7 @@ export function DiskList({
             </span>
           </div>
           <DiskBar disk={d} />
-          {d.holds.length > 0 && <span className="text-[11px] leading-snug text-dim">{holdsLabel(d)}</span>}
+          {(d.holds?.length ?? 0) > 0 && <span className="text-[11px] leading-snug text-dim">{holdsLabel(d)}</span>}
         </div>
       ))}
       {showWhen && disks.length > 0 && <span className="text-[11px] text-dim">Checked {timeAgo(when)}</span>}
