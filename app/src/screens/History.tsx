@@ -11,7 +11,7 @@ import {
   type HistoryView,
   type ProductChange,
 } from "../api";
-import { Badge, Button, Folder, Loading, useFolders } from "../ui";
+import { Badge, Button, Folder, Label, Loading, Notice, Panel, Tile, useFolders, type GlyphName, type Tone } from "../ui";
 
 interface Props {
   /** Bumped when another window or a rescan changed the data. */
@@ -71,43 +71,81 @@ export function History({ refreshKey, onError }: Props) {
         </p>
       </header>
       {view.entries.length === 0 && (
-        <p className="px-4 py-3 text-dim">Nothing yet. Changes show up here as they happen.</p>
+        <Panel className="mx-3 mt-3 p-1">
+          <Notice
+            tone="dim"
+            icon="clock"
+            text={<span className="text-dim">Nothing yet. Changes show up here as they happen.</span>}
+          />
+        </Panel>
       )}
-      <ul>
-        {view.entries.map((e) => {
-          const key = e.type === "scan" ? `s${e.snapshot_id}` : `f${e.id}`;
-          const id = e.type === "scan" ? e.snapshot_id : e.id;
-          const isOpen = open !== null && open.id === id && (e.type === "scan") === (open.kind !== "undo");
-          return (
-            <li key={key} className="border-b border-line">
-              {e.type === "scan" ? (
-                <ScanRow
-                  e={e}
-                  busy={busy}
-                  open={isOpen ? open : null}
-                  onToggle={() => setOpen(isOpen && open?.kind === "details" ? null : { kind: "details", id })}
-                  onGoBack={() =>
-                    run(async () => setOpen({ kind: "back", id, plan: await goBackPlan(e.snapshot_id) }))
-                  }
-                  onConfirm={() => run(() => goBack(e.snapshot_id))}
-                  onCancel={() => setOpen(null)}
-                />
-              ) : (
-                <FilesRow
-                  e={e}
-                  busy={busy}
-                  open={isOpen && open?.kind === "undo" ? open.files : null}
-                  onUndo={() => run(async () => setOpen({ kind: "undo", id, files: await undoPreview(e.id) }))}
-                  onConfirm={() => run(() => undoChange(e.id))}
-                  onCancel={() => setOpen(null)}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      {/* One panel per day, newest first, so a long history reads as a diary. */}
+      {byDay(view.entries).map(([day, entries]) => (
+        <section key={day}>
+          <Label className="px-4 pb-1 pt-4">{day}</Label>
+          <Panel divided className="mx-3">
+            {entries.map((e) => {
+              const key = e.type === "scan" ? `s${e.snapshot_id}` : `f${e.id}`;
+              const id = e.type === "scan" ? e.snapshot_id : e.id;
+              const isOpen = open !== null && open.id === id && (e.type === "scan") === (open.kind !== "undo");
+              return (
+                <div key={key}>
+                  {e.type === "scan" ? (
+                    <ScanRow
+                      e={e}
+                      busy={busy}
+                      open={isOpen ? open : null}
+                      onToggle={() => setOpen(isOpen && open?.kind === "details" ? null : { kind: "details", id })}
+                      onGoBack={() =>
+                        run(async () => setOpen({ kind: "back", id, plan: await goBackPlan(e.snapshot_id) }))
+                      }
+                      onConfirm={() => run(() => goBack(e.snapshot_id))}
+                      onCancel={() => setOpen(null)}
+                    />
+                  ) : (
+                    <FilesRow
+                      e={e}
+                      busy={busy}
+                      open={isOpen && open?.kind === "undo" ? open.files : null}
+                      onUndo={() => run(async () => setOpen({ kind: "undo", id, files: await undoPreview(e.id) }))}
+                      onConfirm={() => run(() => undoChange(e.id))}
+                      onCancel={() => setOpen(null)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </Panel>
+        </section>
+      ))}
     </div>
   );
+}
+
+/** Entries under "Today", "Yesterday", "Monday" or "12 October", newest first as they come. */
+function byDay(entries: HistoryEntry[]): [string, HistoryEntry[]][] {
+  const days: [string, HistoryEntry[]][] = [];
+  for (const e of entries) {
+    const day = dayLabel(e.at);
+    const last = days[days.length - 1];
+    if (last && last[0] === day) last[1].push(e);
+    else days.push([day, [e]]);
+  }
+  return days;
+}
+
+function dayLabel(at: number): string {
+  const d = new Date(at * 1000);
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((start(new Date()) - start(d)) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  });
 }
 
 function when(at: number): string {
@@ -117,6 +155,11 @@ function when(at: number): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/** The time of day, for a line under its day's heading. */
+function time(at: number): string {
+  return new Date(at * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
 function plural(n: number, word: string): string {
@@ -136,10 +179,22 @@ function summary(changes: ProductChange[]): string {
     .join(", ");
 }
 
-function Row({ dot, title, sub, right }: { dot: string; title: ReactNode; sub?: ReactNode; right: ReactNode }) {
+function Row({
+  icon,
+  tone,
+  title,
+  sub,
+  right,
+}: {
+  icon: GlyphName;
+  tone: Tone;
+  title: ReactNode;
+  sub?: ReactNode;
+  right: ReactNode;
+}) {
   return (
-    <div className="flex items-center gap-3 px-4 py-1.5">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
+    <div className="flex items-center gap-2.5 py-1.5 pl-3 pr-4">
+      <Tile name={icon} tone={tone} className="" />
       <div className="min-w-0 flex-1">
         <div className="truncate">{title}</div>
         {sub && <div className="truncate text-xs text-dim">{sub}</div>}
@@ -170,7 +225,8 @@ function ScanRow({
   return (
     <>
       <Row
-        dot="bg-dim"
+        icon={e.first ? "flag" : "search"}
+        tone="dim"
         title={
           e.changes.length > 0 ? (
             <button onClick={onToggle} className="hover:underline" aria-expanded={open?.kind === "details"}>
@@ -180,7 +236,7 @@ function ScanRow({
             title
           )
         }
-        sub={`Scan · ${when(e.at)}`}
+        sub={`Scan · ${time(e.at)}`}
         right={
           e.latest ? (
             <span className="text-xs text-dim">Now</span>
@@ -240,7 +296,7 @@ function GoBackPanel({
   const blocked = plan.files.some((f) => f.missing_backup);
   const nothing = plan.files.length === 0 && plan.plugins.length === 0;
   return (
-    <div className="mx-4 mb-2 rounded-md border border-line bg-panel px-3 py-2 text-xs">
+    <div className="mb-2 ml-[46px] mr-4 rounded-md border border-line bg-canvas px-3 py-2 text-xs">
       <p className="font-medium">Back to how this machine was on {when(plan.at)}</p>
       {nothing && <p className="mt-1 text-dim">Nothing to do: this machine already matches that scan.</p>}
       {plan.files.length > 0 && (
@@ -301,9 +357,10 @@ function FilesRow({
   return (
     <>
       <Row
-        dot={e.undone ? "bg-dim" : "bg-accent"}
+        icon={e.undone ? "undo" : "copies"}
+        tone={e.undone ? "dim" : "accent"}
         title={<span className={e.undone ? "text-dim" : undefined}>{e.label}</span>}
-        sub={`${where} · ${when(e.at)}`}
+        sub={`${where} · ${time(e.at)}`}
         right={
           e.undone ? (
             <Badge>Undone</Badge>
@@ -315,7 +372,7 @@ function FilesRow({
         }
       />
       {open && (
-        <div className="mx-4 mb-2 rounded-md border border-line bg-panel px-3 py-2 text-xs">
+        <div className="mb-2 ml-[46px] mr-4 rounded-md border border-line bg-canvas px-3 py-2 text-xs">
           <FileList files={open} />
           {open.some((f) => f.changed_since) && (
             <p className="mt-1.5 text-warn">
@@ -343,7 +400,7 @@ function ChangeGroups({ changes }: { changes: ProductChange[] }) {
     .filter(([, cs]) => cs.length > 0);
   const folders = useFolders(null, () => changes.length <= 12);
   return (
-    <div className="pb-2 pl-6 pr-4 text-xs">
+    <div className="pb-2 pl-[46px] pr-4 text-xs">
       {groups.map(([kind, cs]) => (
         <Folder
           key={kind}
