@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.43 - 2026-10-29
+
+### Changed
+
+- Every drive shows now, not just the one holding your plug-ins. On Windows each drive letter appears with its name, like "Samples (D:)"; on a Mac each internal and external volume. Each drive still says what's on it.
+- A nearly full drive that holds nothing Patch Pilot uses, like a backup drive, turns amber in the list but no longer shows "Running out of space".
+
 ## 0.4.42 - 2026-10-29
 
 ### New
