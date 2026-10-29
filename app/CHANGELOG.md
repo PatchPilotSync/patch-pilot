@@ -4,6 +4,17 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.41 - 2026-10-29
+
+### Changed
+
+- Right-click a machine in Compare to remove it from Patch Pilot, or to rescan this machine. The browser-style right-click menu (Reload, Inspect) is gone; text fields keep cut, copy and paste.
+- Vault: skipped installers now sit at the bottom of the tab, and the list just shows how many installers you have.
+
+### Fixed
+
+- Start over no longer leaves a second copy of this machine after you scan again. If you already see one, right-click it in Compare and remove it.
+
 ## 0.4.40 - 2026-10-29
 
 ### Fixed
