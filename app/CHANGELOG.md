@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.40 - 2026-10-29
+
+### Fixed
+
+- Linking machines no longer fails with "An existing connection was forcibly closed by the remote host" when typing the code on the other machine takes more than a minute or so. The code keeps working for its full 10 minutes.
+- A brief network drop no longer leaves a linked machine "offline": Patch Pilot tries again, and one shared file that won't upload no longer stops sync. When it can't reach the sync service, it says why instead of showing a long web address.
+
 ## 0.4.39 - 2026-10-28
 
 ### New
