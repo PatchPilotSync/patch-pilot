@@ -37,7 +37,7 @@ const REAPER_SETTINGS_FILES: [&str; 5] = [
     "reaper-menu.ini",
     "reaper-mouse.ini",
     "reaper-themeconfig.ini",
-    // SWS's settings, for the startup action (#107).
+    // SWS's settings, for the startup action (#108).
     "S&M.ini",
 ];
 

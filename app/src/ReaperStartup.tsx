@@ -71,7 +71,7 @@ function what(c: StartupCheck): { text: string; detail: string | null; keys: str
 }
 
 /**
- * Reaper's startup action (decision #107): one Notice line when the action
+ * Reaper's startup action (decision #108): one Notice line when the action
  * SWS runs as Reaper opens here isn't the Primary Rig's, can't run here, or
  * runs scripts this machine lacks. Its fix brings the Primary Rig's over
  * (only that line of S&M.ini; Reaper closed, undo in History). Shows nothing
@@ -94,7 +94,7 @@ export function ReaperStartupNotice({ onError }: { onError: (e: string) => void 
 
   if (!check) return null;
   const line = what(check);
-  if (!line) return done ? <Notice tone="ok" text={<span className="text-ok">{done}</span>} /> : null;
+  if (!line) return done ? <Notice tone="ok" icon="knob" text={<span className="text-ok">{done}</span>} /> : null;
 
   async function fix(keys: string[]) {
     setBusy(true);
@@ -114,6 +114,7 @@ export function ReaperStartupNotice({ onError }: { onError: (e: string) => void 
   return (
     <Notice
       tone="warn"
+      icon="knob"
       open={open}
       onToggle={() => setOpen((o) => !o)}
       text={<span className="font-medium">{line.text}</span>}

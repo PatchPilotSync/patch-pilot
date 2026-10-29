@@ -1,4 +1,4 @@
-//! Reaper's startup action on this machine (decision #107): what SWS runs
+//! Reaper's startup action on this machine (decision #108): what SWS runs
 //! when Reaper opens here, read from `S&M.ini` and the key map now, against
 //! the Primary Rig's. Setting it is a bring-over of `S&M.ini`, which writes
 //! only the startup action into this machine's file, while Reaper is closed,

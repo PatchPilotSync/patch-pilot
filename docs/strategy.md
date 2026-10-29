@@ -266,7 +266,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Safety | Snapshots before every write, with rollback | In progress |
 | Reaper | ReaPack restore and path remap between Windows and macOS; shortcuts macOS keeps for itself (Cmd+H, Cmd+Space…) move to Control on a Mac and back on a PC (#81) | In progress |
 | Reaper | Extensions just work: SWS, ReaPack, js_ReaScriptAPI and ReaImGui compared across machines; scripts' extension needs found; a check on This machine and Up To Speed for blocked by macOS, in a subfolder, wrong build, incomplete, two copies, or missing, with Unblock / Move / Remove and the right download for each OS and CPU (#104) | On main |
-| Reaper | Startup action follows the Primary Rig: SWS's global startup action (and the scripts it runs) compared, set in one click from This machine and Up To Speed, and kept in sync (#107) | On main |
+| Reaper | Startup action follows the Primary Rig: SWS's global startup action (and the scripts it runs) compared, set in one click from This machine and Up To Speed, and kept in sync (#108) | On main |
 | Installer Vault | Keep installers for each plug-in version; detect vendor apps and iLok (never sign in to them) | In progress |
 | Rig Report | Shareable report of a rig | In progress |
 | New machine | Guided setup of a new machine from the Primary Rig (migration workflow v1) | In progress |

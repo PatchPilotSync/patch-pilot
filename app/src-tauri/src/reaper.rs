@@ -195,7 +195,7 @@ fn check_here(
     reaper_ext::check(dir, os, patchpilot_local::current_arch(), machine)
 }
 
-/// Reaper's startup action here (decision #107) against the Primary Rig's,
+/// Reaper's startup action here (decision #108) against the Primary Rig's,
 /// through this machine's profile and ignores. `None` when Reaper isn't set
 /// up here. On the Primary Rig, and with the startup action turned off in
 /// Choose what syncs, only this machine's own is checked.

@@ -74,7 +74,7 @@ pub const SHARED_ROOTS: &[SharedRoot] = &[
         guard: || Ok(()),
         // Key maps travel with this machine's resource folder spelled
         // portably; of S&M.ini, only the startup action travels, set into
-        // this machine's own file (decision #107).
+        // this machine's own file (decision #108).
         view: |dir, rel, bytes| match resource_kind(rel) {
             Some(ResourceKind::KeyMap) => portable_key_map(bytes, dir, this_os()),
             Some(ResourceKind::StartupAction) => reaper_startup::view(&bytes),
