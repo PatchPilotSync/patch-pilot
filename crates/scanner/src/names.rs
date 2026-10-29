@@ -35,7 +35,9 @@ enum Tag {
 /// Strip trailing architecture, channel and format tags.
 ///
 /// Stops at the first trailing word it doesn't recognise, and never strips
-/// the whole name.
+/// the whole name. A channel word stays when all that's left before it is a
+/// short vendor prefix: Kilohearts' `kHs Stereo` is a plug-in called Stereo,
+/// not a stereo `kHs`.
 pub fn normalize_name(raw: &str) -> NormalizedName {
     let mut name = trim_seps(raw);
     let mut out = NormalizedName {
@@ -45,7 +47,7 @@ pub fn normalize_name(raw: &str) -> NormalizedName {
     };
     while let Some((rest, tag)) = strip_one(name) {
         let rest = trim_seps(rest);
-        if rest.is_empty() {
+        if rest.is_empty() || (matches!(tag, Tag::Channels(_)) && is_prefix_only(rest)) {
             break;
         }
         match tag {
@@ -57,6 +59,12 @@ pub fn normalize_name(raw: &str) -> NormalizedName {
     }
     out.name = name.split_whitespace().collect::<Vec<_>>().join(" ");
     out
+}
+
+/// One word of at most three characters (`kHs`, `bx`): too short to be a
+/// product name on its own.
+fn is_prefix_only(s: &str) -> bool {
+    !s.contains(char::is_whitespace) && s.chars().count() <= 3
 }
 
 fn trim_seps(s: &str) -> &str {
@@ -144,6 +152,9 @@ mod tests {
             ("Acme 64", "Acme 64", None, None),
             ("Acme Verb (Lite)", "Acme Verb (Lite)", None, None),
             ("Acme Verb Mono Lite", "Acme Verb Mono Lite", None, None),
+            // A vendor prefix and a channel word is a product name.
+            ("kHs Stereo", "kHs Stereo", None, None),
+            ("kHs Stereo x64", "kHs Stereo", None, x64),
             // Never strip to nothing.
             ("Stereo", "Stereo", None, None),
             ("x64", "x64", None, None),

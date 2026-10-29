@@ -5,6 +5,7 @@
   { "DisplayName": "PACE License Support Win64", "DisplayVersion": "5.9.1.1913", "Publisher": "PACE Anti-Piracy, Inc." },
   { "DisplayName": "Arturia Software Center", "Publisher": "Arturia" },
   { "DisplayName": "UA Connect", "DisplayVersion": "1.4.0", "Publisher": "Some Repackager" },
+  { "DisplayName": "PA-InstallationManager", "Publisher": "Plugin Alliance", "InstallLocation": "C:\\Program Files\\Plugin Alliance\\Installation Manager\\" },
   { "DisplayName": "Acme Text Editor", "DisplayVersion": "9.0", "Publisher": "Acme" },
   { "DisplayVersion": "1.0" }
 ]
