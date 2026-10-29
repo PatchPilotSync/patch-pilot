@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { linkJoin, linkStart, onLinkFinished, unlink, type SyncStatus } from "./api";
-import { Button } from "./ui";
+import { Button, Message, NavTab, Notice, Panel, Tile } from "./ui";
 
 // Linking machines for live sync (decision #38). One machine shows a short
 // code; the other types it. Everything after that is automatic.
@@ -16,14 +16,10 @@ export function SyncBadge({ status, onClick }: { status: SyncStatus | null; onCl
       ? ["bg-ok", "Machines linked"]
       : ["bg-warn", "Link offline"];
   return (
-    <button
-      onClick={onClick}
-      title={status?.linked && !status.online && status.error ? status.error : undefined}
-      className="flex items-center gap-1.5 text-dim hover:text-fg"
-    >
+    <NavTab onClick={onClick} title={status?.linked && !status.online && status.error ? status.error : undefined}>
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
       {label}
-    </button>
+    </NavTab>
   );
 }
 
@@ -95,9 +91,12 @@ export function LinkDialog({ status, onClose }: { status: SyncStatus | null; onC
         onClick={(e) => e.stopPropagation()}
         className="flex w-[380px] max-w-full flex-col gap-3 rounded-lg border border-line bg-panel p-5 shadow-xl outline-none"
       >
-        <h2 id="link-title" className="text-[15px] font-semibold">
-          Link your machines
-        </h2>
+        <header className="flex items-center gap-2.5">
+          <Tile name="link" className="" />
+          <h2 id="link-title" className="text-[15px] font-semibold">
+            Link your machines
+          </h2>
+        </header>
 
         {mode.kind === "choose" && (
           <>
@@ -106,9 +105,18 @@ export function LinkDialog({ status, onClose }: { status: SyncStatus | null; onC
               end-to-end encrypted. Plug-ins and files never leave the machine.
             </p>
             {status?.linked && (
-              <p className="text-xs text-dim">
-                This machine is linked{status.online ? " and online" : status.error ? `, offline: ${status.error}` : ""}.
-              </p>
+              <Panel className="p-1">
+                <Notice
+                  tone={status.online ? "ok" : "warn"}
+                  icon={status.online ? "check" : "info"}
+                  text={
+                    <span title={status.error ?? undefined}>
+                      This machine is linked
+                      {status.online ? " and online" : status.error ? `, offline: ${status.error}` : ", offline"}.
+                    </span>
+                  }
+                />
+              </Panel>
             )}
             <div className="flex flex-col gap-2">
               <Button disabled={busy} onClick={show}>
@@ -133,7 +141,9 @@ export function LinkDialog({ status, onClose }: { status: SyncStatus | null; onC
             <p className="leading-relaxed text-dim">
               On the other machine, open Patch Pilot, click Link a machine at the top, choose Enter a code, and type:
             </p>
-            <p className="select-all text-center font-mono text-2xl font-semibold tracking-wider">{mode.code}</p>
+            <p className="select-all rounded-lg border border-line bg-canvas py-3 text-center font-mono text-2xl font-semibold tracking-wider">
+              {mode.code}
+            </p>
             <p className="text-center text-xs text-dim">Waiting for the other machine. The code works once, for 10 minutes.</p>
           </>
         )}
@@ -164,9 +174,17 @@ export function LinkDialog({ status, onClose }: { status: SyncStatus | null; onC
           </form>
         )}
 
-        {mode.kind === "done" && <p className="leading-relaxed">{mode.text}</p>}
+        {mode.kind === "done" && (
+          <Message tone="ok" icon="check">
+            {mode.text}
+          </Message>
+        )}
 
-        {error && <p className="text-bad">{error}</p>}
+        {error && (
+          <Message tone="bad" icon="info">
+            {error}
+          </Message>
+        )}
 
         <div className="flex justify-end">
           <Button variant="quiet" onClick={onClose}>

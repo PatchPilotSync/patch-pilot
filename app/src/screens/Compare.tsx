@@ -91,7 +91,7 @@ const STATE_ORDER: ParityState[] = [
 ];
 
 /** Each parity state's icon and colour (decision #109): red for missing, amber for what needs a look. */
-const STATE_TILE: Record<ParityState, [GlyphName, Tone]> = {
+export const STATE_TILE: Record<ParityState, [GlyphName, Tone]> = {
   missing: ["x", "bad"],
   incomplete: ["layers", "warn"],
   outdated: ["download", "warn"],

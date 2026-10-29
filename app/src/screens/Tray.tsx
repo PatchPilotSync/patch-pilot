@@ -19,7 +19,8 @@ import {
   type Overview,
 } from "../api";
 import { DiskSummary } from "../Disks";
-import { Button, Loading, Mark, scoreColor, timeAgo } from "../ui";
+import { Button, Glyph, Loading, Mark, Panel, Tile, scoreColor, scoreTone, timeAgo, type GlyphName } from "../ui";
+import { STATE_TILE } from "./Compare";
 
 // The tray / menu bar popover (decision #35): the compact view of every
 // machine's parity. It loads when it is shown and never polls. Every route
@@ -102,9 +103,9 @@ export function Tray() {
   return (
     <div
       onDoubleClick={onDoubleClick}
-      className="flex h-full cursor-default select-none flex-col overflow-hidden border border-line bg-panel"
+      className="flex h-full cursor-default select-none flex-col overflow-hidden border border-line bg-canvas"
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 px-3.5">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-panel px-3.5">
         <Mark className="text-accent-text" />
         <span className="font-semibold">Patch Pilot</span>
         <span className="flex-1" />
@@ -113,18 +114,18 @@ export function Tray() {
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto px-3 pb-3">
-        {error && <p className="text-xs text-bad">{error}</p>}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-2.5 pb-3 pt-2.5">
+        {error && <Hint icon="info" tone="bad" text={<span className="text-bad">{error}</span>} />}
         {!overview && !error && <Loading text="Loading your rig…" compact />}
 
-        {overview && !machine && <Hint text="Scan this machine to get started." />}
-        {machine && view?.golden_version === null && <Hint text="Make a Primary Rig to compare your machines." />}
+        {overview && !machine && <Hint icon="search" text="Scan this machine to get started." />}
+        {machine && view?.golden_version === null && <Hint icon="star" text="Make a Primary Rig to compare your machines." />}
 
         {view && view.golden_version !== null && (
-          <h2 className="px-1 text-[11px] text-dim">Parity with Primary Rig v{view.golden_version}</h2>
+          <h2 className="-mb-1 px-1 text-[11px] text-dim">Parity with Primary Rig v{view.golden_version}</h2>
         )}
         {view && view.golden_version !== null && (
-          <ul className="flex flex-col gap-0.5">
+          <Panel divided>
             {view.machines.map((m) => (
               <MachineRow
                 key={m.id}
@@ -133,49 +134,48 @@ export function Tray() {
                 onOpen={() => openMainWindow(m.id)}
               />
             ))}
-          </ul>
+          </Panel>
         )}
 
-        {suggesting && (
-          <button
-            onClick={() => openMainWindow(suggesting.id)}
-            className="flex h-7 items-center gap-2.5 rounded-md px-3 text-left text-xs hover:bg-sel/50"
-          >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">
-              {suggesting.golden_source
-                ? `Not in Primary Rig v${view?.golden_version} yet: ${groupSummary(suggesting.suggestion_groups)}`
-                : `For the Primary Rig${suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}: ${groupSummary(suggesting.suggestion_groups)}`}
-            </span>
-            <span className="text-dim" aria-hidden="true">
-              ›
-            </span>
-          </button>
-        )}
-
-        {updateCount > 0 && (
-          <button
-            onClick={() => openMainWindow()}
-            className="flex h-7 items-center gap-2.5 rounded-md px-3 text-left text-xs hover:bg-sel/50"
-          >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">
-              {updateCount} plug-in update{updateCount === 1 ? "" : "s"} available on this machine
-            </span>
-            <span className="text-dim" aria-hidden="true">
-              ›
-            </span>
-          </button>
+        {(suggesting || updateCount > 0) && (
+          <Panel divided>
+            {suggesting && (
+              <Line
+                icon="star"
+                onClick={() => openMainWindow(suggesting.id)}
+                text={
+                  suggesting.golden_source
+                    ? `Not in Primary Rig v${view?.golden_version} yet: ${groupSummary(suggesting.suggestion_groups)}`
+                    : `For the Primary Rig${suggesting.is_this_machine ? "" : ` from ${suggesting.name}`}: ${groupSummary(suggesting.suggestion_groups)}`
+                }
+              />
+            )}
+            {updateCount > 0 && (
+              <Line
+                icon="download"
+                onClick={() => openMainWindow()}
+                text={`${updateCount} plug-in update${updateCount === 1 ? "" : "s"} available on this machine`}
+              />
+            )}
+          </Panel>
         )}
 
         {target && (
-          <section className="rounded-md border border-line bg-canvas py-1">
+          <Panel>
             {todo.length === 0 ? (
-              <p className="px-3 py-1.5 text-xs text-ok">{target.machine.name} is at parity with the Primary Rig.</p>
+              <Line
+                icon="check"
+                tone="ok"
+                onClick={() => openMainWindow(target.machine.id)}
+                text={`${target.machine.name} is at parity with the Primary Rig.`}
+              />
             ) : (
               <>
-                <h2 className="px-3 pb-0.5 pt-1 text-[11px] text-dim">{target.machine.name} needs</h2>
-                <ul>
+                <h2 className="flex h-8 items-center gap-2 border-b border-line px-3 text-[11px] text-dim">
+                  <span className="min-w-0 flex-1 truncate">{target.machine.name} needs</span>
+                  <span className="tabular-nums">{todo.length}</span>
+                </h2>
+                <ul className="py-1">
                   {todo.slice(0, SHOWN).map((r) => (
                     <NeedRow key={r.product_id} r={r} onOpen={() => openMainWindow(target.machine.id)} />
                   ))}
@@ -183,14 +183,14 @@ export function Tray() {
                 {todo.length > SHOWN && (
                   <button
                     onClick={() => openMainWindow(target.machine.id)}
-                    className="px-3 py-1 text-[11px] text-dim hover:text-fg"
+                    className="h-7 border-t border-line pl-12 pr-3 text-left text-[11px] text-dim hover:bg-sel/50 hover:text-fg"
                   >
                     and {todo.length - SHOWN} more
                   </button>
                 )}
               </>
             )}
-          </section>
+          </Panel>
         )}
 
         {machine && !behind && (
@@ -198,7 +198,7 @@ export function Tray() {
         )}
       </div>
 
-      <footer className="flex h-12 shrink-0 items-center gap-1 border-t border-line px-2.5">
+      <footer className="flex h-12 shrink-0 items-center gap-1 border-t border-line bg-panel px-2.5">
         <IconButton label="Rescan this machine" onClick={rescan} disabled={scanning || !machine}>
           <path d="M20 11a8 8 0 1 0-2.3 5.7" />
           <path d="M20 4v7h-7" />
@@ -238,32 +238,25 @@ function pickTarget(view: MachinesView): MachineCard | null {
 
 function MachineRow({ m, active, onOpen }: { m: MachineCard; active: boolean; onOpen: () => void }) {
   return (
-    <li>
-      <button
-        onClick={onOpen}
-        title={`Open ${m.name} in the full window`}
-        className={`flex h-11 w-full items-center gap-3 rounded-md border px-3 text-left ${
-          active ? "border-line bg-canvas" : "border-transparent hover:bg-sel/50"
-        }`}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0 text-dim" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="12" rx="1.5" />
-          <path d="M8 20h8M12 16v4" />
-        </svg>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-semibold">{m.name}</span>
-          <span className="block truncate text-[11px] text-dim">
-            {m.is_this_machine ? "This machine" : m.os === "macos" ? "macOS" : "Windows"} · {timeAgo(m.scanned_at)}
-            {m.disks.length > 0 && " · "}
-            <DiskSummary disks={m.disks} os={m.os} named={false} />
-          </span>
+    <button
+      onClick={onOpen}
+      title={`Open ${m.name} in the full window`}
+      className={`flex h-11 w-full items-center gap-2.5 px-2 text-left ${active ? "bg-sel/40" : "hover:bg-sel/50"}`}
+    >
+      <Tile name="desktop" tone={scoreTone(m.score)} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-semibold">{m.name}</span>
+        <span className="block truncate text-[11px] text-dim">
+          {m.is_this_machine ? "This machine" : m.os === "macos" ? "macOS" : "Windows"} · {timeAgo(m.scanned_at)}
+          {m.disks.length > 0 && " · "}
+          <DiskSummary disks={m.disks} os={m.os} named={false} />
         </span>
-        <span className={`text-[15px] font-semibold tabular-nums ${scoreColor(m.score)}`}>{m.score ?? "–"}</span>
-        <span className="text-dim" aria-hidden="true">
-          ›
-        </span>
-      </button>
-    </li>
+      </span>
+      <span className={`text-[15px] font-semibold tabular-nums ${scoreColor(m.score)}`}>{m.score ?? "–"}</span>
+      <span className="mr-1 text-dim" aria-hidden="true">
+        ›
+      </span>
+    </button>
   );
 }
 
@@ -288,6 +281,7 @@ const REAPER_NOTE: Record<string, string> = {
 
 function NeedRow({ r, onOpen }: { r: ComparisonRow; onOpen: () => void }) {
   const missing = r.state === "missing";
+  const [glyph, tone] = STATE_TILE[r.state];
   const reaper = REAPER_NOTE[r.product_id.split("/")[0]];
   // A Reaper file's name is its path; the file name says enough here.
   const name = reaper ? reaperFileLabel(r.name) : r.name;
@@ -300,9 +294,9 @@ function NeedRow({ r, onOpen }: { r: ComparisonRow; onOpen: () => void }) {
         : r.state;
   return (
     <li>
-      <button onClick={onOpen} className="flex h-7 w-full items-center gap-2.5 px-3 text-left hover:bg-sel/50">
-        <span className={`w-3 shrink-0 text-center text-[13px] font-semibold ${missing ? "text-bad" : "text-warn"}`} aria-hidden="true">
-          {missing ? "✕" : "!"}
+      <button onClick={onOpen} className="flex h-7 w-full items-center gap-2.5 px-2 pr-3 text-left hover:bg-sel/50">
+        <span className={`mx-1 flex w-[22px] shrink-0 justify-center ${tone === "bad" ? "text-bad" : "text-warn"}`} aria-hidden="true">
+          <Glyph name={glyph} size={13} />
         </span>
         <span className="min-w-0 flex-1 truncate" title={r.name}>
           {name}
@@ -321,8 +315,41 @@ function ExpandIcon() {
   );
 }
 
-function Hint({ text }: { text: string }) {
-  return <p className="rounded-md border border-line bg-canvas px-3 py-2.5 text-xs text-dim">{text}</p>;
+/** A one-line status in its own panel, before there's anything to compare. */
+function Hint({ icon, tone = "dim", text }: { icon: GlyphName; tone?: "dim" | "bad"; text: ReactNode }) {
+  return (
+    <Panel className="p-1">
+      <p className="flex min-h-9 items-center gap-2.5 px-1 text-xs text-dim">
+        <Tile name={icon} tone={tone} />
+        <span className="min-w-0 flex-1">{text}</span>
+      </p>
+    </Panel>
+  );
+}
+
+/** A row that opens the full window: a tile, one line and a chevron. */
+function Line({
+  icon,
+  tone = "accent",
+  text,
+  onClick,
+}: {
+  icon: GlyphName;
+  tone?: "accent" | "ok";
+  text: string;
+  onClick: () => void;
+}) {
+  return (
+    <button onClick={onClick} className="flex h-9 items-center gap-2.5 px-2 text-left text-xs hover:bg-sel/50">
+      <Tile name={icon} tone={tone} />
+      <span className={`min-w-0 flex-1 truncate ${tone === "ok" ? "text-ok" : ""}`} title={text}>
+        {text}
+      </span>
+      <span className="mr-1 text-dim" aria-hidden="true">
+        ›
+      </span>
+    </button>
+  );
 }
 
 function IconButton({

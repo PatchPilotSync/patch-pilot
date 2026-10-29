@@ -234,6 +234,63 @@ export function Panel({
   );
 }
 
+/**
+ * A strip under the top bar for news about the whole app (an update, an
+ * error, what just happened): a {@link Tile}, the text and its buttons, with
+ * anything longer (release notes) below the text.
+ */
+export function Banner({
+  icon,
+  tone = "accent",
+  text,
+  actions,
+  children,
+}: {
+  icon: GlyphName;
+  tone?: Tone;
+  text: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="pp-panel shrink-0 border-b border-line bg-panel px-2 text-xs">
+      <div className="flex min-h-10 items-center gap-2.5">
+        <Tile name={icon} tone={tone} />
+        <div className="min-w-0 flex-1 py-1.5">{text}</div>
+        {actions && <div className="flex shrink-0 items-center gap-1 pr-1">{actions}</div>}
+      </div>
+      {children && <div className="pb-2 pl-10 pr-2">{children}</div>}
+    </div>
+  );
+}
+
+/** What just happened after a click (saved, linked, failed), in a dialog: a {@link Tile} and text that may wrap. */
+export function Message({ tone, icon, children }: { tone: Tone; icon: GlyphName; children: ReactNode }) {
+  const colour = { accent: "", warn: "", ok: "text-ok", bad: "text-bad", dim: "text-dim" }[tone];
+  return (
+    <p className={`flex items-start gap-2.5 text-xs leading-relaxed ${colour}`}>
+      <Tile name={icon} tone={tone} className="" />
+      <span className="min-w-0 flex-1 pt-[3px]">{children}</span>
+    </p>
+  );
+}
+
+/** A tab in the top bar: a word, with the open one on a raised pill. */
+export function NavTab({
+  active = false,
+  className = "",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+  return (
+    <button
+      className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 disabled:opacity-40 ${
+        active ? "bg-sel font-medium text-fg" : "text-dim enabled:hover:bg-sel/50 enabled:hover:text-fg"
+      } ${className}`}
+      {...props}
+    />
+  );
+}
+
 export function Chevron({ open }: { open: boolean }) {
   return (
     <svg

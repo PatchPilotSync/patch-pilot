@@ -1,10 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { settingsView } from "./api";
-import { Button } from "./ui";
+import { Banner, Button } from "./ui";
 
 // Self-update (decision #32). Checks at launch and again when the window is
 // shown or focused, at most once an hour. No timer, so the app stays idle
@@ -111,9 +111,11 @@ export function UpdateBar() {
 
   if (state.kind === "checking" || state.kind === "current" || state.kind === "check-failed") {
     return (
-      <Bar>
-        <div className="flex items-center gap-3">
-          <span className={state.kind === "check-failed" ? "flex-1 text-bad" : "flex-1"}>
+      <Banner
+        icon={state.kind === "check-failed" ? "info" : state.kind === "current" ? "check" : "sync"}
+        tone={state.kind === "check-failed" ? "bad" : state.kind === "current" ? "ok" : "accent"}
+        text={
+          <span className={state.kind === "check-failed" ? "text-bad" : ""}>
             {state.kind === "checking" && "Checking for updates…"}
             {state.kind === "current" && (
               <>
@@ -122,83 +124,84 @@ export function UpdateBar() {
             )}
             {state.kind === "check-failed" && `Couldn't check for updates: ${state.error}`}
           </span>
-          {state.kind !== "checking" && (
+        }
+        actions={
+          state.kind !== "checking" && (
             <Button variant="quiet" onClick={() => setState({ kind: "idle" })}>
               Dismiss
             </Button>
-          )}
-        </div>
-      </Bar>
+          )
+        }
+      />
     );
   }
 
   if (state.kind === "installed") {
     return (
-      <Bar>
-        <div className="flex items-center gap-3">
-          <span className="flex-1">
+      <Banner
+        icon="check"
+        tone="ok"
+        text={
+          <>
             Updated to <strong>Patch Pilot {state.version}</strong>
-          </span>
+          </>
+        }
+        actions={
           <Button variant="quiet" onClick={() => setState({ kind: "idle" })}>
             Dismiss
           </Button>
-        </div>
+        }
+      >
         {state.notes && <Notes text={state.notes} />}
-      </Bar>
+      </Banner>
     );
   }
 
   const { update } = state;
+  const notes = ((state.kind === "available" && state.open) || state.kind === "installing") && update.body;
   return (
-    <Bar>
-      <div className="flex items-center gap-3">
-        <span className="flex-1">
+    <Banner
+      icon={state.kind === "failed" ? "info" : "download"}
+      tone={state.kind === "failed" ? "bad" : "accent"}
+      text={
+        <>
           <strong>Patch Pilot {update.version}</strong> is available. You have {update.currentVersion}.
-        </span>
-        {state.kind === "available" && (
-          <>
-            {update.body && (
-              <Button variant="quiet" onClick={() => setState({ ...state, open: !state.open })}>
-                {state.open ? "Hide changes" : "What's new"}
+          {state.kind === "failed" && <span className="block text-bad">The update didn't install: {state.error}</span>}
+        </>
+      }
+      actions={
+        <>
+          {state.kind === "available" && (
+            <>
+              {update.body && (
+                <Button variant="quiet" onClick={() => setState({ ...state, open: !state.open })}>
+                  {state.open ? "Hide changes" : "What's new"}
+                </Button>
+              )}
+              <Button variant="quiet" onClick={() => setState({ kind: "idle" })}>
+                Later
               </Button>
-            )}
-            <Button variant="quiet" onClick={() => setState({ kind: "idle" })}>
-              Later
-            </Button>
-            <Button onClick={() => install(update)}>Install and restart</Button>
-          </>
-        )}
-        {state.kind === "installing" && (
-          <span className="tabular-nums text-dim">
-            {state.total ? `Downloading ${Math.floor((100 * state.done) / state.total)}%` : "Downloading…"}
-          </span>
-        )}
-        {state.kind === "failed" && (
-          <Button onClick={() => install(update)}>Try again</Button>
-        )}
-      </div>
-      {state.kind === "failed" && (
-        <p className="mt-1 text-bad">The update didn't install: {state.error}</p>
-      )}
-      {((state.kind === "available" && state.open) || state.kind === "installing") && update.body && (
-        <Notes text={update.body} />
-      )}
-    </Bar>
-  );
-}
-
-function Bar({ children }: { children: ReactNode }) {
-  return (
-    <div className="shrink-0 border-b border-line bg-accent/10 px-4 py-1.5">
-      {children}
-    </div>
+              <Button onClick={() => install(update)}>Install and restart</Button>
+            </>
+          )}
+          {state.kind === "installing" && (
+            <span className="px-2 tabular-nums text-dim">
+              {state.total ? `Downloading ${Math.floor((100 * state.done) / state.total)}%` : "Downloading…"}
+            </span>
+          )}
+          {state.kind === "failed" && <Button onClick={() => install(update)}>Try again</Button>}
+        </>
+      }
+    >
+      {notes && <Notes text={notes} />}
+    </Banner>
   );
 }
 
 /** Release notes are the version's CHANGELOG.md section: headings and bullets. */
 export function Notes({ text }: { text: string }) {
   return (
-    <div className="mt-2 max-h-64 space-y-1 overflow-y-auto rounded-md border border-line bg-panel px-3 py-2 leading-relaxed">
+    <div className="mt-2 max-h-64 space-y-1 overflow-y-auto rounded-md border border-line bg-panel px-3 py-2 leading-relaxed in-[.pp-panel]:bg-canvas">
       {parseNotes(text).map((b, i) =>
         b.kind === "heading" ? (
           <h4 key={i} className="pt-1 font-semibold">

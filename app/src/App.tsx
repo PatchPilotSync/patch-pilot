@@ -32,7 +32,7 @@ import { Settings } from "./screens/Settings";
 import { Setup, SetupOffer } from "./screens/Setup";
 import { Welcome } from "./screens/Welcome";
 import { resetTour, Tour, tourPending } from "./Tour";
-import { Loading, Mark } from "./ui";
+import { Banner, Button, Loading, Mark, NavTab } from "./ui";
 import { UpdateBar } from "./Update";
 
 type Tab = "rig" | "compare" | "history" | "vault" | "setup" | "settings";
@@ -184,8 +184,8 @@ export default function App() {
   return (
     <main className="flex h-full flex-col bg-canvas text-fg antialiased">
       {overview?.machine && !scanning && !updateScan && !replay && (
-        <nav className="flex h-10 shrink-0 items-center gap-4 border-b border-line bg-panel px-3">
-          <span className="flex items-center gap-1.5 font-semibold">
+        <nav className="flex h-10 shrink-0 items-center gap-0.5 border-b border-line bg-panel px-2">
+          <span className="mr-2.5 flex items-center gap-1.5 pl-1 font-semibold">
             <Mark className="text-accent-text" />
             Patch Pilot
           </span>
@@ -198,60 +198,69 @@ export default function App() {
               ...(setup?.active || tab === "setup" ? ([["setup", "Set up"]] as const) : []),
             ] as const
           ).map(([t, label]) => (
-            <button
+            <NavTab
               key={t}
+              active={tab === t}
               disabled={t === "compare" && !canCompare}
               title={t === "compare" && !canCompare ? "Make a Primary Rig first" : undefined}
               onClick={() => setTab(t)}
-              className={`disabled:opacity-40 ${tab === t ? "font-medium text-fg" : "text-dim hover:text-fg"}`}
             >
               {label}
               {t === "vault" && vaultCount > 0 && (
-                <span className="ml-1 rounded bg-accent px-1 text-[10px] font-semibold text-on-accent">{vaultCount}</span>
+                <span className="rounded bg-accent px-1 text-[10px] font-semibold text-on-accent">{vaultCount}</span>
               )}
-            </button>
+            </NavTab>
           ))}
           <span className="flex-1" />
           <SyncBadge status={sync} onClick={() => setLinking(true)} />
-          <button onClick={() => setTour(true)} className="text-dim hover:text-fg">
-            How it works
-          </button>
-          <button
-            onClick={() => setTab("settings")}
-            className={tab === "settings" ? "font-medium text-fg" : "text-dim hover:text-fg"}
-          >
+          <NavTab onClick={() => setTour(true)}>How it works</NavTab>
+          <NavTab active={tab === "settings"} onClick={() => setTab("settings")}>
             Settings
-          </button>
+          </NavTab>
         </nav>
       )}
       {replay && (
-        <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-panel px-3 text-xs text-dim">
-          <span className="flex-1">Replaying the first run. Your saved machines and Primary Rig are untouched.</span>
-          <button onClick={() => setReplay(false)} className="hover:text-fg">
-            Exit
-          </button>
-        </div>
+        <Banner
+          icon="flag"
+          tone="dim"
+          text={<span className="text-dim">Replaying the first run. Your saved machines and Primary Rig are untouched.</span>}
+          actions={
+            <Button variant="quiet" onClick={() => setReplay(false)}>
+              Exit
+            </Button>
+          }
+        />
       )}
       <UpdateBar />
       {error && (
-        <div className="flex shrink-0 items-start gap-3 border-b border-line bg-bad/10 px-4 py-1.5 text-bad">
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="text-dim hover:text-fg">
-            Dismiss
-          </button>
-        </div>
+        <Banner
+          icon="info"
+          tone="bad"
+          text={<span className="text-bad">{error}</span>}
+          actions={
+            <Button variant="quiet" onClick={() => setError(null)}>
+              Dismiss
+            </Button>
+          }
+        />
       )}
       {notice && (
-        <div className="flex shrink-0 items-start gap-3 border-b border-line bg-ok/10 px-4 py-1.5">
-          <ul className="flex-1">
-            {notice.map((l) => (
-              <li key={l}>{l}</li>
-            ))}
-          </ul>
-          <button onClick={() => setNotice(null)} className="text-dim hover:text-fg">
-            Dismiss
-          </button>
-        </div>
+        <Banner
+          icon="check"
+          tone="ok"
+          text={
+            <ul>
+              {notice.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+          }
+          actions={
+            <Button variant="quiet" onClick={() => setNotice(null)}>
+              Dismiss
+            </Button>
+          }
+        />
       )}
       <div className="min-h-0 flex-1 overflow-auto">
         {overview === null ? (

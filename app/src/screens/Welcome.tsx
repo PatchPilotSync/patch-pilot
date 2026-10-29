@@ -1,20 +1,25 @@
 import { useState } from "react";
-import { Button, inputClass } from "../ui";
+import { Button, inputClass, Mark, Notice, Panel } from "../ui";
 
 export function Welcome({ onScan, onTour }: { onScan: (name: string) => void; onTour: () => void }) {
   const [name, setName] = useState("");
   return (
-    <div className="mx-auto flex max-w-sm flex-col gap-5 px-6 pt-[16vh]">
+    <div className="mx-auto flex max-w-md flex-col gap-4 px-6 pt-[14vh]">
       <div>
+        <AppMark />
         <h1 className="text-lg font-semibold">Let's see what's on this machine</h1>
-        <p className="mt-1.5 leading-relaxed text-dim">
-          Patch Pilot lists the plug-ins, vendor apps and Reaper templates installed here, so you can keep
-          every machine matching, and keeps that list current on its own. It only reads metadata: nothing is loaded, changed or uploaded.{" "}
+        <p className="mt-1 leading-relaxed text-dim">
+          Patch Pilot keeps every machine in your rig matching.{" "}
           <button type="button" onClick={onTour} className="text-accent-text hover:underline">
             How it works
           </button>
         </p>
       </div>
+      <Panel className="p-1">
+        <Notice icon="plug" text="Lists your plug-ins, vendor apps and Reaper templates" />
+        <Notice icon="sync" text="Keeps that list current on its own" />
+        <Notice tone="ok" icon="check" text="Read only: nothing is loaded, changed or uploaded" />
+      </Panel>
       <form
         className="flex flex-col gap-2"
         onSubmit={(e) => {
@@ -38,5 +43,14 @@ export function Welcome({ onScan, onTour }: { onScan: (name: string) => void; on
         </Button>
       </form>
     </div>
+  );
+}
+
+/** The logo in a small framed square, over the first-run screens' titles. */
+export function AppMark() {
+  return (
+    <span className="mb-3 flex size-10 items-center justify-center rounded-lg border border-line bg-panel">
+      <Mark size={22} className="text-accent-text" />
+    </span>
   );
 }
