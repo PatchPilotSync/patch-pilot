@@ -280,7 +280,7 @@ pub async fn ignore_items(
     Ok(())
 }
 
-/// Right-click > Remove on a machine (decision #99): forget another machine
+/// Right-click > Remove on a machine (decision #100): forget another machine
 /// and its scans here. It stays gone until it scans again. This machine can't
 /// be removed; its next scan would bring it straight back.
 #[tauri::command]

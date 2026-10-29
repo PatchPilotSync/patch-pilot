@@ -812,7 +812,7 @@ impl Store {
         )?)
     }
 
-    /// Forget another machine and every scan of it (decision #99), and keep it
+    /// Forget another machine and every scan of it (decision #100), and keep it
     /// out of later imports until it scans again. Primary Rig versions made
     /// from it stay. False if it wasn't here.
     pub fn remove_machine(&mut self, id: &str, now: i64) -> Result<bool> {

@@ -237,7 +237,7 @@ export interface Step {
 }
 
 export const machines = () => invoke<MachinesView>("machines");
-/** Forget another machine and its scans here; it comes back only if it scans again (decision #99). */
+/** Forget another machine and its scans here; it comes back only if it scans again (decision #100). */
 export const removeMachine = (id: string) => invoke<void>("remove_machine", { id });
 export const compareMachine = (id: string) => invoke<MachineComparison>("compare_machine", { id });
 export const planMachine = (id: string) => invoke<{ steps: Step[] }>("plan_machine", { id });

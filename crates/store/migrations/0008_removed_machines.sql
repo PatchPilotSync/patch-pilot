@@ -1,4 +1,4 @@
--- Schema v8: machines the user removed from this one's list (decision #99).
+-- Schema v8: machines the user removed from this one's list (decision #100).
 --
 -- A removed machine's scans can come back from a linked machine, an export
 -- file or its own object on the relay, so its ID is kept with the newest scan

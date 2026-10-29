@@ -415,7 +415,7 @@ export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Pr
 
 /**
  * A machine in the sidebar. Right-click: Rescan for this machine; Remove for
- * the others (decision #99), asked again in place since it forgets its scans.
+ * the others (decision #100), asked again in place since it forgets its scans.
  */
 function MachineItem({
   m,
