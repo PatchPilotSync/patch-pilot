@@ -280,6 +280,22 @@ pub async fn ignore_items(
     Ok(())
 }
 
+/// Right-click > Remove on a machine (decision #100): forget another machine
+/// and its scans here. It stays gone until it scans again. This machine can't
+/// be removed; its next scan would bring it straight back.
+#[tauri::command]
+pub async fn remove_machine(app: AppHandle, id: String) -> Result<(), String> {
+    if this_machine()?.as_deref() == Some(id.as_str()) {
+        return Err("this machine can't be removed from its own list".to_owned());
+    }
+    let mut store = existing_store()?.ok_or("no saved scans yet")?;
+    store
+        .remove_machine(&id, patchpilot_local::now())
+        .map_err(err)?;
+    let _ = app.emit("data-changed", ());
+    Ok(())
+}
+
 /// Take back an ignore (by its key) on `machine` (this one when `None`):
 /// it is asked for again.
 #[tauri::command]

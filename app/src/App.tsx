@@ -275,7 +275,14 @@ export default function App() {
         ) : tab === "history" ? (
           <History refreshKey={dataVersion} onError={onError} />
         ) : tab === "compare" && view && canCompare ? (
-          <Compare view={view} focus={focus} chosen={compareId} onChoose={setCompareId} onError={onError} />
+          <Compare
+            view={view}
+            focus={focus}
+            chosen={compareId}
+            onChoose={setCompareId}
+            onRescan={() => scan(null)}
+            onError={onError}
+          />
         ) : (
           <Rig
             overview={overview}

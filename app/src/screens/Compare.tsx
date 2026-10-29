@@ -6,6 +6,7 @@ import {
   filesToBring,
   updateGoldenFrom,
   compareMachine,
+  removeMachine,
   ignoreItems,
   ignoreSuggestions,
   unignoreSuggestions,
@@ -48,6 +49,7 @@ import {
   Button,
   buildTree,
   Chevron,
+  ContextMenu,
   Folder,
   FolderControls,
   FolderTree,
@@ -238,6 +240,8 @@ interface Props {
   /** The machine the user picked. Kept by App so scans, syncs and tab switches don't lose it. */
   chosen: string | null;
   onChoose: (id: string) => void;
+  /** Rescan this machine, from its right-click menu. */
+  onRescan: () => void;
   onError: (e: string) => void;
 }
 
@@ -250,7 +254,7 @@ const lastComparison = new Map<string, MachineComparison>();
 /** Steps before Get Up To Speed has loaded, one array so effects don't rerun. */
 const NO_STEPS: SetupStep[] = [];
 
-export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
+export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Props) {
   // A refresh can briefly list fewer machines (a sync landing); fall back for
   // the moment but keep the choice, so it comes back when the machine does.
   const selected = view.machines.some((m) => m.id === chosen) ? chosen : (view.machines[0]?.id ?? null);
@@ -339,7 +343,14 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
         <div className="px-4 pb-1.5 pt-3 text-[11px] text-dim">Machines</div>
         <ul className="flex flex-1 flex-col gap-0.5 overflow-auto px-2">
           {view.machines.map((m) => (
-            <MachineItem key={m.id} m={m} active={m.id === selected} onClick={() => onChoose(m.id)} />
+            <MachineItem
+              key={m.id}
+              m={m}
+              active={m.id === selected}
+              onClick={() => onChoose(m.id)}
+              onRescan={onRescan}
+              onError={onError}
+            />
           ))}
         </ul>
         {view.machines.length < 2 && (
@@ -402,11 +413,78 @@ export function Compare({ view, focus, chosen, onChoose, onError }: Props) {
   );
 }
 
-function MachineItem({ m, active, onClick }: { m: MachineCard; active: boolean; onClick: () => void }) {
+/**
+ * A machine in the sidebar. Right-click: Rescan for this machine; Remove for
+ * the others (decision #100), asked again in place since it forgets its scans.
+ */
+function MachineItem({
+  m,
+  active,
+  onClick,
+  onRescan,
+  onError,
+}: {
+  m: MachineCard;
+  active: boolean;
+  onClick: () => void;
+  onRescan: () => void;
+  onError: (e: string) => void;
+}) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  if (confirm) {
+    return (
+      <li className="flex flex-col gap-1.5 rounded-md bg-sel px-2.5 py-2">
+        <span className="font-medium">Remove {m.name}?</span>
+        <span className="text-[11px] leading-snug text-dim">
+          Its scans here are forgotten. The Primary Rig stays as it is. If it scans again while linked, it comes back.
+        </span>
+        <span className="flex gap-1">
+          <Button
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              lastComparison.delete(m.id);
+              removeMachine(m.id).catch((e) => {
+                onError(String(e));
+                setBusy(false);
+                setConfirm(false);
+              });
+            }}
+          >
+            Remove
+          </Button>
+          <Button variant="quiet" disabled={busy} onClick={() => setConfirm(false)}>
+            Cancel
+          </Button>
+        </span>
+      </li>
+    );
+  }
+
   return (
     <li>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={closeMenu}
+          items={
+            m.is_this_machine
+              ? [{ label: "Rescan this machine", onSelect: onRescan }]
+              : [{ label: "Remove from Patch Pilot…", onSelect: () => setConfirm(true), danger: true }]
+          }
+        />
+      )}
       <button
         onClick={onClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
         className={`flex w-full flex-col gap-1.5 rounded-md px-2.5 py-2 text-left ${
           active ? "bg-sel" : "hover:bg-sel/50"
         }`}

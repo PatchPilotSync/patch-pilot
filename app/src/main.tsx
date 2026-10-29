@@ -19,6 +19,15 @@ function applyLook(v: SettingsView) {
   else delete root.density;
 }
 settingsView().then(applyLook, () => {});
+
+// No webview menu (Reload, Inspect, Back...) on right-click: it isn't Patch
+// Pilot's, and Reload drops what's on screen. Text fields keep theirs for
+// cut, copy and paste; places with menus of their own (a machine in Compare)
+// open them first.
+document.addEventListener("contextmenu", (e) => {
+  const t = e.target as HTMLElement | null;
+  if (!t?.closest("input, textarea, [contenteditable='true']")) e.preventDefault();
+});
 onUiChanged(applyLook);
 
 createRoot(document.getElementById("root")!).render(<StrictMode>{isTray ? <Tray /> : <App />}</StrictMode>);

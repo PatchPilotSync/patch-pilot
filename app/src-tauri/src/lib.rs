@@ -126,6 +126,7 @@ pub fn run() {
             compare::plan_progress,
             compare::plan_tick,
             compare::import_bundle,
+            compare::remove_machine,
             setup::setup_view,
             setup::setup_start,
             setup::setup_tick,
