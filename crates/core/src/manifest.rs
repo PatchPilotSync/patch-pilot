@@ -263,6 +263,9 @@ pub struct Disk {
     /// How the OS shows it: `C:` on Windows, the volume name on a Mac
     /// ("Macintosh HD", "Samples SSD").
     pub name: String,
+    /// The drive's own label on Windows ("Samples" for `D:`), when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     /// Bytes.
     pub total: u64,
     /// Bytes the user can still write.

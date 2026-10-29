@@ -13,7 +13,7 @@ Example: [`fixtures/core/manifest-v1/studio-pc.json`](../fixtures/core/manifest-
 | Field | Meaning |
 |---|---|
 | `schema_version` | `1`. Readers refuse versions newer than they know. |
-| `machine` | `id` (random, per install), `name`, `os`, `arch`, `os_version`, `path_map`, optional `disks` (each drive's `name`, `total`, `free`, `holds`, `measured_at`; not part of the snapshot hash, decision #101) |
+| `machine` | `id` (random, per install), `name`, `os`, `arch`, `os_version`, `path_map`, optional `disks` (every local drive: `name`, optional `label`, `total`, `free`, `holds`, `measured_at`; not part of the snapshot hash, decisions #101/#102) |
 | `generated_at` | Scan end time, Unix seconds UTC |
 | `products[]` | `canonical_id`, `vendor`, `name`: one entry per product across formats and OSes |
 | `items[]` | One installed thing; see below |
