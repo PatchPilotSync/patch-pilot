@@ -4,6 +4,14 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.48 - 2026-10-29
+
+### Changed
+
+- Compare, Get Up To Speed and Set up look like This machine now. Their lines and lists sit in rounded panels with a small icon each, and every parity state has its own coloured icon: red for missing, amber for what needs an update or a look, green when it matches. The details of a selected plug-in show its versions side by side in two small boxes.
+- Get Up To Speed and Set up fill a bar under their title as you tick steps off, and it turns green when every step is done. Every step's tick box looks the same, final checks included.
+- On a small window Compare's side panes get narrower, so plug-in names have more room.
+
 ## 0.4.47 - 2026-10-29
 
 ### New
