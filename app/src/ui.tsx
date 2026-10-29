@@ -129,6 +129,34 @@ export function timeAgo(unixSeconds: number): string {
 
 const TONE_DOT = { accent: "bg-accent", warn: "bg-warn", ok: "bg-ok", bad: "bg-bad", dim: "bg-dim" } as const;
 
+/** Line icons for section rows, on a 16 grid, drawn in the text colour. */
+const GLYPHS = {
+  drive: "M2.5 9.5 4 3.5h8l1.5 6M2.5 9.5h11v3h-11zM11 11h.01",
+  folder: "M2 4.5v8h12V6H8L6.5 4.5z",
+  copies: "M5.5 5.5h7v7h-7zM10.5 5.5v-2h-7v7h2",
+  key: "M7.3 8.7 13 3M10.5 5.5 12 7M5.5 13a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z",
+  apps: "M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z",
+} as const;
+
+export type GlyphName = keyof typeof GLYPHS;
+
+export function Glyph({ name, size = 14, className = "" }: { name: GlyphName; size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" className={`shrink-0 ${className}`}>
+      <path d={GLYPHS[name]} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** A small accent-tinted square holding a {@link Glyph}, at the start of a section row. */
+export function Tile({ name }: { name: GlyphName }) {
+  return (
+    <span className="mx-1 flex size-[22px] shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent-text">
+      <Glyph name={name} />
+    </span>
+  );
+}
+
 export function Chevron({ open }: { open: boolean }) {
   return (
     <svg
@@ -280,6 +308,7 @@ export function Folder({
   count,
   badges,
   actions,
+  icon,
   open,
   onToggle,
   className = "px-4",
@@ -291,6 +320,8 @@ export function Folder({
   badges?: ReactNode;
   /** Buttons or a checkbox at the header's end, outside the toggle. */
   actions?: ReactNode;
+  /** A {@link Tile} after the chevron; makes the header a little taller, for a screen's sections. */
+  icon?: ReactNode;
   open: boolean;
   onToggle: () => void;
   /** Horizontal padding of the header, to line up with the rows. */
@@ -302,7 +333,7 @@ export function Folder({
   return (
     <section>
       <div
-        className={`group flex h-7 w-full items-center gap-1.5 hover:bg-sel/60 ${className}`}
+        className={`group flex ${icon ? "h-9" : "h-7"} w-full items-center gap-1.5 hover:bg-sel/60 ${className}`}
         style={indent === undefined ? undefined : { paddingLeft: indent }}
       >
         <button
@@ -311,6 +342,7 @@ export function Folder({
           className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
         >
           <Chevron open={open} />
+          {icon}
           <span className="min-w-0 truncate font-medium">{title}</span>
           <span className="tabular-nums text-xs text-dim">{count}</span>
           <span className="flex-1" />

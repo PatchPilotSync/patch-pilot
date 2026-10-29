@@ -1,5 +1,5 @@
 import type { Disk, Os } from "./api";
-import { Notice, timeAgo } from "./ui";
+import { Glyph, Notice, timeAgo } from "./ui";
 
 // Drive space on every machine (decision #101): the drives holding its
 // plug-ins, presets, DAW files, home folder and Installer Vault.
@@ -112,18 +112,23 @@ export function DiskList({
   os,
   className = "",
   showWhen = false,
+  grid = false,
 }: {
   disks: Disk[];
   os: Os;
   className?: string;
   showWhen?: boolean;
+  /** Drives side by side where there's width, each with a drive icon (This machine). */
+  grid?: boolean;
 }) {
   const when = Math.max(...disks.map((d) => d.measured_at));
+  const layout = grid ? "grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-8 gap-y-3" : "flex flex-col gap-2.5";
   return (
-    <div className={`flex flex-col gap-2.5 ${className}`}>
+    <div className={`${layout} ${className}`}>
       {disks.map((d) => (
         <div key={d.name} className="flex flex-col gap-1">
-          <div className="flex items-baseline gap-2 text-xs">
+          <div className={`flex gap-2 text-xs ${grid ? "items-center" : "items-baseline"}`}>
+            {grid && <Glyph name="drive" size={12} className={isLow(d) ? "text-warn" : "text-dim"} />}
             <span className="min-w-0 flex-1 truncate font-medium" title={diskLabel(d)}>
               {diskLabel(d)}
             </span>
