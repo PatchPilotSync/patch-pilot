@@ -1,12 +1,14 @@
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { Button, Mark } from "./ui";
+import { UpdateBar } from "./Update";
 
 // A render error unmounts the whole tree, which used to leave a blank window
 // (0.4.48-0.4.50). This catches it and says what broke, with a way to copy
-// the details and to try again.
+// the details and to try again. The main window keeps its update offer, so a
+// build that crashes can still update itself to one that doesn't.
 
-type Props = { children: ReactNode };
+type Props = { children: ReactNode; updates?: boolean };
 type State = { error: Error | null; stack: string };
 
 export class CrashBoundary extends Component<Props, State> {
@@ -24,7 +26,12 @@ export class CrashBoundary extends Component<Props, State> {
   render() {
     const { error, stack } = this.state;
     if (!error) return this.props.children;
-    return <Crashed error={error} componentStack={stack} onRetry={() => this.setState({ error: null, stack: "" })} />;
+    return (
+      <div className="flex h-full flex-col">
+        {this.props.updates && <UpdateBar />}
+        <Crashed error={error} componentStack={stack} onRetry={() => this.setState({ error: null, stack: "" })} />
+      </div>
+    );
   }
 }
 
@@ -44,7 +51,7 @@ function Crashed({ error, componentStack, onRetry }: { error: Error; componentSt
     .join("\n");
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-auto bg-canvas p-4 text-xs">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto bg-canvas p-4 text-xs">
       <div className="flex items-center gap-2">
         <Mark className="text-accent-text" />
         <span className="font-semibold">Patch Pilot hit a problem</span>

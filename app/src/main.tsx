@@ -33,6 +33,6 @@ onUiChanged(applyLook);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <CrashBoundary>{isTray ? <Tray /> : <App />}</CrashBoundary>
+    <CrashBoundary updates={!isTray}>{isTray ? <Tray /> : <App />}</CrashBoundary>
   </StrictMode>,
 );
