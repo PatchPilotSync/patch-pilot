@@ -28,7 +28,7 @@ import {
 } from "../api";
 import { BackupLine, SyncChoices } from "../Backup";
 import { IgnoredToggle, useIgnores } from "../Ignore";
-import { Button, Label, Loading } from "../ui";
+import { Button, Glyph, Label, Loading, Panel, type GlyphName } from "../ui";
 
 /**
  * Settings (decisions #96 and #97): one place for what's otherwise spread
@@ -98,13 +98,11 @@ export function Settings({
         <p className="text-xs text-dim">For this machine. Each machine keeps its own.</p>
       </header>
 
-      <Section title="Sync">
-        <div className="-mx-2">
-          <BackupLine onError={onError} fresh={false} choices={false} />
-        </div>
+      <Section title="Sync" icon="sync" flush>
+        <BackupLine onError={onError} fresh={false} choices={false} />
       </Section>
 
-      <Section title="What syncs">
+      <Section title="What syncs" icon="copies">
         {syncing === false && (
           <p className="mb-1.5 text-[11px] text-dim">
             Keeping files in sync is off on this machine, so nothing syncs yet. These choices apply once it's on.
@@ -113,7 +111,7 @@ export function Settings({
         <SyncChoices onError={onError} listed />
       </Section>
 
-      <Section title="Look">
+      <Section title="Look" icon="sun">
         <Row label="Text size">
           <Segmented
             value={view.text_size}
@@ -144,7 +142,7 @@ export function Settings({
         </Row>
       </Section>
 
-      <Section title="Scanning">
+      <Section title="Scanning" icon="search">
         <Row label="Rescan">
           <Segmented<AppPrefs["rescan"]>
             value={prefs.rescan}
@@ -184,7 +182,7 @@ export function Settings({
         />
       </Section>
 
-      <Section title="Startup">
+      <Section title="Startup" icon="power">
         <Check
           checked={view.open_at_login}
           onChange={(on) => save(setOpenAtLogin(on), { open_at_login: on })}
@@ -199,7 +197,7 @@ export function Settings({
         />
       </Section>
 
-      <Section title="Notifications">
+      <Section title="Notifications" icon="bell">
         <Check
           checked={view.drift_alerts}
           onChange={(on) => save(setDriftAlerts(on), { drift_alerts: on })}
@@ -239,7 +237,7 @@ export function Settings({
         </div>
       </Section>
 
-      <Section title="Machines">
+      <Section title="Machines" icon="link">
         <div className="flex items-center gap-2 text-xs">
           <span className="min-w-0 flex-1 truncate text-dim">
             {!link?.linked
@@ -254,7 +252,7 @@ export function Settings({
         </div>
       </Section>
 
-      <Section title="Hidden items">
+      <Section title="Hidden items" icon="hidden">
         {ignores.length ? (
           <IgnoredToggle ignores={ignores} machine={null} onError={onError} listed />
         ) : (
@@ -265,7 +263,7 @@ export function Settings({
         )}
       </Section>
 
-      <Section title="Data">
+      <Section title="Data" icon="data">
         <Row label="Undo history">
           <select
             aria-label="Keep restore points for"
@@ -285,7 +283,7 @@ export function Settings({
         <DataFolder dataDir={view.data_dir} onError={onError} />
       </Section>
 
-      <Section title="About">
+      <Section title="About" icon="info">
         <div className="flex items-center gap-2 text-xs">
           <span className="flex-1 text-dim">Patch Pilot {version}</span>
           <Button
@@ -301,11 +299,26 @@ export function Settings({
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** A group of settings: a small heading with its icon over a rounded panel, as on This machine (decision #110). */
+function Section({
+  title,
+  icon,
+  flush = false,
+  children,
+}: {
+  title: string;
+  icon: GlyphName;
+  /** For a panel of Notice lines, which bring their own padding. */
+  flush?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <section className="border-b border-line px-4 py-2.5">
-      <Label className="mb-1.5 font-medium">{title}</Label>
-      {children}
+    <section>
+      <Label className="flex items-center gap-1.5 px-4 pb-1.5 pt-4">
+        <Glyph name={icon} size={12} />
+        {title}
+      </Label>
+      <Panel className={`mx-3 ${flush ? "p-1" : "px-3 py-1.5"}`}>{children}</Panel>
     </section>
   );
 }
@@ -358,7 +371,7 @@ function Segmented<T extends string | number>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div role="radiogroup" className="inline-flex shrink-0 rounded-md border border-line bg-panel p-0.5">
+    <div role="radiogroup" className="inline-flex shrink-0 rounded-md border border-line bg-canvas p-0.5">
       {options.map(([v, label]) => (
         <button
           key={String(v)}
@@ -366,7 +379,7 @@ function Segmented<T extends string | number>({
           aria-checked={v === value}
           onClick={() => v !== value && onChange(v)}
           className={`h-6 rounded-[5px] px-2.5 text-xs whitespace-nowrap transition-colors ${
-            v === value ? "bg-canvas font-medium text-fg shadow-sm" : "text-dim hover:text-fg"
+            v === value ? "bg-sel font-medium text-fg shadow-sm" : "text-dim hover:text-fg"
           }`}
         >
           {label}
@@ -489,7 +502,7 @@ function DataFolder({ dataDir, onError }: { dataDir: string; onError: (e: string
         </Button>
       </div>
       {asking && (
-        <div className="mt-1 flex items-center gap-2 rounded-md bg-warn/10 px-2 py-1.5">
+        <div className="my-1 flex items-center gap-2 rounded-md bg-warn/10 px-2 py-1.5">
           <p className="flex-1">
             Patch Pilot forgets this machine's scans, links and settings and restarts as on a new install. Plug-ins,
             DAW files and backups stay as they are, and the old data is kept in the data folder.

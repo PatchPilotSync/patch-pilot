@@ -8,7 +8,7 @@ import {
   type Os,
   type Product,
 } from "../api";
-import { Badge, Button, Folder, FolderControls, inputClass, timeAgo, useFolders } from "../ui";
+import { Badge, Button, Folder, FolderControls, inputClass, Panel, Tile, timeAgo, useFolders } from "../ui";
 
 const OS_LABEL: Record<Os, string> = { windows: "Windows", macos: "macOS" };
 const UNMATCHED = "Not matched to your plug-ins";
@@ -223,101 +223,111 @@ export function Triage({
   if (shown.length === 0) return null;
 
   return (
-    <section className="border-b border-line pb-2">
-      {shown.length > 0 && (
-        <div className="flex items-center gap-3 px-4 pb-1 pt-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-xs font-semibold">
-              {left === 0
-                ? "All caught up"
-                : `${left} installer${left === 1 ? "" : "s"}${fromDownloads ? " in your Downloads" : ""} to review`}
-            </h2>
-            <p className="truncate text-[11px] text-dim">
-              <Kbd>A</Kbd> add · <Kbd>S</Kbd> skip · <Kbd>E</Kbd> fix the name · <Kbd>↑</Kbd>
-              <Kbd>↓</Kbd> move · <Kbd>Z</Kbd> undo. Your Downloads stay as they are.
-            </p>
-          </div>
-          {matchedLeft.length > 1 && (
-            <Button onClick={() => add(matchedLeft)}>Add all {matchedLeft.length} matched</Button>
-          )}
-        </div>
-      )}
-      <FolderControls ids={groups.map(([g]) => g)} folders={folders} className="px-3" />
-      {groups.map(([group, rows]) => {
-        const open = rows.filter(pending);
-        const added = rows.filter((r) => done[r.path]?.kind === "added").length;
-        return (
-          <Folder
-            key={group}
-            title={group}
-            count={rows.length}
-            open={folders.isOpen(group)}
-            onToggle={() => folders.toggle(group)}
-            badges={
-              open.length === 0 ? (
-                <span className="text-[11px] text-ok">✓ Done</span>
-              ) : (
-                <span className="text-[11px] text-dim">
-                  {open.length} to review{added > 0 ? ` · ${added} added` : ""}
-                </span>
-              )
-            }
-          >
-            {open.length > 1 && (
-              <div className="flex gap-1 pb-0.5 pl-7 pr-4">
-                {group !== UNMATCHED && (
-                  <Button variant="quiet" className="h-6 px-2" onClick={() => add(open)}>
-                    Add all {open.length}
-                  </Button>
-                )}
-                <Button variant="quiet" className="h-6 px-2" onClick={() => skip(open)}>
-                  Skip all {open.length}
-                </Button>
-              </div>
+    <>
+      <Panel divided className="mx-3 mt-3">
+        {shown.length > 0 && (
+          <div className="flex items-center gap-2.5 py-2 pl-3 pr-3">
+            <Tile name="download" tone={left === 0 ? "ok" : "accent"} className="" />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xs font-semibold">
+                {left === 0
+                  ? "All caught up"
+                  : `${left} installer${left === 1 ? "" : "s"}${fromDownloads ? " in your Downloads" : ""} to review`}
+              </h2>
+              <p className="truncate text-[11px] text-dim">
+                <Kbd>A</Kbd> add · <Kbd>S</Kbd> skip · <Kbd>E</Kbd> fix the name · <Kbd>↑</Kbd>
+                <Kbd>↓</Kbd> move · <Kbd>Z</Kbd> undo. Your Downloads stay as they are.
+              </p>
+            </div>
+            <FolderControls ids={groups.map(([g]) => g)} folders={folders} className="shrink-0" />
+            {matchedLeft.length > 1 && (
+              <Button onClick={() => add(matchedLeft)}>Add all {matchedLeft.length} matched</Button>
             )}
-            <ul className="pb-1">
-              {rows.map((item) => (
-                <Row
-                  key={item.path}
-                  ref={(el) => {
-                    rowRefs.current[item.path] = el;
-                  }}
-                  item={item}
-                  meta={metaOf(item, edits)}
-                  outcome={done[item.path]}
-                  focused={focus === item.path}
-                  editing={editing === item.path}
-                  products={products}
-                  onFocus={() => setFocus(item.path)}
-                  onAdd={() => add([item])}
-                  onSkip={() => skip([item])}
-                  onUndo={() => undo(item.path)}
-                  onEdit={() => setEditing(editing === item.path ? null : item.path)}
-                  onSave={(m, andAdd) => {
-                    setEdits((x) => ({ ...x, [item.path]: m }));
-                    setEditing(null);
-                    if (andAdd) add([item], m);
-                  }}
+          </div>
+        )}
+        {groups.map(([group, rows]) => {
+          const open = rows.filter(pending);
+          const added = rows.filter((r) => done[r.path]?.kind === "added").length;
+          return (
+            <Folder
+              key={group}
+              title={group}
+              count={rows.length}
+              icon={
+                <Tile
+                  name={open.length === 0 ? "check" : group === UNMATCHED ? "question" : "download"}
+                  tone={open.length === 0 ? "ok" : group === UNMATCHED ? "warn" : "accent"}
                 />
-              ))}
-            </ul>
-          </Folder>
-        );
-      })}
-      {toast && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-20 flex justify-center">
-          <div className="pointer-events-auto flex items-center gap-3 rounded-md border border-line bg-panel px-3 py-1.5 text-xs shadow-lg">
-            <span className="text-ok">✓</span>
-            <span>{toast.text}</span>
-            {history.length > 0 && (
-              <button className="text-accent-text hover:underline" onClick={() => undo(history[history.length - 1])}>
-                Undo
-              </button>
-            )}
+              }
+              className="pl-3 pr-4"
+              open={folders.isOpen(group)}
+              onToggle={() => folders.toggle(group)}
+              badges={
+                open.length === 0 ? (
+                  <span className="text-[11px] text-ok">✓ Done</span>
+                ) : (
+                  <span className="text-[11px] text-dim">
+                    {open.length} to review{added > 0 ? ` · ${added} added` : ""}
+                  </span>
+                )
+              }
+            >
+              {open.length > 1 && (
+                <div className="flex gap-1 pb-0.5 pl-14 pr-4">
+                  {group !== UNMATCHED && (
+                    <Button variant="quiet" className="h-6 px-2" onClick={() => add(open)}>
+                      Add all {open.length}
+                    </Button>
+                  )}
+                  <Button variant="quiet" className="h-6 px-2" onClick={() => skip(open)}>
+                    Skip all {open.length}
+                  </Button>
+                </div>
+              )}
+              <ul className="pb-1">
+                {rows.map((item) => (
+                  <Row
+                    key={item.path}
+                    ref={(el) => {
+                      rowRefs.current[item.path] = el;
+                    }}
+                    item={item}
+                    meta={metaOf(item, edits)}
+                    outcome={done[item.path]}
+                    focused={focus === item.path}
+                    editing={editing === item.path}
+                    products={products}
+                    onFocus={() => setFocus(item.path)}
+                    onAdd={() => add([item])}
+                    onSkip={() => skip([item])}
+                    onUndo={() => undo(item.path)}
+                    onEdit={() => setEditing(editing === item.path ? null : item.path)}
+                    onSave={(m, andAdd) => {
+                      setEdits((x) => ({ ...x, [item.path]: m }));
+                      setEditing(null);
+                      if (andAdd) add([item], m);
+                    }}
+                  />
+                ))}
+              </ul>
+            </Folder>
+          );
+        })}
+      </Panel>
+        {toast && (
+          <div className="pointer-events-none fixed inset-x-0 bottom-4 z-20 flex justify-center">
+            <div className="pointer-events-auto flex items-center gap-3 rounded-md border border-line bg-panel px-3 py-1.5 text-xs shadow-lg">
+              <span className="text-ok">✓</span>
+              <span>{toast.text}</span>
+              {history.length > 0 && (
+                <button className="text-accent-text hover:underline" onClick={() => undo(history[history.length - 1])}>
+                  Undo
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-    </section>
+        )}
+    </>
   );
 }
 
@@ -334,16 +344,18 @@ export function Skipped({
   const folders = useFolders("vault-skipped");
   if (items.length === 0) return null;
   return (
-    <div className="mt-2 border-t border-line pt-1">
+    <Panel className="mx-3 mt-3">
       <Folder
         title="Skipped installers"
         count={items.length}
+        icon={<Tile name="minus" tone="dim" />}
+        className="pl-3 pr-4"
         open={folders.isOpen("skipped")}
         onToggle={() => folders.toggle("skipped")}
       >
         <ul className="pb-1">
           {items.map((i) => (
-            <li key={i.path} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
+            <li key={i.path} className="group flex h-7 items-center gap-2 pl-16 pr-4 hover:bg-sel/60">
               <span className="min-w-0 flex-1 truncate text-dim" title={i.path}>
                 {i.file_name}
               </span>
@@ -358,13 +370,13 @@ export function Skipped({
           ))}
         </ul>
       </Folder>
-    </div>
+    </Panel>
   );
 }
 
 function Kbd({ children }: { children: string }) {
   return (
-    <kbd className="mx-px inline-block min-w-[1.25em] rounded border border-line bg-panel px-1 text-center font-sans text-[10px] leading-[1.4]">
+    <kbd className="mx-px inline-block min-w-[1.25em] rounded border border-line bg-canvas px-1 text-center font-sans text-[10px] leading-[1.4]">
       {children}
     </kbd>
   );
@@ -407,7 +419,7 @@ function Row({
       skipped: "Skipped",
     }[outcome.kind];
     return (
-      <li ref={ref} className="flex h-7 items-center gap-2 pl-8 pr-4 text-xs text-dim">
+      <li ref={ref} className="flex h-7 items-center gap-2 pl-[46px] pr-4 text-xs text-dim">
         <span className={`w-3 shrink-0 text-center ${outcome.kind === "skipped" ? "" : "text-ok"}`}>
           {outcome.kind === "copying" ? <Spinner /> : outcome.kind === "skipped" ? "–" : "✓"}
         </span>
@@ -426,9 +438,9 @@ function Row({
     <li
       ref={ref}
       onMouseDown={onFocus}
-      className={`relative pl-8 pr-4 ${focused ? "bg-sel" : "hover:bg-sel/50"}`}
+      className={`relative pl-16 pr-4 ${focused ? "bg-sel" : "hover:bg-sel/50"}`}
     >
-      {focused && <span className="absolute inset-y-1 left-3 w-[3px] rounded-full bg-accent" aria-hidden="true" />}
+      {focused && <span className="absolute inset-y-1 left-1 w-[3px] rounded-full bg-accent" aria-hidden="true" />}
       <div className="flex min-h-11 items-center gap-2 py-1">
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
