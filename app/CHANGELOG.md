@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.45 - 2026-10-29
+
+### Changed
+
+- "Also on this machine" looks nicer. Drives, preset folders, duplicate presets and vendor apps sit together in one panel with a small icon each. The Drives row shows a little bar of how full the drive is, preset folders show their total size, and vendor apps say how many are licensing tools. Open Drives and your drives sit side by side.
+
 ## 0.4.44 - 2026-10-29
 
 ### New
