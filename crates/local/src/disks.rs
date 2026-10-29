@@ -1,7 +1,7 @@
-//! How full this machine's drives are (decision #101): the drives that hold
-//! its plug-ins, presets, DAW files, home folder and Installer Vault, so every
-//! linked machine can show it. Asks the OS for each drive's numbers; never
-//! walks a drive.
+//! How full this machine's drives are (decision #101): every local drive
+//! (decision #102), each with what Patch Pilot found on it (plug-ins,
+//! presets, DAW files, home folder, Installer Vault), so every linked machine
+//! can show it. Asks the OS for each drive's numbers; never walks a drive.
 
 use std::path::{Path, PathBuf};
 
@@ -56,21 +56,24 @@ fn holds(root: &str) -> Option<&'static str> {
     }
 }
 
-/// The drives holding `places`, one each, the one with the home folder
-/// first. Folders that don't exist are left out.
+/// Every local drive this machine has (not network shares, discs or
+/// read-only images), each with what of `places` it holds, the one with the
+/// home folder first. A place on a drive the OS didn't list (a network share
+/// holding the vault) still gets its drive measured.
 pub fn measure(places: &[(PathBuf, &'static str)], now: i64) -> Vec<Disk> {
     let startup = startup_disk();
-    let mut disks: Vec<Disk> = Vec::new();
-    for (dir, what) in places {
-        let Ok(dir) = std::fs::canonicalize(dir) else {
-            continue;
-        };
+    let places: Vec<(PathBuf, &'static str)> = places
+        .iter()
+        .filter_map(|(dir, what)| Some((std::fs::canonicalize(dir).ok()?, *what)))
+        .collect();
+    let (mut disks, elsewhere) = assign(&local_volumes(&startup), &places, now);
+    for (dir, what) in elsewhere {
         let name = disk_name(&dir.to_string_lossy(), &startup);
         if let Some(d) = disks.iter_mut().find(|d| d.name == name) {
             add_holds(d, what);
             continue;
         }
-        let Ok(stats) = fs4::statvfs(&dir) else {
+        let Ok(stats) = fs4::statvfs(dir) else {
             continue;
         };
         if stats.total_space() == 0 {
@@ -78,6 +81,7 @@ pub fn measure(places: &[(PathBuf, &'static str)], now: i64) -> Vec<Disk> {
         }
         let mut d = Disk {
             name,
+            label: None,
             total: stats.total_space(),
             free: stats.available_space().min(stats.total_space()),
             holds: Vec::new(),
@@ -88,6 +92,125 @@ pub fn measure(places: &[(PathBuf, &'static str)], now: i64) -> Vec<Disk> {
     }
     disks.sort_by_key(|d| (!d.holds.iter().any(|h| h == Disk::HOME), d.name.clone()));
     disks
+}
+
+/// A drive as the OS lists it, before Patch Pilot looks at what's on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Volume {
+    name: String,
+    label: Option<String>,
+    /// Where it's mounted: `C:\`, `/`, `/Volumes/Samples SSD`.
+    mount: String,
+    total: u64,
+    free: u64,
+}
+
+/// The local drives the OS lists: Windows' fixed and removable drives,
+/// the Mac's volumes Finder shows. Read-only ones (installer disk images,
+/// discs) are left out, except a Mac's sealed system volume, which stands
+/// for the startup disk.
+fn local_volumes(startup: &str) -> Vec<Volume> {
+    use sysinfo::{DiskRefreshKind, Disks};
+    let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing().with_storage());
+    let mut out: Vec<Volume> = Vec::new();
+    for d in disks.list() {
+        let mount = d.mount_point().to_string_lossy().into_owned();
+        let label = d.name().to_string_lossy().trim().to_owned();
+        if let Some(v) = volume(&mount, &label, d.is_read_only(), startup) {
+            if d.total_space() == 0 || out.iter().any(|o| o.name == v.name) {
+                continue;
+            }
+            out.push(Volume {
+                total: d.total_space(),
+                free: d.available_space().min(d.total_space()),
+                ..v
+            });
+        }
+    }
+    out
+}
+
+/// Name a listed volume, or `None` to leave it out.
+fn volume(mount: &str, label: &str, read_only: bool, startup: &str) -> Option<Volume> {
+    // The Mac's hidden system volumes (Data, Preboot, VM) are the startup disk.
+    if mount.starts_with("/System/Volumes/") || (read_only && mount != "/") {
+        return None;
+    }
+    let (name, label) = match windows_drive(mount) {
+        // A drive mounted in a folder goes by the folder.
+        Some(_) if mount.trim_end_matches('\\').len() > 2 => {
+            (mount.trim_end_matches('\\').to_owned(), None)
+        }
+        Some(letter) => (letter, (!label.is_empty()).then(|| label.to_owned())),
+        None if mount == "/" => (
+            if label.is_empty() {
+                startup.to_owned()
+            } else {
+                label.to_owned()
+            },
+            None,
+        ),
+        None => (disk_name(mount, startup), None),
+    };
+    Some(Volume {
+        name,
+        label,
+        mount: mount.to_owned(),
+        total: 0,
+        free: 0,
+    })
+}
+
+/// Every volume as a disk, holding the places under its mount point (the
+/// deepest mount point wins), and the places on none of them.
+fn assign<'a>(
+    volumes: &[Volume],
+    places: &'a [(PathBuf, &'static str)],
+    now: i64,
+) -> (Vec<Disk>, Vec<(&'a Path, &'static str)>) {
+    let mut disks: Vec<Disk> = volumes
+        .iter()
+        .map(|v| Disk {
+            name: v.name.clone(),
+            label: v.label.clone(),
+            total: v.total,
+            free: v.free,
+            holds: Vec::new(),
+            measured_at: now,
+        })
+        .collect();
+    let mut elsewhere = Vec::new();
+    for (dir, what) in places {
+        let path = dir.to_string_lossy();
+        let best = volumes
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| under(&path, &v.mount))
+            .max_by_key(|(_, v)| v.mount.len());
+        match best {
+            Some((i, _)) => add_holds(&mut disks[i], what),
+            None => elsewhere.push((dir.as_path(), *what)),
+        }
+    }
+    (disks, elsewhere)
+}
+
+/// Whether the path `dir` is at or below the mount point `mount`, ignoring
+/// case and Windows' `\\?\` prefix.
+fn under(dir: &str, mount: &str) -> bool {
+    let dir = dir
+        .strip_prefix(r"\\?\")
+        .unwrap_or(dir)
+        .to_ascii_lowercase();
+    let mount = mount.to_ascii_lowercase();
+    let base = mount.trim_end_matches(['/', '\\']);
+    if base.is_empty() {
+        return dir.starts_with('/');
+    }
+    dir == base
+        || dir
+            .strip_prefix(base)
+            .is_some_and(|rest| rest.starts_with(['/', '\\']))
 }
 
 fn add_holds(d: &mut Disk, what: &str) {
@@ -113,6 +236,7 @@ pub fn moved(old: &[Disk], new: &[Disk]) -> bool {
     }
     old.iter().zip(new).any(|(a, b)| {
         a.name != b.name
+            || a.label != b.label
             || a.holds != b.holds
             || a.total != b.total
             || a.free.abs_diff(b.free) >= MOVED_BYTES
@@ -288,21 +412,114 @@ mod tests {
             (dir.path().join("gone"), Disk::PRESETS),
             (a, Disk::HOME),
         ];
+        // Every local drive of the machine running the test, the temp
+        // folder's holding all three, listed first for the home folder.
         let disks = measure(&places, 42);
-        assert_eq!(disks.len(), 1, "{disks:?}");
-        let d = &disks[0];
-        assert_eq!(d.holds, [Disk::PLUGINS, Disk::HOME, Disk::VAULT]);
-        assert!(d.total > 0 && d.free <= d.total);
-        assert_eq!(d.measured_at, 42);
+        let holding: Vec<&Disk> = disks.iter().filter(|d| !d.holds.is_empty()).collect();
+        assert_eq!(holding.len(), 1, "{disks:?}");
+        assert_eq!(holding[0].holds, [Disk::PLUGINS, Disk::HOME, Disk::VAULT]);
+        assert_eq!(disks[0], *holding[0]);
+        assert!(
+            disks
+                .iter()
+                .all(|d| d.total > 0 && d.free <= d.total && d.measured_at == 42)
+        );
         assert!(room_for(&b, 1).is_ok());
         let err = room_for(&b.join("not/yet"), u64::MAX / 2).unwrap_err();
         assert!(err.starts_with("Not enough space on "), "{err}");
     }
 
     #[test]
+    fn lists_the_drives_people_see() {
+        let v = |mount: &str, label: &str, ro: bool| {
+            volume(mount, label, ro, "Macintosh HD").map(|v| (v.name, v.label))
+        };
+        assert_eq!(v(r"C:\", "", false), Some(("C:".into(), None)));
+        assert_eq!(
+            v(r"D:\", "Samples", false),
+            Some(("D:".into(), Some("Samples".into())))
+        );
+        assert_eq!(
+            v(r"C:\Mounts\Libraries\", "Libs", false),
+            Some((r"C:\Mounts\Libraries".into(), None))
+        );
+        assert_eq!(v(r"E:\", "DVD", true), None);
+        // A Mac: the sealed system volume stands for the startup disk; its
+        // hidden siblings and mounted installer images don't show.
+        assert_eq!(
+            v("/", "Macintosh HD", true),
+            Some(("Macintosh HD".into(), None))
+        );
+        assert_eq!(v("/", "", true), Some(("Macintosh HD".into(), None)));
+        assert_eq!(
+            v("/System/Volumes/Data", "Macintosh HD - Data", false),
+            None
+        );
+        assert_eq!(
+            v("/Volumes/Samples SSD", "Samples SSD", false),
+            Some(("Samples SSD".into(), None))
+        );
+        assert_eq!(v("/Volumes/Serum Installer", "Serum Installer", true), None);
+    }
+
+    #[test]
+    fn places_land_on_the_drive_that_holds_them() {
+        let vol = |name: &str, mount: &str| Volume {
+            name: name.into(),
+            label: None,
+            mount: mount.into(),
+            total: 1000,
+            free: 500,
+        };
+        let volumes = [
+            vol("C:", r"C:\"),
+            vol("D:", r"D:\"),
+            vol("Libs", r"D:\Libs\"),
+            vol("Mac", "/"),
+            vol("Ext", "/Volumes/Ext"),
+        ];
+        let places = [
+            (
+                PathBuf::from(r"\\?\C:\Program Files\Common Files\VST3"),
+                Disk::PLUGINS,
+            ),
+            (PathBuf::from(r"\\?\d:\Libs\Kontakt"), Disk::VAULT),
+            (PathBuf::from(r"D:\Libsy"), Disk::PRESETS),
+            (PathBuf::from("/Volumes/Ext/Presets"), Disk::PRESETS),
+            (PathBuf::from("/Users/me"), Disk::HOME),
+            (PathBuf::from(r"\\?\UNC\nas\audio\Vault"), Disk::VAULT),
+        ];
+        let (disks, elsewhere) = assign(&volumes, &places, 7);
+        let holds: Vec<(&str, Vec<&str>)> = disks
+            .iter()
+            .map(|d| {
+                (
+                    d.name.as_str(),
+                    d.holds.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            holds,
+            [
+                ("C:", vec![Disk::PLUGINS]),
+                ("D:", vec![Disk::PRESETS]),
+                ("Libs", vec![Disk::VAULT]),
+                ("Mac", vec![Disk::HOME]),
+                ("Ext", vec![Disk::PRESETS]),
+            ]
+        );
+        assert_eq!(
+            elsewhere,
+            [(Path::new(r"\\?\UNC\nas\audio\Vault"), Disk::VAULT)]
+        );
+    }
+
+    #[test]
     fn only_a_real_move_is_worth_sending() {
         let d = |free: u64, at: i64| Disk {
             name: "C:".into(),
+            label: None,
             total: 2_000_000_000_000,
             free,
             holds: vec![Disk::PLUGINS.into()],

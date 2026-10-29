@@ -200,6 +200,7 @@ fn rescan_with_a_new_time_is_unchanged() {
 fn disk(name: &str, free: u64, at: i64) -> Disk {
     Disk {
         name: name.to_owned(),
+        label: None,
         total: 1_000_000_000_000,
         free,
         holds: vec![Disk::PLUGINS.to_owned()],

@@ -47,6 +47,8 @@ export interface Inventory {
 export interface Disk {
   /** "C:" on Windows, the volume name on a Mac. */
   name: string;
+  /** The Windows drive's own label ("Samples"), when it has one. */
+  label?: string | null;
   total: number;
   free: number;
   /** "plugins" | "presets" | "daw" | "home" | "vault"; others from newer builds are skipped. */

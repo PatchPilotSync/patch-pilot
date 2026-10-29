@@ -12,6 +12,8 @@ blake3 = "1.8.7"
 flate2 = "1.1.10"
 # Drive free space without unsafe code (decision #101).
 fs4 = "1.1.0"
+# Every local drive, with Windows labels and Finder's free space (decision #102).
+sysinfo = { version = "0.38.4", default-features = false, features = ["disk"] }
 notify = "8.2.0"
 patchpilot-catalog = { path = "../catalog" }
 patchpilot-core = { path = "../core" }

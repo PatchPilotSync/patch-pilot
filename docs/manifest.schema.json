@@ -57,6 +57,13 @@
           },
           "type": "array"
         },
+        "label": {
+          "description": "The drive's own label on Windows (\"Samples\" for `D:`), when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "measured_at": {
           "description": "When `free` was read, Unix seconds UTC.",
           "format": "int64",

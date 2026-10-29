@@ -37,9 +37,20 @@ export function isLow(d: Disk): boolean {
   return d.free < 10e9 || (d.free < d.total / 10 && d.free < 50e9);
 }
 
-/** The drive to name when there's room for one: the fullest if one is nearly full, else the home folder's. */
+/** Drives holding something Patch Pilot uses; a full backup or archive drive isn't worth a warning. */
+function inUse(disks: Disk[]): Disk[] {
+  const used = disks.filter((d) => d.holds.length > 0);
+  return used.length > 0 ? used : disks;
+}
+
+/** The drive to name when there's room for one: the fullest in use if one is nearly full, else the home folder's. */
 export function headlineDisk(disks: Disk[]): Disk | null {
-  return disks.find(isLow) ?? disks[0] ?? null;
+  return inUse(disks).find(isLow) ?? disks[0] ?? null;
+}
+
+/** "Samples (D:)" like Explorer when the drive has a label, else "D:" or the Mac volume's name. */
+export function diskLabel(d: Disk): string {
+  return d.label ? `${d.label} (${d.name})` : d.name;
 }
 
 /** What a drive holds, in words: "plug-ins, presets and DAW files". */
@@ -51,7 +62,7 @@ function holdsLabel(d: Disk): string {
 /** Every drive on one line each, for a tooltip. */
 export function disksTitle(disks: Disk[], os: Os): string {
   return disks
-    .map((d) => `${d.name} ${formatBytes(d.free, os)} free of ${formatBytes(d.total, os)}${d.holds.length ? ` (${holdsLabel(d)})` : ""}`)
+    .map((d) => `${diskLabel(d)}: ${formatBytes(d.free, os)} free of ${formatBytes(d.total, os)}${d.holds.length ? ` (${holdsLabel(d)})` : ""}`)
     .join("\n");
 }
 
@@ -113,8 +124,8 @@ export function DiskList({
       {disks.map((d) => (
         <div key={d.name} className="flex flex-col gap-1">
           <div className="flex items-baseline gap-2 text-xs">
-            <span className="min-w-0 flex-1 truncate font-medium" title={d.name}>
-              {d.name}
+            <span className="min-w-0 flex-1 truncate font-medium" title={diskLabel(d)}>
+              {diskLabel(d)}
             </span>
             <span className={`shrink-0 tabular-nums ${isLow(d) ? "text-warn" : "text-dim"}`}>
               {formatBytes(d.free, os)} free of {formatBytes(d.total, os)}
@@ -131,9 +142,9 @@ export function DiskList({
 
 /** A warn line on this machine's screens when a drive is nearly full: installs and bring-overs need room. */
 export function LowDiskNotice({ disks, os }: { disks: Disk[]; os: Os }) {
-  const low = disks.filter(isLow);
+  const low = inUse(disks).filter(isLow);
   if (low.length === 0) return null;
-  const names = low.map((d) => `${d.name} has ${formatBytes(d.free, os)} free`).join(", ");
+  const names = low.map((d) => `${diskLabel(d)} has ${formatBytes(d.free, os)} free`).join(", ");
   return (
     <Notice
       tone="warn"
