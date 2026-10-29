@@ -8,6 +8,7 @@ becomes its release notes, which the app shows when it offers that update
 
 ### Fixed
 
+- Patch Pilot opened to a blank window and a blank tray (since 0.4.48) when one of a machine's drives held none of your plug-ins, presets or DAW files. It opens normally again.
 - If a screen can't be drawn, Patch Pilot now says so and shows what went wrong, with Copy details, Reload and Try again, instead of opening a blank window. The update offer stays at the top, so a fix can still be installed.
 
 ## 0.4.50 - 2026-10-29
