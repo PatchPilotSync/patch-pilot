@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { onUiChanged, settingsView, type SettingsView } from "./api";
 import App from "./App";
+import { CrashBoundary } from "./Crash";
 import { Tray } from "./screens/Tray";
 import "./index.css";
 
@@ -30,4 +31,8 @@ document.addEventListener("contextmenu", (e) => {
 });
 onUiChanged(applyLook);
 
-createRoot(document.getElementById("root")!).render(<StrictMode>{isTray ? <Tray /> : <App />}</StrictMode>);
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <CrashBoundary>{isTray ? <Tray /> : <App />}</CrashBoundary>
+  </StrictMode>,
+);
