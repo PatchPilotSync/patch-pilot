@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.50 - 2026-10-29
+
+### Changed
+
+- The tray popover, the top bar, the dialogs and the first run look like This machine now. In the tray each machine has a small icon in its score's colour, and what a machine needs is listed with the same icons as Compare. The open tab at the top sits on a raised pill. Errors, update offers and "what just happened" messages show as one line with an icon under the top bar. Link your machines and Rig Report have icons beside their titles, and the first scan lists its steps with an icon each.
+- Compare says "1 template from the Primary Rig isn't here yet" instead of "aren't".
+
 ## 0.4.49 - 2026-10-29
 
 ### Changed

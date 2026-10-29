@@ -51,7 +51,7 @@ You know the moment: you open a project on the laptop and half the chain is red 
 Patch Pilot moves two kinds of things between your machines, in two different ways. Plug-ins, apps and sample libraries are never uploaded anywhere.
 
 - **What's installed (scan results).** Linked machines share the list of what each one has through a small relay. It's end-to-end encrypted, so nobody else can read it, not even us. There are no accounts.
-- **Your own files.** Templates, scripts, presets and settings travel through a cloud folder you already use (Dropbox, OneDrive, Google Drive, iCloud Drive or any folder you pick). If you'd rather, you can use a private GitHub repo of your own instead, under **Use GitHub…** on This machine's Sync & backup line; every change is kept in the repo's history.
+- **Your own files.** Templates, scripts, presets and settings travel through a cloud folder you already use (Dropbox, OneDrive, Google Drive, iCloud Drive or any folder you pick). If you'd rather not use a cloud at all, linked machines on the same home network can copy them straight to each other, encrypted. Or use a private GitHub repo of your own, where every change is kept in the repo's history. You choose under This machine's Sync & backup line.
 
 Syncing files is careful: a file you delete on one machine stays on the others, an edit made on two machines asks you which copy to keep, and settings only change while Reaper or Live is closed. Under **Choose what syncs** you can keep any kind of file or setting to one machine. The full list is in [docs/what-syncs.md](docs/what-syncs.md).
 
@@ -62,6 +62,8 @@ Syncing files is careful: a file you delete on one machine stays on the others, 
 - **Get Up To Speed and Set up** — a step-by-step checklist to bring a machine back in line, or to set up a new one from scratch, ending with a setup report you can save. Each step says whether something is not installed or needs an update, with both versions.
 - **Drift and update alerts** — a quiet notification when a machine falls behind, or when a newer version of a plug-in is on another machine or available from its maker.
 - **Template readiness** — tells you which Reaper templates, FX chains and Ableton sets or racks won't open fully on a machine, because a plug-in they use is missing.
+- **Reaper extensions and startup action** — checks SWS, ReaPack, js_ReaScriptAPI, ReaImGui and the others on every machine. It says when one is missing (and which of your scripts need it), blocked by macOS, in the wrong folder, the wrong build for that computer or installed twice, and most of these are fixed in one click. If SWS runs an action every time Reaper opens on your Primary Rig, every machine can run the same one.
+- **Drive space** — how much room is left on every drive of every machine, in Compare, the tray and This machine, with a warning when one that holds your plug-ins or presets runs low. Patch Pilot checks there's room before it copies anything.
 - **Keep files in sync** — Reaper templates, FX chains, scripts (with every file they need, including ReaPack packages), themes, shortcuts, menus and mouse modifiers; Ableton Live templates, presets, racks, Max for Live devices, Collections, Places and Options.txt; and plug-in presets from Serum, FabFilter, Valhalla, u-he, Soundtoys and many more. Renames follow too. Reaper shortcuts from a PC are adjusted to work on a Mac.
 - **Bring over** — copy another machine's files onto this one by hand, one file, a whole folder or every template at once.
 - **Backup** — every template, script, setting and preset backed up to your cloud folder after each change, with earlier versions kept. A new machine can start from another machine's backup.
@@ -71,7 +73,7 @@ Syncing files is careful: a file you delete on one machine stays on the others, 
 - **History and undo** — a restore point before every change Patch Pilot makes to a file, so anything can be undone.
 - **Rig Report** — share a list of your plug-ins and score as a web page or text, for forums or collaborators. It never includes file paths or licence details.
 - **Always on, barely there** — opens when your computer starts, waits in the tray or menu bar, and rescans by itself when you add or update a plug-in. It uses next to no CPU while it waits.
-- **Light and dark** — follows your system setting.
+- **Settings in one place** — what syncs on this machine, light or dark (or follow the system), text size, starting with your computer, which alerts you get, and the items you've hidden.
 
 ## What Patch Pilot is not
 
