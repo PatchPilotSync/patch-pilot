@@ -5,7 +5,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.example.pa</string>
 	<key>CFBundleName</key>
-	<string>Installation Manager</string>
+	<string>PA-InstallationManager</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.5.0</string>
 </dict>

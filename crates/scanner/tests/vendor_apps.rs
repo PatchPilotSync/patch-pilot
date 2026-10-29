@@ -39,6 +39,10 @@ fn windows_uninstall_entries() {
     assert_eq!(found["pace-license-support"].as_deref(), Some("5.9.1.1913"));
     // Detected without a version.
     assert_eq!(found["arturia-software-center"].as_deref(), Some(""));
+    assert_eq!(
+        found["plugin-alliance-installation-manager"].as_deref(),
+        Some("")
+    );
     // Publisher doesn't match.
     assert_eq!(found["ua-connect"], None);
     assert_eq!(found["spitfire-audio"], None);

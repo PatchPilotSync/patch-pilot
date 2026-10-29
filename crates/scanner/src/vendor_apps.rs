@@ -35,7 +35,7 @@ pub struct VendorAdapter {
     /// folders right inside it when none of `macos_paths` exists, compared
     /// case-insensitively as prefixes. A bundle in a subfolder also matches
     /// as `<folder> <name>`, so `Plugin Alliance/Installation Manager.app`
-    /// matches "Plugin Alliance Installation Manager".
+    /// would match "Plugin Alliance Installation Manager".
     pub macos_names: &'static [&'static str],
     /// Executable names inside the Windows install folder, used to open the
     /// app when its uninstall entry has no `DisplayIcon` pointing at it.
@@ -111,14 +111,26 @@ pub const ADAPTERS: &[VendorAdapter] = &[
         id: "plugin-alliance-installation-manager",
         name: "Plugin Alliance Installation Manager",
         kind: ItemKind::VendorApp,
-        windows_display_names: &["Plugin Alliance Installation Manager"],
+        // The app itself is `PA-InstallationManager` on both systems.
+        windows_display_names: &[
+            "Plugin Alliance Installation Manager",
+            "PA-InstallationManager",
+            "PA Installation Manager",
+        ],
         windows_publisher: Some("Plugin Alliance"),
-        macos_paths: &["Applications/Plugin Alliance Installation Manager.app"],
+        macos_paths: &[
+            "Applications/PA-InstallationManager.app",
+            "Applications/Plugin Alliance Installation Manager.app",
+        ],
         macos_names: &[
+            "PA-InstallationManager",
             "Plugin Alliance Installation Manager",
             "PA Installation Manager",
         ],
-        windows_exes: &["Plugin Alliance Installation Manager.exe"],
+        windows_exes: &[
+            "PA-InstallationManager.exe",
+            "Plugin Alliance Installation Manager.exe",
+        ],
         download_url: "https://www.plugin-alliance.com/en/installation-manager.html",
     },
     VendorAdapter {
