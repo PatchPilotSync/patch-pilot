@@ -178,6 +178,7 @@ export class Rig extends DurableObject<Env> {
  * other side, buffering until both are here. One attempt per mailbox: once two
  * machines have met, the mailbox refuses everyone for LINK_TTL_MS, so a wrong
  * guess at a code can't be retried quickly. Sessions close after LINK_TTL_MS.
+ * A text "ping" is answered with "pong" and not forwarded.
  */
 export class Mailbox extends DurableObject<Env> {
   private peers: WebSocket[] = [];
@@ -207,6 +208,9 @@ export class Mailbox extends DurableObject<Env> {
     }
 
     ws.addEventListener("message", (e) => {
+      // Keep-alive while waiting for the other machine: idle sockets are
+      // dropped after 100 s, and showing a code can take minutes.
+      if (e.data === "ping") return ws.send("pong");
       const other = this.peers.find((p) => p !== ws);
       if (other) other.send(e.data);
       else if (this.queued.length < 8) this.queued.push(e.data);

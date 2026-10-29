@@ -22,6 +22,10 @@ use crate::rig::{db_path, open};
 /// `PATCHPILOT_RELAY` overrides it, e.g. `http://localhost:8787` for `wrangler dev`.
 const DEFAULT_RELAY: &str = "https://patch-pilot-relay.sunburner.workers.dev";
 const PING_EVERY: Duration = Duration::from_secs(50);
+/// Tries per relay request: a dropped connection is retried, with a pause.
+const TRIES: u32 = 3;
+/// Shared files that may fail in one upload before it stops trying.
+const MAX_FAILED_FILES: u32 = 3;
 
 /// Shown in the UI. Mirrored in `src/api.ts`.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -182,6 +186,7 @@ async fn upload_files(
     }
     let there: std::collections::HashSet<String> =
         relay.list().await?.into_iter().map(|o| o.name).collect();
+    let mut failed = 0;
     for file in files {
         if there.contains(&rig.file_object(&file.hash)) {
             continue;
@@ -191,7 +196,16 @@ async fn upload_files(
             continue;
         };
         let sealed = rig.seal_file(&file.hash, &bytes);
-        relay.put(&rig.file_object(&file.hash), sealed).await?;
+        // A file that won't go up stays off the relay until the next upload;
+        // it doesn't take live sync offline. A few in a row means the
+        // connection is gone, and the next upload starts over.
+        if let Err(e) = relay.put(&rig.file_object(&file.hash), sealed).await {
+            eprintln!("sync: {} not shared: {e}", file.rel);
+            failed += 1;
+            if failed == MAX_FAILED_FILES {
+                break;
+            }
+        }
     }
     Ok(())
 }
@@ -354,17 +368,30 @@ async fn send(ws: &mut Socket, bytes: Vec<u8>) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The next handshake frame. Waiting can take minutes (someone walks to the
+/// other machine), and the relay drops a socket idle for 100 s, so this pings
+/// meanwhile; the relay answers "pong", and text frames are skipped.
 async fn recv(ws: &mut Socket) -> Result<Vec<u8>, String> {
+    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING_EVERY, PING_EVERY);
     loop {
-        match ws.next().await {
-            Some(Ok(Message::Binary(b))) => return Ok(b.to_vec()),
-            Some(Ok(Message::Close(_))) | None => {
-                return Err("the other machine stopped linking, or the code expired".to_owned());
-            }
-            Some(Ok(_)) => continue,
-            Some(Err(e)) => return Err(e.to_string()),
+        tokio::select! {
+            msg = ws.next() => match msg {
+                Some(Ok(Message::Binary(b))) => return Ok(b.to_vec()),
+                Some(Ok(Message::Close(_))) | None => {
+                    return Err("the other machine stopped linking, or the code expired".to_owned());
+                }
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => return Err(format!("lost the connection to the sync service: {e}")),
+            },
+            _ = ping.tick() => send_text(ws, "ping").await?,
         }
     }
+}
+
+async fn send_text(ws: &mut Socket, text: &str) -> Result<(), String> {
+    ws.send(Message::text(text))
+        .await
+        .map_err(|e| format!("lost the connection to the sync service: {e}"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -402,25 +429,35 @@ impl Relay {
     }
 
     async fn put(&self, object: &str, sealed: Vec<u8>) -> Result<(), String> {
+        let url = format!("{}/objects/{object}", self.base);
         let res = self
-            .http
-            .put(format!("{}/objects/{object}", self.base))
-            .bearer_auth(&self.token)
-            .body(sealed)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+            .send(|| self.http.put(&url).body(sealed.clone()))
+            .await?;
         check(res).await.map(|_| ())
     }
 
+    /// Send with the token, again after a pause if the connection drops
+    /// (Windows' os error 10054). Every request here is safe to repeat.
+    async fn send(
+        &self,
+        request: impl Fn() -> reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, String> {
+        let mut tries = 1;
+        loop {
+            match request().bearer_auth(&self.token).send().await {
+                Ok(res) => return Ok(res),
+                Err(e) if tries < TRIES && (e.is_connect() || e.is_request()) => {
+                    tokio::time::sleep(Duration::from_secs(tries.into())).await;
+                    tries += 1;
+                }
+                Err(e) => return Err(describe(e)),
+            }
+        }
+    }
+
     async fn get(&self, object: &str) -> Result<Option<Vec<u8>>, String> {
-        let res = self
-            .http
-            .get(format!("{}/objects/{object}", self.base))
-            .bearer_auth(&self.token)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let url = format!("{}/objects/{object}", self.base);
+        let res = self.send(|| self.http.get(&url)).await?;
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -429,13 +466,8 @@ impl Relay {
     }
 
     async fn list(&self) -> Result<Vec<ObjectInfo>, String> {
-        let res = self
-            .http
-            .get(format!("{}/objects", self.base))
-            .bearer_auth(&self.token)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let url = format!("{}/objects", self.base);
+        let res = self.send(|| self.http.get(&url)).await?;
         // A rig nobody has uploaded to yet isn't claimed.
         if res.status() == reqwest::StatusCode::UNAUTHORIZED {
             return Ok(Vec::new());
@@ -455,6 +487,23 @@ impl Relay {
             .map_err(|e| format!("can't reach the sync service: {e}"))?;
         Ok(ws)
     }
+}
+
+/// "can't reach the sync service: connection reset (os error 10054)" rather
+/// than reqwest's "error sending request for url (…)", which hides the cause
+/// behind a long URL.
+fn describe(e: reqwest::Error) -> String {
+    let e = e.without_url();
+    let mut cause = String::new();
+    let mut source = std::error::Error::source(&e);
+    while let Some(s) = source {
+        cause = s.to_string();
+        source = s.source();
+    }
+    if cause.is_empty() {
+        cause = e.to_string();
+    }
+    format!("can't reach the sync service: {cause}")
 }
 
 async fn check(res: reqwest::Response) -> Result<reqwest::Response, String> {
@@ -573,6 +622,19 @@ mod tests {
             b"<FXCHAIN\n>\n"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a relay (PATCHPILOT_RELAY)"]
+    async fn a_code_still_works_after_keep_alive_pings() {
+        let rig = RigKey::generate();
+        let code = LinkCode::generate();
+        let (offered, joined) = tokio::join!(offer(&code, &rig), async {
+            tokio::time::sleep(PING_EVERY + Duration::from_secs(5)).await;
+            join(&code).await
+        });
+        offered.unwrap();
+        assert_eq!(joined.unwrap(), rig);
     }
 
     #[tokio::test]
