@@ -13,7 +13,7 @@ import {
   type VaultView,
 } from "../api";
 import { Badge, Button, Folder, FolderControls, Loading, inputClass, useFolders } from "../ui";
-import { Triage } from "./VaultTriage";
+import { Skipped, Triage } from "./VaultTriage";
 
 /** The last Vault shown, so reopening the tab shows it at once while it refreshes. */
 let lastView: VaultView | null = null;
@@ -109,7 +109,6 @@ export function Vault({
 
       <Triage
         items={waiting}
-        skipped={view.skipped}
         products={view.products}
         fromDownloads={!!view.downloads}
         onChanged={refresh}
@@ -123,6 +122,7 @@ export function Vault({
           Nothing here yet. Plug-in installers you download show up here to add; you can also drop one on this window.
         </p>
       )}
+      <Skipped items={view.skipped} onChanged={refresh} onError={onError} />
     </div>
   );
 }
@@ -206,9 +206,9 @@ function Entries({ entries, onError }: { entries: VaultEntry[]; onError: (e: str
     <>
       {entries.length > 0 && (
         <div className="flex items-center gap-3 pl-4 pr-3 pt-3">
-          <h2 className="flex-1 text-sm font-semibold">
-            In the vault <span className="font-normal tabular-nums text-dim">{entries.length}</span>
-          </h2>
+          <p className="flex-1 text-xs text-dim">
+            <span className="tabular-nums">{entries.length}</span> installer{entries.length === 1 ? "" : "s"}
+          </p>
           <FolderControls ids={groups.map(([v]) => v)} folders={folders} className="" />
         </div>
       )}

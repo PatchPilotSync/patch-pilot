@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  vaultAdd,
-  vaultRemove,
-  vaultSkip,
-  type InboxItem,
-  type NewEntry,
-  type Os,
-  type Product,
-} from "../api";
+import { vaultAdd, vaultRemove, vaultSkip, type InboxItem, type NewEntry, type Os, type Product } from "../api";
 import { Badge, Button, Folder, FolderControls, inputClass, timeAgo, useFolders } from "../ui";
 
 const OS_LABEL: Record<Os, string> = { windows: "Windows", macos: "macOS" };
@@ -41,7 +33,6 @@ function metaOf(item: InboxItem, edits: Record<string, NewEntry>): NewEntry {
  */
 export function Triage({
   items,
-  skipped,
   products,
   fromDownloads,
   onChanged,
@@ -49,7 +40,6 @@ export function Triage({
   onNotice,
 }: {
   items: InboxItem[];
-  skipped: InboxItem[];
   products: Product[];
   fromDownloads: boolean;
   onChanged: () => void;
@@ -67,14 +57,17 @@ export function Triage({
   const [toast, setToast] = useState<{ text: string; at: number } | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
-  const folders = useFolders("vault-inbox", (id) => id !== UNMATCHED && id !== "skipped");
+  const folders = useFolders("vault-inbox", (id) => id !== UNMATCHED);
 
   useEffect(() => {
     setShown((prev) => {
       const live = new Set(items.map((i) => i.path));
       const kept = prev.filter((i) => live.has(i.path) || done[i.path]);
       const known = new Set(kept.map((i) => i.path));
-      return [...kept.map((i) => items.find((n) => n.path === i.path) ?? i), ...items.filter((i) => !known.has(i.path))];
+      return [
+        ...kept.map((i) => items.find((n) => n.path === i.path) ?? i),
+        ...items.filter((i) => !known.has(i.path)),
+      ];
     });
     // `done` is read, not tracked: a finished row stays until the tab closes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,7 +136,10 @@ export function Triage({
             [item.path]: r.already ? { kind: "already" } : { kind: "added", entryId: r.entry.id, where },
           }));
           if (!r.already) setHistory((h) => [...h, item.path]);
-          setToast({ text: r.already ? `${meta.product} was already in the vault` : `Added ${meta.product}`, at: Date.now() });
+          setToast({
+            text: r.already ? `${meta.product} was already in the vault` : `Added ${meta.product}`,
+            at: Date.now(),
+          });
           if (r.signer_warning) onNotice([r.signer_warning]);
         } catch (e) {
           setDone((d) => {
@@ -163,7 +159,10 @@ export function Triage({
     setDone((d) => ({ ...d, ...Object.fromEntries(items.map((i) => [i.path, { kind: "skipped" } as Outcome])) }));
     setHistory((h) => [...h, ...items.map((i) => i.path)]);
     if (items.length === 1) advance(items[0].path);
-    setToast({ text: items.length === 1 ? `Skipped ${items[0].file_name}` : `Skipped ${items.length} files`, at: Date.now() });
+    setToast({
+      text: items.length === 1 ? `Skipped ${items[0].file_name}` : `Skipped ${items.length} files`,
+      at: Date.now(),
+    });
     try {
       await vaultSkip(items.map((i) => i.path));
       onChanged();
@@ -222,7 +221,7 @@ export function Triage({
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (shown.length === 0 && skipped.length === 0) return null;
+  if (shown.length === 0) return null;
 
   return (
     <section className="border-b border-line pb-2">
@@ -306,31 +305,6 @@ export function Triage({
           </Folder>
         );
       })}
-      {skipped.length > 0 && (
-        <Folder
-          title="Skipped"
-          count={skipped.length}
-          open={folders.isOpen("skipped")}
-          onToggle={() => folders.toggle("skipped")}
-        >
-          <ul className="pb-1">
-            {skipped.map((i) => (
-              <li key={i.path} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
-                <span className="min-w-0 flex-1 truncate text-dim" title={i.path}>
-                  {i.file_name}
-                </span>
-                <Button
-                  variant="quiet"
-                  className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                  onClick={() => vaultSkip([i.path], false).then(onChanged, (e) => onError(String(e)))}
-                >
-                  Bring back
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </Folder>
-      )}
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-20 flex justify-center">
           <div className="pointer-events-auto flex items-center gap-3 rounded-md border border-line bg-panel px-3 py-1.5 text-xs shadow-lg">
@@ -345,6 +319,47 @@ export function Triage({
         </div>
       )}
     </section>
+  );
+}
+
+/** Installers the user skipped, listed under the vault so they can be brought back. */
+export function Skipped({
+  items,
+  onChanged,
+  onError,
+}: {
+  items: InboxItem[];
+  onChanged: () => void;
+  onError: (e: string) => void;
+}) {
+  const folders = useFolders("vault-skipped");
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-2 border-t border-line pt-1">
+      <Folder
+        title="Skipped installers"
+        count={items.length}
+        open={folders.isOpen("skipped")}
+        onToggle={() => folders.toggle("skipped")}
+      >
+        <ul className="pb-1">
+          {items.map((i) => (
+            <li key={i.path} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
+              <span className="min-w-0 flex-1 truncate text-dim" title={i.path}>
+                {i.file_name}
+              </span>
+              <Button
+                variant="quiet"
+                className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                onClick={() => vaultSkip([i.path], false).then(onChanged, (e) => onError(String(e)))}
+              >
+                Bring back
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </Folder>
+    </div>
   );
 }
 
@@ -409,11 +424,7 @@ function Row({
     );
   }
   return (
-    <li
-      ref={ref}
-      onMouseDown={onFocus}
-      className={`relative pl-8 pr-4 ${focused ? "bg-sel" : "hover:bg-sel/50"}`}
-    >
+    <li ref={ref} onMouseDown={onFocus} className={`relative pl-8 pr-4 ${focused ? "bg-sel" : "hover:bg-sel/50"}`}>
       {focused && <span className="absolute inset-y-1 left-3 w-[3px] rounded-full bg-accent" aria-hidden="true" />}
       <div className="flex min-h-11 items-center gap-2 py-1">
         <span className="min-w-0 flex-1">
@@ -431,7 +442,12 @@ function Row({
           <Button variant="quiet" className="px-2" onClick={onEdit} title="Fix the name, version or OS (E)">
             {editing ? "Cancel" : "Edit"}
           </Button>
-          <Button variant="quiet" className="px-2" onClick={onSkip} title="Not for the vault; won't be offered again (S)">
+          <Button
+            variant="quiet"
+            className="px-2"
+            onClick={onSkip}
+            title="Not for the vault; won't be offered again (S)"
+          >
             Skip
           </Button>
           <Button
@@ -509,7 +525,12 @@ function Editor({
           <option key={p.canonical_id} value={label(p)} />
         ))}
       </datalist>
-      <input className={inputClass} placeholder="Version" value={version} onChange={(e) => setVersion(e.target.value)} />
+      <input
+        className={inputClass}
+        placeholder="Version"
+        value={version}
+        onChange={(e) => setVersion(e.target.value)}
+      />
       <span className="flex rounded-md border border-line p-px">
         {(["windows", "macos", ""] as const).map((o) => (
           <button
