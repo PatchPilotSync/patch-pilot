@@ -1009,6 +1009,37 @@ export const reaperExtensions = () => invoke<ExtensionCheck | null>("reaper_exte
 export const fixReaperExtension = (file: string, action: ExtensionFixAction) =>
   invoke<ExtensionCheck | null>("fix_reaper_extension", { file, action });
 
+// Reaper's startup action (decision #108): patchpilot_local::reaper_startup::StartupCheck.
+export type StartupActionKind = "native" | "custom" | "script" | "extension" | "missing";
+export interface StartupAction {
+  /** As SWS keeps it: `_8f3c…` or `40044`. */
+  id: string;
+  /** As the Action list shows it: "Custom: JMD_Startup". */
+  name: string | null;
+  kind: StartupActionKind;
+  /** Scripts it runs, below Reaper's resource folder. */
+  scripts: string[];
+}
+export interface StartupCheck {
+  status: "ok" | "not_set" | "different" | "not_found";
+  here: StartupAction | null;
+  /** The Primary Rig's, when this machine's key map has it too. */
+  primary: StartupAction | null;
+  /** The Primary Rig has one this machine's key map doesn't: it comes with the key map. */
+  primary_unknown: boolean;
+  missing_scripts: string[];
+  /** The Primary Rig's `Scripts/__startup.lua` is missing here or differs. */
+  startup_script_differs: boolean;
+  /** There is a Primary Rig to bring files from (and this isn't it). */
+  has_primary: boolean;
+}
+export const reaperStartup = () => invoke<StartupCheck | null>("reaper_startup");
+/** SWS's settings file, of which only the startup action is shared. */
+export const SWS_INI = "S&M.ini";
+/** How a Reaper file is named in a list: its file name, or for `S&M.ini` what it holds. */
+export const reaperFileLabel = (rel: string) =>
+  rel === SWS_INI ? "Startup action (S&M.ini)" : rel.slice(rel.lastIndexOf("/") + 1);
+
 // Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
 
 export interface ReportOptions {

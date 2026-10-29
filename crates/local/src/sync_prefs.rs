@@ -49,6 +49,7 @@ pub const KINDS: &[SyncKind] = &[
     kind("reaper/key-map", "Reaper", "Shortcuts and custom actions"),
     kind("reaper/menus", "Reaper", "Menus and toolbars"),
     kind("reaper/mouse", "Reaper", "Mouse modifiers"),
+    kind("reaper/startup-action", "Reaper", "Startup action (SWS)"),
     kind("ableton/templates", "Ableton Live", "Templates"),
     kind("ableton/defaults", "Ableton Live", "Default presets"),
     kind("ableton/presets", "Ableton Live", "Racks and presets"),
@@ -93,6 +94,7 @@ pub fn kind_of(root: &str, rel: &str) -> Option<&'static str> {
             ResourceKind::KeyMap => "reaper/key-map",
             ResourceKind::Menus => "reaper/menus",
             ResourceKind::MouseModifiers => "reaper/mouse",
+            ResourceKind::StartupAction => "reaper/startup-action",
         },
         ABLETON_USER_LIBRARY => match user_library_label(rel)? {
             "Template" => "ableton/templates",
@@ -179,6 +181,7 @@ mod tests {
             (REAPER_RESOURCES, "Effects/saike/x.jsfx"),
             (REAPER_RESOURCES, "Data/toolbar_icons/a.png"),
             (REAPER_RESOURCES, "reaper-kb.ini"),
+            (REAPER_RESOURCES, "S&M.ini"),
             (REAPER_RESOURCES, "presets/vst3-ReaComp.ini"),
             (ABLETON_USER_LIBRARY, "Templates/Default.als"),
             (ABLETON_USER_LIBRARY, "Defaults/Audio Effects/EQ Eight.adv"),

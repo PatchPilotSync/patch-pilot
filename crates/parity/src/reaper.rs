@@ -164,7 +164,7 @@ fn braced_cid(token: &str) -> Option<String> {
 }
 
 /// Split on whitespace, honouring Reaper's quote characters (`"`, `'`, `` ` ``).
-fn tokenize(line: &str) -> Vec<String> {
+pub(crate) fn tokenize(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut chars = line.chars().peekable();
     while let Some(&c) = chars.peek() {
@@ -248,6 +248,10 @@ pub enum ResourceKind {
     /// `presets/*.ini`: the FX presets saved in Reaper's own preset menu,
     /// one file per plug-in.
     FxPreset,
+    /// SWS's `S&M.ini`, of which only the global startup action is shared
+    /// (decision #108, [`crate::reaper_startup`]). Only written while Reaper
+    /// is closed.
+    StartupAction,
 }
 
 impl ResourceKind {
@@ -268,6 +272,7 @@ impl ResourceKind {
             Self::ThemeSettings => "reaper-themeconfig.ini",
             Self::ToolbarIcon => "Data/toolbar_icons",
             Self::FxPreset => "presets",
+            Self::StartupAction => crate::reaper_startup::SWS_INI,
         }
     }
 
@@ -275,7 +280,11 @@ impl ResourceKind {
     pub fn is_single_file(self) -> bool {
         matches!(
             self,
-            Self::KeyMap | Self::Menus | Self::MouseModifiers | Self::ThemeSettings
+            Self::KeyMap
+                | Self::Menus
+                | Self::MouseModifiers
+                | Self::ThemeSettings
+                | Self::StartupAction
         )
     }
 
@@ -306,6 +315,7 @@ impl ResourceKind {
             Self::ThemeSettings => "Theme settings",
             Self::ToolbarIcon => "Toolbar icon",
             Self::FxPreset => "FX preset",
+            Self::StartupAction => "Startup action",
         }
     }
 
@@ -331,7 +341,8 @@ impl ResourceKind {
             | Self::ScriptData
             | Self::MouseModifiers
             | Self::ThemeSettings
-            | Self::ToolbarIcon => None,
+            | Self::ToolbarIcon
+            | Self::StartupAction => None,
         }
     }
 
@@ -343,7 +354,8 @@ impl ResourceKind {
             | Self::Menus
             | Self::MouseModifiers
             | Self::ThemeSettings
-            | Self::ToolbarIcon => "reaper-config",
+            | Self::ToolbarIcon
+            | Self::StartupAction => "reaper-config",
             Self::FxPreset => "reaper-preset",
             Self::Effect => "reaper-effect",
             Self::ScriptData => "reaper-data",
@@ -352,7 +364,7 @@ impl ResourceKind {
     }
 }
 
-const RESOURCE_KINDS: [ResourceKind; 13] = [
+const RESOURCE_KINDS: [ResourceKind; 14] = [
     ResourceKind::TrackTemplate,
     ResourceKind::ProjectTemplate,
     ResourceKind::FxChain,
@@ -366,6 +378,7 @@ const RESOURCE_KINDS: [ResourceKind; 13] = [
     ResourceKind::ThemeSettings,
     ResourceKind::ToolbarIcon,
     ResourceKind::FxPreset,
+    ResourceKind::StartupAction,
 ];
 
 /// Compiled code is never brought over, even if it sits in `Scripts/`: it is
@@ -567,11 +580,20 @@ pub fn resource_items(
         };
         // Key maps are kept with this machine's resource folder spelled
         // portably, so the same shortcuts compare equal on every machine.
+        // Only S&M.ini's startup action is shared, and a file without one
+        // isn't tracked (decision #108).
         let bytes = match kind {
             ResourceKind::KeyMap => portable_key_map(bytes, resource_dir, os),
+            ResourceKind::StartupAction => crate::reaper_startup::view(&bytes),
             _ => bytes,
         };
+        if bytes.is_empty() && kind == ResourceKind::StartupAction {
+            continue;
+        }
         let mut needs_files: Vec<String> = crate::reaper_links::loaded_files(&rel, &bytes, &known);
+        if kind == ResourceKind::StartupAction {
+            needs_files.extend(startup_scripts(resource_dir, os, &bytes, &known));
+        }
         needs_files.extend(needs.remove(&rel).into_iter().flatten());
         needs_files.sort();
         needs_files.dedup();
@@ -588,6 +610,8 @@ pub fn resource_items(
                 .collect(),
             // The extensions a script calls (decision #104).
             ResourceKind::Script => crate::reaper_ext::script_needs(&rel, &bytes),
+            // SWS runs it.
+            ResourceKind::StartupAction => vec![crate::reaper_startup::needs()],
             _ => Vec::new(),
         };
         requires.sort();
@@ -646,6 +670,32 @@ pub fn resource_items(
         }
     }
     (products, items)
+}
+
+/// The tracked scripts the startup action in `view` (S&M.ini's shared part)
+/// runs, read from the key map in `resource_dir`: they travel with it, so it
+/// works where it arrives.
+fn startup_scripts(
+    resource_dir: &Path,
+    os: Os,
+    view: &[u8],
+    known: &crate::reaper_links::Known,
+) -> Vec<String> {
+    let Some(id) = std::str::from_utf8(view)
+        .ok()
+        .and_then(crate::reaper_startup::global_action)
+    else {
+        return Vec::new();
+    };
+    let Ok(kb) = std::fs::read(resource_dir.join(ResourceKind::KeyMap.folder())) else {
+        return Vec::new();
+    };
+    let kb = portable_key_map(kb, resource_dir, os);
+    crate::reaper_startup::describe(id, &String::from_utf8_lossy(&kb))
+        .scripts
+        .iter()
+        .filter_map(|rel| known.get(rel).map(str::to_owned))
+        .collect()
 }
 
 /// How a key map's paths into this machine's resource folder are spelled
@@ -982,6 +1032,60 @@ mod tests {
         assert_eq!(
             kb.content_hash.as_ref().unwrap().as_str(),
             format!("blake3:{}", blake3::hash(portable.as_bytes()).to_hex())
+        );
+    }
+
+    #[test]
+    fn startup_action_is_shared_with_the_scripts_it_runs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let put = |rel: &str, body: &str| {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, body).unwrap();
+        };
+        put("Scripts/nvk/folder.lua", "-- nvk");
+        put(
+            "reaper-kb.ini",
+            &format!(
+                "ACT 0 0 \"aa\" \"Custom: JMD_Startup\" _RS1\n\
+                 SCR 4 0 RS1 \"Custom: folder.lua\" \"{}/Scripts/nvk/folder.lua\"\n",
+                dir.display()
+            ),
+        );
+        put(
+            "S&M.ini",
+            "[General]\nBeta=0\n[RESOURCE_VIEW]\nLastPath=/Users/me\n[Misc]\nGlobalStartupAction=_aa\n",
+        );
+        let (products, items) = resource_items(dir, Os::Macos, |_| None, &[]);
+        let sws = items
+            .iter()
+            .find(|i| i.path == PortablePath::logical(REAPER_RESOURCES, "S&M.ini"))
+            .unwrap();
+        // Only the startup action is hashed, so other SWS settings don't count.
+        assert_eq!(
+            sws.content_hash.as_ref().unwrap().as_str(),
+            format!(
+                "blake3:{}",
+                blake3::hash(b"[Misc]\nGlobalStartupAction=_aa\n").to_hex()
+            )
+        );
+        assert_eq!(sws.needs_files, ["Scripts/nvk/folder.lua"]);
+        assert_eq!(sws.requires, [crate::reaper_ext::product_id("sws")]);
+        assert!(
+            products
+                .iter()
+                .any(|p| p.canonical_id.0 == "reaper-config/s-m-ini")
+        );
+        assert_eq!(resource_kind("S&M.ini"), Some(ResourceKind::StartupAction));
+
+        // Without a startup action, S&M.ini isn't tracked at all.
+        put("S&M.ini", "[General]\nBeta=0\n");
+        let (_, items) = resource_items(dir, Os::Macos, |_| None, &[]);
+        assert!(
+            !items
+                .iter()
+                .any(|i| i.path == PortablePath::logical(REAPER_RESOURCES, "S&M.ini"))
         );
     }
 

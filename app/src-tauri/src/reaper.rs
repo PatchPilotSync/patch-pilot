@@ -7,6 +7,7 @@ use patchpilot_local::reaper_ext::{self, ExtensionCheck, FixPlan};
 use patchpilot_local::reaper_extras::{
     self, NewFile, ReaperExtras, folder_changes, reapack_changes,
 };
+use patchpilot_local::reaper_startup::{self, StartupCheck};
 use patchpilot_local::restore::{ApplyError, ChangeSet, Daw, FileChange, apply_changes};
 use patchpilot_parity::reaper_ext::FixAction;
 use patchpilot_store::Store;
@@ -192,4 +193,31 @@ fn check_here(
         |m| m.machine.os,
     );
     reaper_ext::check(dir, os, patchpilot_local::current_arch(), machine)
+}
+
+/// Reaper's startup action here (decision #108) against the Primary Rig's,
+/// through this machine's profile and ignores. `None` when Reaper isn't set
+/// up here. On the Primary Rig, and with the startup action turned off in
+/// Choose what syncs, only this machine's own is checked.
+#[tauri::command]
+pub async fn reaper_startup() -> Result<Option<StartupCheck>, String> {
+    let Some(dir) = patchpilot_local::standard_reaper_dir() else {
+        return Ok(None);
+    };
+    let os = patchpilot_core::Os::current().ok_or("unsupported OS")?;
+    let db = db_path()?;
+    let mut primary = None;
+    if let (Some(id), true) = (this_machine(&db)?, db.exists()) {
+        let store = open(&db)?;
+        let syncs = patchpilot_local::sync_prefs::load(&crate::sync::app_dir()?)
+            .syncs("reaper/startup-action");
+        if let Some(golden) = store.golden(None).map_err(err)?
+            && syncs
+            && golden.info.source_machine_id.as_deref() != Some(id.as_str())
+        {
+            let profile = store.target_for(&id).map_err(err)?;
+            primary = Some(patchpilot_parity::apply_profile(&golden.manifest, &profile));
+        }
+    }
+    Ok(Some(reaper_startup::check(&dir, os, primary.as_ref())))
 }

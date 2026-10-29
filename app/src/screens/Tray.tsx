@@ -7,6 +7,7 @@ import {
   machines as loadMachines,
   openMainWindow,
   overview as loadOverview,
+  reaperFileLabel,
   onUpdateScan,
   scanMachine,
   updateScanRunning,
@@ -289,7 +290,7 @@ function NeedRow({ r, onOpen }: { r: ComparisonRow; onOpen: () => void }) {
   const missing = r.state === "missing";
   const reaper = REAPER_NOTE[r.product_id.split("/")[0]];
   // A Reaper file's name is its path; the file name says enough here.
-  const name = reaper ? r.name.slice(r.name.lastIndexOf("/") + 1) : r.name;
+  const name = reaper ? reaperFileLabel(r.name) : r.name;
   const note = missing
     ? (reaper ?? KIND_NOTE[r.kind])
     : r.state === "incomplete" && r.missing_formats.length

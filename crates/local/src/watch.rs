@@ -32,11 +32,13 @@ const REAPER_TEMPLATE_DIRS: [&str; 8] = [
 /// Reaper's settings files a scan shares (#53, #77). They sit at the top of
 /// the resource folder, where `reaper.ini` changes all the time, so they are
 /// watched by name (see [`settings_files`]).
-const REAPER_SETTINGS_FILES: [&str; 4] = [
+const REAPER_SETTINGS_FILES: [&str; 5] = [
     "reaper-kb.ini",
     "reaper-menu.ini",
     "reaper-mouse.ini",
     "reaper-themeconfig.ini",
+    // SWS's settings, for the startup action (#108).
+    "S&M.ini",
 ];
 
 /// Live's settings files a scan shares: the Collection names and
