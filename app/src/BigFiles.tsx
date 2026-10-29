@@ -8,7 +8,7 @@ import {
   type CloudFolder,
   type TransferView,
 } from "./api";
-import { Badge, Button, Card, inputClass, Notice } from "./ui";
+import { Badge, Button, Card, inputClass, Notice, Tile } from "./ui";
 
 /**
  * Big-file hand-off (decision #64): Bring over files too big for the link go
@@ -159,6 +159,7 @@ export function BigFiles({
 
   return (
     <Card
+      icon={<Tile name="cloud" tone={view.last.no_room ? "warn" : "accent"} className="" />}
       title="Big files"
       sub={`${summary}.`}
       className={className}

@@ -28,6 +28,7 @@ import {
   inputClass,
   Label,
   Notice,
+  Panel,
   Pill,
   Tile,
   timeAgo,
@@ -134,7 +135,7 @@ export function Rig({
       </header>
 
       {/* One line each, in one place: what this machine is to the Primary Rig, then anything to do. */}
-      <div className="mx-3 mt-3 flex flex-col rounded-lg border border-line bg-panel p-1">
+      <Panel className="mx-3 mt-3 p-1">
         <GoldenLine golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
         <BackupLine onError={onError} fresh={!golden} openAt={syncSetupAt} />
         {setupOffer}
@@ -166,10 +167,10 @@ export function Rig({
             </ul>
           </Notice>
         )}
-      </div>
+      </Panel>
 
       {/* The whole plug-in list folds into one folder (closed at first) so the screen stays short. */}
-      <div className="mx-3 mt-3 overflow-hidden rounded-lg border border-line bg-panel">
+      <Panel className="mx-3 mt-3">
         <Folder
           title="All plug-ins"
           count={inv.products}
@@ -252,10 +253,10 @@ export function Rig({
             );
           })}
         </Folder>
-      </div>
+      </Panel>
 
       <Label className="px-4 pb-1 pt-4">Also on this machine</Label>
-      <div className="mx-3 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel">
+      <Panel divided className="mx-3">
         {machine.disks.length > 0 && (
           <Folder
             title="Drives"
@@ -326,7 +327,7 @@ export function Rig({
             </ul>
           </Folder>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }

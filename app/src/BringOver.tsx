@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { bringFiles, fileKey, filesToBring, ignoreItems, type BringResult, type BringView, type FileToBring } from "./api";
 import { bringSummary, isReaperScript, isTemplate, Needs } from "./bring";
 import { IgnoreButton, IgnoredToggle, pathRules } from "./Ignore";
-import { Badge, Button, buildTree, Card, Folder, FolderTree, isConflictCopy, treeItems, useFolders } from "./ui";
+import { Badge, Button, buildTree, Card, Folder, FolderTree, isConflictCopy, Tile, treeItems, useFolders } from "./ui";
 
 /**
  * Bring over (decision #45): the Primary Rig's templates, scripts, themes and
@@ -100,14 +100,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   const summaryLine = groups.map(([app, fs]) => `${app}: ${summaryOf(fs)}`).join(" · ");
   return (
     <Card
-      icon={
-        upToDate && (
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" className="shrink-0 text-ok">
-            <circle cx="7" cy="7" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M4.2 7.2 6.1 9 9.8 5.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )
-      }
+      icon={<Tile name={upToDate ? "check" : "copies"} tone={upToDate ? "ok" : "accent"} className="" />}
       title={
         upToDate ? <span className="text-ok">Up to date with the Primary Rig</span> : "Bring over from the Primary Rig"
       }

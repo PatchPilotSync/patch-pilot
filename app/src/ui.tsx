@@ -144,6 +144,31 @@ const GLYPHS = {
   laptop: "M3.5 4h9v6.5h-9zM2 12.5h12",
   knob: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 8l2.5-2.5",
   info: "M8 7.5v3.5M8 5h.01M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z",
+  check: "M3.5 8.5l3 3 6-7",
+  x: "M4.5 4.5l7 7M11.5 4.5l-7 7",
+  plus: "M8 3.5v9M3.5 8h9",
+  minus: "M3.5 8h9",
+  up: "M8 13V3.5M4.5 7 8 3.5 11.5 7",
+  layers: "M8 2.5l5.5 3-5.5 3-5.5-3zM2.5 8.5l5.5 3 5.5-3",
+  flag: "M4 13.5V2.5M4 3h7.5l-1.5 2.5L11.5 8H4",
+  pencil: "M10.5 3.5l2 2-7 7H3.5v-2z",
+  question: "M6 6a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.2v.5M8 11.8h.01",
+  doc: "M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12",
+  code: "M5.5 5 2.5 8l3 3M10.5 5l3 3-3 3",
+  sliders: "M3 5h10M3 11h10M6 3.5v3M10 9.5v3",
+  image: "M2.5 3.5h11v9h-11zM2.5 10.5 6 7l3 3 1.5-1.5 3 3",
+  desktop: "M2.5 3.5h11v7.5h-11zM6 13.5h4M8 11v2.5",
+  clock: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 4.8V8l2.2 1.4",
+  undo: "M5.5 4 3 6.5 5.5 9M3 6.5h6.5a3.5 3.5 0 0 1 0 7H7",
+  box: "M2.5 5.5 8 2.5l5.5 3v5L8 13.5l-5.5-3zM2.5 5.5 8 8.5l5.5-3M8 8.5v5",
+  link: "M6.8 9.2a2.5 2.5 0 0 0 3.5 0l2.2-2.2a2.5 2.5 0 0 0-3.5-3.5l-.8.8M9.2 6.8a2.5 2.5 0 0 0-3.5 0L3.5 9a2.5 2.5 0 0 0 3.5 3.5l.8-.8",
+  hidden: "M2.5 8s2-3.5 5.5-3.5S13.5 8 13.5 8s-2 3.5-5.5 3.5S2.5 8 2.5 8zM8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM3 13 13 3",
+  bell: "M4 11.5V7a4 4 0 0 1 8 0v4.5l1 1H3zM6.5 13.5a1.5 1.5 0 0 0 3 0",
+  power: "M8 2.5v5M5 4.2a5 5 0 1 0 6 0",
+  sun: "M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M3.6 12.4l1-1M11.4 4.6l1-1",
+  search: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.3 10.3 13.5 13.5",
+  data: "M3 4c0-1 2.2-1.5 5-1.5s5 .5 5 1.5-2.2 1.5-5 1.5S3 5 3 4zM3 4v8c0 1 2.2 1.5 5 1.5s5-.5 5-1.5V4M3 8c0 1 2.2 1.5 5 1.5s5-.5 5-1.5",
+  list: "M6.5 4.5h7M6.5 8h7M6.5 11.5h7M2.5 4.5h.01M2.5 8h.01M2.5 11.5h.01",
 } as const;
 
 export type GlyphName = keyof typeof GLYPHS;
@@ -156,7 +181,8 @@ export function Glyph({ name, size = 14, className = "" }: { name: GlyphName; si
   );
 }
 
-const TONE_TILE = {
+/** Tinted background and text for each tone, for tiles and small labels. */
+export const TONE_TINT = {
   accent: "bg-accent/15 text-accent-text",
   warn: "bg-warn/15 text-warn",
   ok: "bg-ok/15 text-ok",
@@ -164,12 +190,47 @@ const TONE_TILE = {
   dim: "bg-sel text-dim",
 } as const;
 
+export type Tone = keyof typeof TONE_TINT;
+
 /** A small tinted square holding a {@link Glyph}, at the start of a section row or {@link Notice}. */
-export function Tile({ name, tone = "accent" }: { name: GlyphName; tone?: keyof typeof TONE_TILE }) {
+export function Tile({ name, tone = "accent", className = "mx-1" }: { name: GlyphName; tone?: Tone; className?: string }) {
   return (
-    <span className={`mx-1 flex size-[22px] shrink-0 items-center justify-center rounded-md ${TONE_TILE[tone]}`}>
+    <span className={`flex size-[22px] shrink-0 items-center justify-center rounded-md ${TONE_TINT[tone]} ${className}`}>
       <Glyph name={name} />
     </span>
+  );
+}
+
+/** A tile's tone for a parity score, matching {@link scoreColor}. */
+export function scoreTone(score: number | null): Tone {
+  if (score === null) return "dim";
+  if (score >= 95) return "ok";
+  if (score >= 75) return "warn";
+  return "bad";
+}
+
+/**
+ * The rounded box a screen's sections sit in (decisions #106 and #109):
+ * `divided` puts hairlines between its children. Cards and opened Notice
+ * details inside one take the canvas colour, so they still stand out.
+ */
+export function Panel({
+  divided = false,
+  className = "",
+  children,
+}: {
+  divided?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`pp-panel flex flex-col overflow-hidden rounded-lg border border-line bg-panel ${
+        divided ? "divide-y divide-line" : ""
+      } ${className}`}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -244,7 +305,9 @@ export function Notice({
         )}
       </div>
       {open && children && (
-        <div className="mx-2 mb-1 mt-0.5 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5">{children}</div>
+        <div className="mx-2 mb-1 mt-0.5 flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-2.5 in-[.pp-panel]:bg-canvas">
+          {children}
+        </div>
       )}
     </div>
   );
@@ -271,7 +334,7 @@ export function Card({
   children?: ReactNode;
 }) {
   return (
-    <section className={`rounded-lg border border-line bg-panel px-3 py-2.5 ${className}`}>
+    <section className={`rounded-lg border border-line bg-panel px-3 py-2.5 in-[.pp-panel]:bg-canvas ${className}`}>
       <header className="flex items-center gap-3">
         {icon}
         <div className="min-w-0 flex-1">

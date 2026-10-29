@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ignoreItems, ignoreList, unignore, type IgnoreView, type Matcher } from "./api";
-import { Button } from "./ui";
+import { Button, Notice } from "./ui";
 
 /**
  * Ignore (decision #65): stop asking for something on a machine. It drops out
@@ -112,6 +112,46 @@ export function IgnoredToggle({
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * "2 things ignored on this machine" as a {@link Notice} line among a screen's
+ * others (decision #109), opening to the list to un-ignore. Nothing when none.
+ */
+export function IgnoredNotice({
+  ignores,
+  machine,
+  name,
+  onError,
+}: {
+  ignores: IgnoreView[];
+  /** The machine they're on; null for this one. */
+  machine: string | null;
+  /** That machine's name, for the line. */
+  name?: string;
+  onError: (e: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!ignores.length) return null;
+  const n = ignores.length;
+  return (
+    <Notice
+      tone="dim"
+      icon="hidden"
+      text={
+        <span className="text-dim">
+          {n} thing{n === 1 ? "" : "s"} ignored on {machine ? (name ?? "that machine") : "this machine"}. Left out of
+          the score and the checklist.
+        </span>
+      }
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
+    >
+      <div className="-mx-2 -my-1">
+        <IgnoredToggle ignores={ignores} machine={machine} onError={onError} listed />
+      </div>
+    </Notice>
   );
 }
 
