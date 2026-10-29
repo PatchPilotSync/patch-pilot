@@ -4,6 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.44 - 2026-10-29
+
+### New
+
+- Reaper extensions just work. Patch Pilot now checks SWS, ReaPack, js_ReaScriptAPI and ReaImGui in Reaper's UserPlugins folder, and finds which of your scripts need them. When one won't load, This machine and Get Up To Speed say why and how to fix it: Unblock when macOS has blocked a download, Move into UserPlugins when it's in a subfolder, Remove older copy when there are two, or the exact file to get when it's the wrong build for this computer or isn't installed.
+- When the Primary Rig has a Reaper extension another machine lacks, Get Up To Speed adds a step to install it, with a link to its downloads.
+
 ## 0.4.43 - 2026-10-29
 
 ### Changed
