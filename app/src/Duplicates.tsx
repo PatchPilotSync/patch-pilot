@@ -7,7 +7,7 @@ import {
   type DuplicateGroup,
   type Duplicates as Found,
 } from "./api";
-import { Badge, Button, Folder, FolderControls, useFolders } from "./ui";
+import { Badge, Button, Folder, FolderControls, Tile, useFolders } from "./ui";
 
 /**
  * Duplicate presets (decision #66): the same preset saved in several folders on this
@@ -72,8 +72,9 @@ export function Duplicates() {
   return (
     <section>
       {/* A row like the folders around it on This machine, with its buttons at the end. */}
-      <div className="flex h-7 items-center gap-1.5 pl-4 pr-2 hover:bg-sel/60">
+      <div className="flex h-9 items-center gap-1.5 pl-3 pr-2 hover:bg-sel/60">
         <span className="w-2.5 shrink-0" aria-hidden="true" />
+        <Tile name="copies" />
         <span className="shrink-0 font-medium">Duplicate presets</span>
         <span className="ml-1.5 min-w-0 flex-1 truncate text-[11px] text-dim">
           {found === null
@@ -91,11 +92,11 @@ export function Duplicates() {
           </Button>
         )}
       </div>
-      {error && <p className="px-4 pt-1 text-[11px] text-bad">{error}</p>}
-      {done && <p className="px-4 pt-1 text-[11px] text-ok">{done}</p>}
+      {error && <p className="pl-16 pr-4 pt-1 text-[11px] text-bad">{error}</p>}
+      {done && <p className="pl-16 pr-4 pt-1 text-[11px] text-ok">{done}</p>}
       {groups.length > 0 && (
-        <>
-          <p className="px-4 pt-1 text-[11px] text-dim">
+        <div className="pb-1.5">
+          <p className="pl-16 pr-4 pt-1 text-[11px] text-dim">
             Keeps the copy in the plug-in's own folder unless you pick another. Removed copies are saved first.
           </p>
           <FolderControls ids={groups.map((g) => g.hash)} folders={folders} />
@@ -106,6 +107,8 @@ export function Duplicates() {
                 key={g.hash}
                 title={<span className={off ? "text-dim" : ""}>{g.name}</span>}
                 count={g.copies.length}
+                className="pr-4"
+                indent={60}
                 open={folders.isOpen(g.hash)}
                 onToggle={() => folders.toggle(g.hash)}
                 badges={<span className="font-mono text-[11px] text-dim">{size(g.size)}</span>}
@@ -131,7 +134,7 @@ export function Duplicates() {
                   {g.copies.map((c, i) => {
                     const isKept = kept(g) === c.path;
                     return (
-                      <li key={c.path} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
+                      <li key={c.path} className="group flex h-7 items-center gap-2 pl-20 pr-4 hover:bg-sel/60">
                         <input
                           type="radio"
                           name={g.hash}
@@ -162,7 +165,7 @@ export function Duplicates() {
               </Folder>
             );
           })}
-        </>
+        </div>
       )}
     </section>
   );

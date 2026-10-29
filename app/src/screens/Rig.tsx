@@ -10,14 +10,29 @@ import {
   type Overview,
   type PluginFormat,
   type ProductRow,
+  type Disk,
+  type Os,
   type UpdateAlert,
   type VendorApp,
 } from "../api";
-import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
+import { DiskBar, DiskList, DiskSummary, headlineDisk, LowDiskNotice } from "../Disks";
 import { ReaperExtensionsNotice } from "../ReaperExtensions";
 import { ReaperStartupNotice } from "../ReaperStartup";
 import { Duplicates } from "../Duplicates";
-import { Badge, Button, Folder, FolderControls, inputClass, Label, Notice, Pill, timeAgo, useFolders } from "../ui";
+import {
+  Badge,
+  Button,
+  Folder,
+  FolderControls,
+  Glyph,
+  inputClass,
+  Label,
+  Notice,
+  Pill,
+  Tile,
+  timeAgo,
+  useFolders,
+} from "../ui";
 
 type Grouping = "vendor" | "format";
 
@@ -96,6 +111,7 @@ export function Rig({
 
   if (!machine || !inv) return null;
 
+  const presetBytes = inv.presets.reduce((n, p) => n + (p.size ?? 0), 0);
   const vendorCount = inv.vendors.filter((v) => v.vendor).length;
   const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 
@@ -235,69 +251,103 @@ export function Rig({
         </Folder>
       </div>
 
-      <Label className="px-4 pb-0.5 pt-4">Also on this machine</Label>
-      {machine.disks.length > 0 && (
-        <Folder
-          title="Drives"
-          count={machine.disks.length}
-          open={drives.isOpen("drives")}
-          onToggle={() => drives.toggle("drives")}
-          badges={
-            <span className="text-[11px] text-dim">
-              <DiskSummary disks={machine.disks} os={machine.os} />
-            </span>
-          }
-        >
-          <DiskList disks={machine.disks} os={machine.os} className="max-w-md pb-2 pl-8 pr-4 pt-1" />
-        </Folder>
-      )}
-      {inv.presets.length > 0 && (
-        <Folder
-          title="Preset folders"
-          count={inv.presets.length}
-          open={extra.isOpen("presets")}
-          onToggle={() => extra.toggle("presets")}
-          badges={<span className="text-[11px] text-dim">Linked machines can bring them over</span>}
-        >
-          <ul className="pb-1">
-            {inv.presets.map((p) => (
-              <li key={p.name} className="flex h-7 items-center justify-between pl-8 pr-4 hover:bg-sel/60">
-                <span>{p.name}</span>
-                <span className="font-mono text-[11px] text-dim">{formatSize(p.size)}</span>
-              </li>
-            ))}
-          </ul>
-        </Folder>
-      )}
-      <Duplicates />
-      {inv.apps.length > 0 && (
-        <Folder
-          title="Vendor apps and licensing tools"
-          count={inv.apps.length}
-          open={extra.isOpen("apps")}
-          onToggle={() => extra.toggle("apps")}
-        >
-          <ul className="pb-1">
-            {inv.apps.map((a) => (
-              <li key={a.name} className="group flex h-7 items-center gap-3 pl-8 pr-4 hover:bg-sel/60">
-                <span className="flex-1">{a.name}</span>
-                {launchable.some((x) => x.name === a.name) && (
-                  <Button
-                    variant="quiet"
-                    className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    onClick={() => openVendorApp(launchable.find((x) => x.name === a.name)!.id).catch(() => {})}
-                  >
-                    Open
-                  </Button>
-                )}
-                <span className="font-mono text-[11px] text-dim">{a.version ?? ""}</span>
-              </li>
-            ))}
-          </ul>
-        </Folder>
-      )}
+      <Label className="px-4 pb-1 pt-4">Also on this machine</Label>
+      <div className="mx-3 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel">
+        {machine.disks.length > 0 && (
+          <Folder
+            title="Drives"
+            count={machine.disks.length}
+            icon={<Tile name="drive" />}
+            className="pl-3 pr-4"
+            open={drives.isOpen("drives")}
+            onToggle={() => drives.toggle("drives")}
+            badges={<DriveBadge disks={machine.disks} os={machine.os} />}
+          >
+            <DiskList disks={machine.disks} os={machine.os} grid className="pb-3 pl-16 pr-4 pt-1" />
+          </Folder>
+        )}
+        {inv.presets.length > 0 && (
+          <Folder
+            title="Preset folders"
+            count={inv.presets.length}
+            icon={<Tile name="folder" />}
+            className="pl-3 pr-4"
+            open={extra.isOpen("presets")}
+            onToggle={() => extra.toggle("presets")}
+            badges={
+              <span className="text-[11px] text-dim">
+                {presetBytes > 0 && <span className="tabular-nums">{formatSize(presetBytes)} · </span>}
+                Linked machines can bring them over
+              </span>
+            }
+          >
+            <ul className="pb-1.5">
+              {inv.presets.map((p) => (
+                <li key={p.name} className="flex h-7 items-center gap-2 pl-16 pr-4 hover:bg-sel/60">
+                  <Glyph name="folder" size={12} className="text-dim" />
+                  <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                  <span className="font-mono text-[11px] text-dim">{formatSize(p.size)}</span>
+                </li>
+              ))}
+            </ul>
+          </Folder>
+        )}
+        <Duplicates />
+        {inv.apps.length > 0 && (
+          <Folder
+            title="Vendor apps and licensing tools"
+            count={inv.apps.length}
+            icon={<Tile name="apps" />}
+            className="pl-3 pr-4"
+            open={extra.isOpen("apps")}
+            onToggle={() => extra.toggle("apps")}
+            badges={<span className="text-[11px] text-dim">{appsSummary(inv.apps)}</span>}
+          >
+            <ul className="pb-1.5">
+              {inv.apps.map((a) => (
+                <li key={a.name} className="group flex h-7 items-center gap-2 pl-16 pr-4 hover:bg-sel/60">
+                  <Glyph name={a.kind === "license_tool" ? "key" : "apps"} size={12} className="text-dim" />
+                  <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                  {launchable.some((x) => x.name === a.name) && (
+                    <Button
+                      variant="quiet"
+                      className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      onClick={() => openVendorApp(launchable.find((x) => x.name === a.name)!.id).catch(() => {})}
+                    >
+                      Open
+                    </Button>
+                  )}
+                  <span className="font-mono text-[11px] text-dim">{a.version ?? ""}</span>
+                </li>
+              ))}
+            </ul>
+          </Folder>
+        )}
+      </div>
     </div>
   );
+}
+
+/** The Drives row's end: the headline drive's free space after a short bar of how full it is. */
+function DriveBadge({ disks, os }: { disks: Disk[]; os: Os }) {
+  const d = headlineDisk(disks);
+  if (!d) return null;
+  return (
+    <span className="flex items-center gap-2.5 text-[11px] text-dim">
+      <DiskBar disk={d} className="w-16" />
+      <DiskSummary disks={disks} os={os} />
+    </span>
+  );
+}
+
+/** "1 licensing tool · 12 vendor apps". */
+function appsSummary(apps: { kind: string }[]): string {
+  const tools = apps.filter((a) => a.kind === "license_tool").length;
+  const others = apps.length - tools;
+  const parts = [];
+  if (tools > 0) parts.push(`${tools} licensing tool${tools === 1 ? "" : "s"}`);
+  if (others > 0) parts.push(`${others} vendor app${others === 1 ? "" : "s"}`);
+  return parts.join(" · ");
 }
 
 function formatSize(bytes: number | null): string {

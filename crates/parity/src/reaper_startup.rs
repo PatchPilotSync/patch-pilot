@@ -1,4 +1,4 @@
-//! Reaper's startup action (decision #105): the action the SWS extension runs
+//! Reaper's startup action (decision #107): the action the SWS extension runs
 //! every time Reaper opens, set with Extensions > Startup actions > Set global
 //! startup action and kept in the resource folder's `S&M.ini` as
 //! `[Misc] GlobalStartupAction=<id>`. A custom action that starts a rig's

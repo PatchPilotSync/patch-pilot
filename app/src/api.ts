@@ -1009,7 +1009,7 @@ export const reaperExtensions = () => invoke<ExtensionCheck | null>("reaper_exte
 export const fixReaperExtension = (file: string, action: ExtensionFixAction) =>
   invoke<ExtensionCheck | null>("fix_reaper_extension", { file, action });
 
-// Reaper's startup action (decision #105): patchpilot_local::reaper_startup::StartupCheck.
+// Reaper's startup action (decision #107): patchpilot_local::reaper_startup::StartupCheck.
 export type StartupActionKind = "native" | "custom" | "script" | "extension" | "missing";
 export interface StartupAction {
   /** As SWS keeps it: `_8f3c…` or `40044`. */

@@ -16,7 +16,7 @@ places what's new, changed or renamed on its linked machines (decisions #70,
 | Reaper | Menus and toolbars (`reaper-menu.ini`) | yes |
 | Reaper | Mouse modifiers (`reaper-mouse.ini`) | yes |
 | Reaper | Theme adjuster settings (`reaper-themeconfig.ini`) | yes |
-| Reaper | Startup action, the action SWS runs whenever Reaper opens (only `GlobalStartupAction` in SWS's `S&M.ini`; the rest of that file stays per machine, decision #105) | yes |
+| Reaper | Startup action, the action SWS runs whenever Reaper opens (only `GlobalStartupAction` in SWS's `S&M.ini`; the rest of that file stays per machine, decision #107) | yes |
 | Ableton Live | Templates (including `Default.als`), default presets, racks, presets, Max for Live devices, clips, grooves, tunings | yes |
 | Ableton Live | Collection names, and which Collections and browser categories are shown (removed with the sidebar's Edit); each machine keeps its own User Library path | yes |
 | Ableton Live | Places in Dropbox (or another cloud folder) or the User Library, pointed at the same folder on each machine (decision #79) | yes |

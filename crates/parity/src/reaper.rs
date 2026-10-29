@@ -249,7 +249,7 @@ pub enum ResourceKind {
     /// one file per plug-in.
     FxPreset,
     /// SWS's `S&M.ini`, of which only the global startup action is shared
-    /// (decision #105, [`crate::reaper_startup`]). Only written while Reaper
+    /// (decision #107, [`crate::reaper_startup`]). Only written while Reaper
     /// is closed.
     StartupAction,
 }
@@ -581,7 +581,7 @@ pub fn resource_items(
         // Key maps are kept with this machine's resource folder spelled
         // portably, so the same shortcuts compare equal on every machine.
         // Only S&M.ini's startup action is shared, and a file without one
-        // isn't tracked (decision #105).
+        // isn't tracked (decision #107).
         let bytes = match kind {
             ResourceKind::KeyMap => portable_key_map(bytes, resource_dir, os),
             ResourceKind::StartupAction => crate::reaper_startup::view(&bytes),
