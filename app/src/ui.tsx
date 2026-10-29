@@ -136,6 +136,14 @@ const GLYPHS = {
   copies: "M5.5 5.5h7v7h-7zM10.5 5.5v-2h-7v7h2",
   key: "M7.3 8.7 13 3M10.5 5.5 12 7M5.5 13a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z",
   apps: "M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z",
+  star: "M8 2.2 9.8 5.9l4 .6-2.9 2.8.7 4L8 11.4l-3.6 1.9.7-4-2.9-2.8 4-.6z",
+  sync: "M12.6 6.2A5 5 0 0 0 3.4 5.5M3.4 9.8a5 5 0 0 0 9.2.7M3.2 2.8v2.9h2.9M12.8 13.2v-2.9H9.9",
+  cloud: "M4.5 12.5h7a2.5 2.5 0 0 0 .3-5 4 4 0 0 0-7.6-1 3 3 0 0 0 .3 6z",
+  download: "M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10",
+  plug: "M6 2.5v3M10 2.5v3M4.5 5.5h7v2a3.5 3.5 0 0 1-7 0zM8 11v2.5",
+  laptop: "M3.5 4h9v6.5h-9zM2 12.5h12",
+  knob: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 8l2.5-2.5",
+  info: "M8 7.5v3.5M8 5h.01M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z",
 } as const;
 
 export type GlyphName = keyof typeof GLYPHS;
@@ -148,10 +156,18 @@ export function Glyph({ name, size = 14, className = "" }: { name: GlyphName; si
   );
 }
 
-/** A small accent-tinted square holding a {@link Glyph}, at the start of a section row. */
-export function Tile({ name }: { name: GlyphName }) {
+const TONE_TILE = {
+  accent: "bg-accent/15 text-accent-text",
+  warn: "bg-warn/15 text-warn",
+  ok: "bg-ok/15 text-ok",
+  bad: "bg-bad/15 text-bad",
+  dim: "bg-sel text-dim",
+} as const;
+
+/** A small tinted square holding a {@link Glyph}, at the start of a section row or {@link Notice}. */
+export function Tile({ name, tone = "accent" }: { name: GlyphName; tone?: keyof typeof TONE_TILE }) {
   return (
-    <span className="mx-1 flex size-[22px] shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent-text">
+    <span className={`mx-1 flex size-[22px] shrink-0 items-center justify-center rounded-md ${TONE_TILE[tone]}`}>
       <Glyph name={name} />
     </span>
   );
@@ -174,10 +190,12 @@ export function Chevron({ open }: { open: boolean }) {
 /**
  * A one-line status on a screen (decision #68): a dot (accent = something to
  * do, warn = needs a look, ok = all good), one line of text, and at its end
- * either buttons or a Show/Hide toggle that opens `children` below it.
+ * either buttons or a Show/Hide toggle that opens `children` below it. With
+ * `icon`, a {@link Tile} in the dot's colour takes the dot's place.
  */
 export function Notice({
   tone = "accent",
+  icon,
   text,
   actions,
   open = false,
@@ -186,6 +204,7 @@ export function Notice({
   children,
 }: {
   tone?: keyof typeof TONE_DOT;
+  icon?: GlyphName;
   text: ReactNode;
   actions?: ReactNode;
   open?: boolean;
@@ -196,24 +215,29 @@ export function Notice({
 }) {
   const line = (
     <>
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
+      {icon ? (
+        <Tile name={icon} tone={tone} />
+      ) : (
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
+      )}
       <span className="min-w-0 flex-1 truncate">{text}</span>
     </>
   );
+  const h = icon ? "h-9" : "h-7";
   return (
     <div className="text-xs">
-      <div className="flex min-h-7 items-center gap-2 rounded-[5px] px-2 hover:bg-sel/50">
+      <div className={`flex ${icon ? "min-h-9" : "min-h-7"} items-center gap-2 rounded-[5px] px-2 hover:bg-sel/50`}>
         {onToggle ? (
-          <button onClick={onToggle} aria-expanded={open} className="flex h-7 min-w-0 flex-1 items-center gap-2.5 text-left">
+          <button onClick={onToggle} aria-expanded={open} className={`flex ${h} min-w-0 flex-1 items-center gap-2.5 text-left`}>
             {line}
           </button>
         ) : (
-          <span className="flex h-7 min-w-0 flex-1 items-center gap-2.5">{line}</span>
+          <span className={`flex ${h} min-w-0 flex-1 items-center gap-2.5`}>{line}</span>
         )}
         {actions}
         {/* The toggle stays at the line's end, after any buttons, so every Show lines up. */}
         {onToggle && (
-          <button onClick={onToggle} aria-expanded={open} tabIndex={-1} className="flex h-7 shrink-0 items-center gap-2.5">
+          <button onClick={onToggle} aria-expanded={open} tabIndex={-1} className={`flex ${h} shrink-0 items-center gap-2.5`}>
             <span className="text-dim">{open ? toggle[1] : toggle[0]}</span>
             <Chevron open={open} />
           </button>

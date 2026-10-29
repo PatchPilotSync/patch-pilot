@@ -740,6 +740,7 @@ function Report({
 export function SetupOffer({ onOpen }: { onOpen: () => void }) {
   return (
     <Notice
+      icon="laptop"
       text="New machine? Patch Pilot can walk you through setting it up to match your Primary Rig."
       actions={
         <Button onClick={onOpen} className="h-6 shrink-0 px-2.5">

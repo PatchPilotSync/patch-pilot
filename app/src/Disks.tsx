@@ -153,6 +153,7 @@ export function LowDiskNotice({ disks, os }: { disks: Disk[]; os: Os }) {
   return (
     <Notice
       tone="warn"
+      icon="drive"
       text={
         <>
           <span className="font-medium">Running out of space.</span>

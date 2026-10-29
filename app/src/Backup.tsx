@@ -150,6 +150,7 @@ export function BackupLine({
     <>
       <Notice
         tone={tone}
+        icon="sync"
         text={
           <span className="text-dim" title={view.dir ?? undefined}>
             <span className="font-medium text-fg">Sync &amp; backup</span> · {text}
@@ -313,6 +314,7 @@ function Conflicts({
   return (
     <Notice
       tone="warn"
+      icon="copies"
       text={`${plural(list.length, "file")} changed here and on ${machines.length === 1 ? machines[0] : "another machine"}. Pick which copy to keep.`}
       open={open}
       onToggle={() => setOpen((o) => !o)}
