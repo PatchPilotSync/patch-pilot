@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { vaultAdd, vaultRemove, vaultSkip, type InboxItem, type NewEntry, type Os, type Product } from "../api";
+import {
+  vaultAdd,
+  vaultRemove,
+  vaultSkip,
+  type InboxItem,
+  type NewEntry,
+  type Os,
+  type Product,
+} from "../api";
 import { Badge, Button, Folder, FolderControls, inputClass, timeAgo, useFolders } from "../ui";
 
 const OS_LABEL: Record<Os, string> = { windows: "Windows", macos: "macOS" };
@@ -64,10 +72,7 @@ export function Triage({
       const live = new Set(items.map((i) => i.path));
       const kept = prev.filter((i) => live.has(i.path) || done[i.path]);
       const known = new Set(kept.map((i) => i.path));
-      return [
-        ...kept.map((i) => items.find((n) => n.path === i.path) ?? i),
-        ...items.filter((i) => !known.has(i.path)),
-      ];
+      return [...kept.map((i) => items.find((n) => n.path === i.path) ?? i), ...items.filter((i) => !known.has(i.path))];
     });
     // `done` is read, not tracked: a finished row stays until the tab closes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,10 +141,7 @@ export function Triage({
             [item.path]: r.already ? { kind: "already" } : { kind: "added", entryId: r.entry.id, where },
           }));
           if (!r.already) setHistory((h) => [...h, item.path]);
-          setToast({
-            text: r.already ? `${meta.product} was already in the vault` : `Added ${meta.product}`,
-            at: Date.now(),
-          });
+          setToast({ text: r.already ? `${meta.product} was already in the vault` : `Added ${meta.product}`, at: Date.now() });
           if (r.signer_warning) onNotice([r.signer_warning]);
         } catch (e) {
           setDone((d) => {
@@ -159,10 +161,7 @@ export function Triage({
     setDone((d) => ({ ...d, ...Object.fromEntries(items.map((i) => [i.path, { kind: "skipped" } as Outcome])) }));
     setHistory((h) => [...h, ...items.map((i) => i.path)]);
     if (items.length === 1) advance(items[0].path);
-    setToast({
-      text: items.length === 1 ? `Skipped ${items[0].file_name}` : `Skipped ${items.length} files`,
-      at: Date.now(),
-    });
+    setToast({ text: items.length === 1 ? `Skipped ${items[0].file_name}` : `Skipped ${items.length} files`, at: Date.now() });
     try {
       await vaultSkip(items.map((i) => i.path));
       onChanged();
@@ -424,7 +423,11 @@ function Row({
     );
   }
   return (
-    <li ref={ref} onMouseDown={onFocus} className={`relative pl-8 pr-4 ${focused ? "bg-sel" : "hover:bg-sel/50"}`}>
+    <li
+      ref={ref}
+      onMouseDown={onFocus}
+      className={`relative pl-8 pr-4 ${focused ? "bg-sel" : "hover:bg-sel/50"}`}
+    >
       {focused && <span className="absolute inset-y-1 left-3 w-[3px] rounded-full bg-accent" aria-hidden="true" />}
       <div className="flex min-h-11 items-center gap-2 py-1">
         <span className="min-w-0 flex-1">
@@ -442,12 +445,7 @@ function Row({
           <Button variant="quiet" className="px-2" onClick={onEdit} title="Fix the name, version or OS (E)">
             {editing ? "Cancel" : "Edit"}
           </Button>
-          <Button
-            variant="quiet"
-            className="px-2"
-            onClick={onSkip}
-            title="Not for the vault; won't be offered again (S)"
-          >
+          <Button variant="quiet" className="px-2" onClick={onSkip} title="Not for the vault; won't be offered again (S)">
             Skip
           </Button>
           <Button
@@ -525,12 +523,7 @@ function Editor({
           <option key={p.canonical_id} value={label(p)} />
         ))}
       </datalist>
-      <input
-        className={inputClass}
-        placeholder="Version"
-        value={version}
-        onChange={(e) => setVersion(e.target.value)}
-      />
+      <input className={inputClass} placeholder="Version" value={version} onChange={(e) => setVersion(e.target.value)} />
       <span className="flex rounded-md border border-line p-px">
         {(["windows", "macos", ""] as const).map((o) => (
           <button
