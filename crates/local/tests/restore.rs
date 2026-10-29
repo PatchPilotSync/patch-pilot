@@ -236,6 +236,7 @@ fn go_back_restores_files_as_they_were_at_a_scan() {
             arch: patchpilot_core::Arch::Aarch64,
             os_version: None,
             path_map: patchpilot_core::PathMap::new(patchpilot_core::Os::Macos),
+            disks: Vec::new(),
         },
         1,
     );

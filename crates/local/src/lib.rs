@@ -11,6 +11,7 @@ pub mod apps;
 pub mod autosync;
 pub mod backup;
 pub mod bring;
+pub mod disks;
 pub mod duplicates;
 pub mod github;
 pub mod gitpack;
@@ -66,6 +67,8 @@ pub struct ScanOptions {
     pub watch_reaper: bool,
     /// Read Ableton Live's User Library and preferences.
     pub watch_live: bool,
+    /// The Installer Vault folder, measured with the other drives.
+    pub vault: Option<PathBuf>,
 }
 
 /// Where Ableton Live keeps what Patch Pilot shares. Either may be missing.
@@ -89,6 +92,7 @@ impl ScanOptions {
             ableton: None,
             watch_reaper: true,
             watch_live: true,
+            vault: None,
         }
     }
 }
@@ -201,6 +205,11 @@ pub fn scan_this_machine(
     }
     // One ID per product across formats, with the catalog's names.
     patchpilot_catalog::current().canonicalize(&mut manifest);
+    let home = opts.default_folders.then(home_dir).flatten();
+    manifest.machine.disks = disks::measure(
+        &disks::places(&manifest.machine, home.as_deref(), opts.vault.as_deref()),
+        now(),
+    );
     Ok(LocalScan {
         manifest,
         warnings,

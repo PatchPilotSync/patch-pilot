@@ -761,6 +761,7 @@ mod tests {
                 os_version: None,
                 arch: patchpilot_core::Arch::Aarch64,
                 path_map: PathMap::new(os).with_root(REAPER_RESOURCES, dir),
+                disks: Vec::new(),
             },
             0,
         );

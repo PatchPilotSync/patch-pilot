@@ -13,6 +13,7 @@ import {
   type UpdateAlert,
   type VendorApp,
 } from "../api";
+import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
 import { Duplicates } from "../Duplicates";
 import { Badge, Button, Folder, FolderControls, inputClass, Label, Notice, Pill, timeAgo, useFolders } from "../ui";
 
@@ -86,6 +87,8 @@ export function Rig({
   }, [inv, grouping, query]);
   const folders = useFolders(`rig.${grouping}`);
   const extra = useFolders("rig.extra");
+  // Short, and what people look for, so open until closed.
+  const drives = useFolders("rig.drives", () => true);
   const [warningsOpen, setWarningsOpen] = useState(false);
   const filtering = query.trim() !== "";
 
@@ -119,6 +122,7 @@ export function Rig({
         {setupOffer}
         {/* Errors here surface where the files are listed, on Up To Speed. */}
         <BigFiles onError={() => {}} compact />
+        <LowDiskNotice disks={machine.disks} os={machine.os} />
         {alerts.length > 0 && <Updates alerts={alerts} />}
         {/* Only real read problems land here; a plug-in with no version number is normal. */}
         {warnings.length > 0 && (
@@ -228,6 +232,21 @@ export function Rig({
       </div>
 
       <Label className="px-4 pb-0.5 pt-4">Also on this machine</Label>
+      {machine.disks.length > 0 && (
+        <Folder
+          title="Drives"
+          count={machine.disks.length}
+          open={drives.isOpen("drives")}
+          onToggle={() => drives.toggle("drives")}
+          badges={
+            <span className="text-[11px] text-dim">
+              <DiskSummary disks={machine.disks} os={machine.os} />
+            </span>
+          }
+        >
+          <DiskList disks={machine.disks} os={machine.os} className="max-w-md pb-2 pl-8 pr-4 pt-1" />
+        </Folder>
+      )}
       {inv.presets.length > 0 && (
         <Folder
           title="Preset folders"

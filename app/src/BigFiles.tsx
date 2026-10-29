@@ -129,6 +129,7 @@ export function BigFiles({
             {sent !== null && sent > 0 && <span className="text-ok">Sent {count(sent)}. </span>}
             {view.last.placed > 0 && <span className="text-ok">Placed {count(view.last.placed)} here. </span>}
             {view.last.waiting > 0 && `${count(view.last.waiting)} still downloading to this machine. `}
+            {view.last.no_room && <span className="text-warn">{view.last.no_room} </span>}
             {view.requested > 0 &&
               `${count(view.requested)} asked for, waiting for the machine that has ${view.requested === 1 ? "it" : "them"} to send. `}
             {view.needed > 0 && view.sendable.length === 0
@@ -143,6 +144,7 @@ export function BigFiles({
   if (compact) {
     return (
       <Notice
+        tone={view.last.no_room ? "warn" : "accent"}
         text={ready ? `${summary}. They travel through ${via}.` : `${summary}. Pick a cloud folder to carry them.`}
         open={open}
         onToggle={() => setOpen((o) => !o)}

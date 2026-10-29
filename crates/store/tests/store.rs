@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use patchpilot_core::{
-    BUNDLE_VERSION, Bundle, BundleMachine, IgnoreEntry, ItemKind, Manifest, ManifestError, Matcher,
-    PluginFormat, PortablePath, ProfileRule, RuleAction, TargetProfile,
+    BUNDLE_VERSION, Bundle, BundleMachine, Disk, IgnoreEntry, ItemKind, Manifest, ManifestError,
+    Matcher, PluginFormat, PortablePath, ProfileRule, RuleAction, TargetProfile,
 };
 use patchpilot_store::{
     GoldenImport, ImportReport, LATEST_VERSION, SnapshotReason, Store, StoreError,
@@ -82,7 +82,8 @@ fn opening_from_many_threads_at_once_migrates_once() {
             // A database one schema version behind, as an update finds it.
             Store::open(&path).unwrap();
             let conn = rusqlite::Connection::open(&path).unwrap();
-            conn.execute_batch("DROP TABLE removed_machines").unwrap();
+            conn.execute_batch("ALTER TABLE machines DROP COLUMN disks")
+                .unwrap();
             conn.pragma_update(None, "user_version", LATEST_VERSION - 1)
                 .unwrap();
         }
@@ -194,6 +195,88 @@ fn rescan_with_a_new_time_is_unchanged() {
     assert!(again.unchanged);
     assert_eq!(again.id, first.id);
     assert_eq!(again.manifest_hash, first.manifest_hash);
+}
+
+fn disk(name: &str, free: u64, at: i64) -> Disk {
+    Disk {
+        name: name.to_owned(),
+        total: 1_000_000_000_000,
+        free,
+        holds: vec![Disk::PLUGINS.to_owned()],
+        measured_at: at,
+    }
+}
+
+#[test]
+fn free_space_is_kept_with_the_machine_but_never_makes_a_snapshot() {
+    let mut manifest = fixture_manifest();
+    let id = manifest.machine.id.clone();
+    manifest.machine.disks = vec![disk("C:", 400_000_000_000, 10)];
+    let mut store = Store::open_in_memory().unwrap();
+    let first = store
+        .save_manifest(&manifest, SnapshotReason::FirstScan, 10)
+        .unwrap();
+    assert_eq!(store.machine(&id).unwrap().disks, manifest.machine.disks);
+
+    // A rescan that only finds less free space keeps the snapshot.
+    let mut rescan = manifest.clone();
+    rescan.machine.disks = vec![disk("C:", 300_000_000_000, 20)];
+    let again = store
+        .save_manifest(&rescan, SnapshotReason::Scan, 20)
+        .unwrap();
+    assert!(again.unchanged);
+    assert_eq!(again.manifest_hash, first.manifest_hash);
+    let latest = store.latest_manifest(&id).unwrap().unwrap();
+    assert_eq!(latest.machine.disks, rescan.machine.disks);
+
+    // Measured without a scan; an older reading never wins.
+    assert!(
+        store
+            .set_disks(&id, &[disk("C:", 250_000_000_000, 30)])
+            .unwrap()
+    );
+    assert!(
+        !store
+            .set_disks(&id, &[disk("C:", 250_000_000_000, 30)])
+            .unwrap()
+    );
+    assert!(
+        !store
+            .set_disks(&id, &[disk("C:", 900_000_000_000, 25)])
+            .unwrap()
+    );
+    store
+        .save_manifest(&manifest, SnapshotReason::Imported, 40)
+        .unwrap();
+    assert_eq!(store.machine(&id).unwrap().disks[0].free, 250_000_000_000);
+    // A scan with nothing measured leaves them.
+    let mut bare = manifest.clone();
+    bare.machine.disks.clear();
+    store
+        .save_manifest(&bare, SnapshotReason::Scan, 50)
+        .unwrap();
+    assert_eq!(store.machine(&id).unwrap().disks.len(), 1);
+
+    // They travel to linked machines, but a Primary Rig isn't a machine.
+    store.save_golden(&latest, Some(&id), None, 60).unwrap();
+    assert!(
+        store
+            .golden(None)
+            .unwrap()
+            .unwrap()
+            .manifest
+            .machine
+            .disks
+            .is_empty()
+    );
+    let bundle = store
+        .export_bundle(std::slice::from_ref(&id), None, 70)
+        .unwrap();
+    let mut other = Store::open_in_memory().unwrap();
+    other
+        .import_bundle(&bundle, Some("someone-else"), 80)
+        .unwrap();
+    assert_eq!(other.machine(&id).unwrap().disks[0].free, 250_000_000_000);
 }
 
 #[test]

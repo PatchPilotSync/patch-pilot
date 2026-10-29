@@ -14,9 +14,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use patchpilot_core::{
-    Bundle, BundleGolden, BundleMachine, Confidence, ContentHash, GoldenVersion, GoldenVersionInfo,
-    IgnoreEntry, IgnoredSuggestion, Item, ItemKind, MachineInfo, Manifest, PathMap, PortablePath,
-    Product, ProfileRule, RuleAction, TargetProfile, golden_machine_id, golden_name,
+    Bundle, BundleGolden, BundleMachine, Confidence, ContentHash, Disk, GoldenVersion,
+    GoldenVersionInfo, IgnoreEntry, IgnoredSuggestion, Item, ItemKind, MachineInfo, Manifest,
+    PathMap, PortablePath, Product, ProfileRule, RuleAction, TargetProfile, golden_machine_id,
+    golden_name,
 };
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_iter};
@@ -335,6 +336,7 @@ impl Store {
         let mut m = manifest.clone();
         m.machine.id = golden_machine_id(version);
         m.machine.name = golden_name(version);
+        m.machine.disks.clear();
 
         let tx = self.conn.transaction()?;
         let snapshot = save_manifest_tx(&tx, &m, SnapshotReason::Golden, now)?;
@@ -1186,16 +1188,26 @@ impl Store {
         Ok(manifest)
     }
 
+    /// Record a machine's drives as measured now, without a scan. False when
+    /// they are what's stored, or older. The machine must have a scan.
+    pub fn set_disks(&mut self, id: &str, disks: &[Disk]) -> Result<bool> {
+        let tx = self.conn.transaction()?;
+        let changed = set_disks_tx(&tx, id, disks)?;
+        tx.commit()?;
+        Ok(changed)
+    }
+
     pub fn machine(&self, id: &str) -> Result<MachineInfo> {
-        let row: Option<(String, String, String, Option<String>)> = self
+        type Row = (String, String, String, Option<String>, Option<String>);
+        let row: Option<Row> = self
             .conn
             .query_row(
-                "SELECT name, os, arch, os_version FROM machines WHERE id = ?1",
+                "SELECT name, os, arch, os_version, disks FROM machines WHERE id = ?1",
                 [id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()?;
-        let Some((name, os, arch, os_version)) = row else {
+        let Some((name, os, arch, os_version, disks)) = row else {
             return Err(StoreError::UnknownMachine(id.to_owned()));
         };
         let os = from_text("machines.os", &os)?;
@@ -1214,6 +1226,7 @@ impl Store {
             arch: from_text("machines.arch", &arch)?,
             os_version,
             path_map,
+            disks: read_disks(disks.as_deref()),
         })
     }
 }
@@ -1340,6 +1353,7 @@ fn upsert_machine(tx: &Transaction, m: &MachineInfo, now: i64) -> Result<()> {
              os_version = excluded.os_version, last_seen = excluded.last_seen",
         params![m.id, m.name, to_text(&m.os), to_text(&m.arch), m.os_version, now],
     )?;
+    set_disks_tx(tx, &m.id, &m.disks)?;
     tx.execute("DELETE FROM path_maps WHERE machine_id = ?1", [&m.id])?;
     for (k, v) in &m.path_map.roots {
         tx.execute(
@@ -1485,12 +1499,45 @@ fn from_text<T: DeserializeOwned>(column: &'static str, s: &str) -> Result<T> {
     })
 }
 
+/// Free space isn't what a machine has, so it never makes a new snapshot.
 fn manifest_hash(m: &Manifest) -> String {
     let mut v = serde_json::to_value(m).expect("serializable");
     if let Some(o) = v.as_object_mut() {
         o.remove("generated_at");
+        if let Some(machine) = o.get_mut("machine").and_then(|m| m.as_object_mut()) {
+            machine.remove("disks");
+        }
     }
     hash_json(&v)
+}
+
+/// Keep `disks` for the machine unless what's stored was measured later
+/// (a linked machine can pass on an older copy). False when nothing changed.
+fn set_disks_tx(tx: &Transaction, id: &str, disks: &[Disk]) -> Result<bool> {
+    let Some(at) = disks.iter().map(|d| d.measured_at).max() else {
+        return Ok(false);
+    };
+    let stored: Option<String> = tx
+        .query_row("SELECT disks FROM machines WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .optional()?
+        .flatten();
+    let stored = read_disks(stored.as_deref());
+    if stored == disks || stored.iter().any(|d| d.measured_at > at) {
+        return Ok(false);
+    }
+    tx.execute(
+        "UPDATE machines SET disks = ?2 WHERE id = ?1",
+        params![id, serde_json::to_string(disks).expect("disks serialize")],
+    )?;
+    Ok(true)
+}
+
+/// A machine's stored disks; none when unset or unreadable.
+fn read_disks(json: Option<&str>) -> Vec<Disk> {
+    json.and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default()
 }
 
 fn hash_json<T: Serialize>(v: &T) -> String {

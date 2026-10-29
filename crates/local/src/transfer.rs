@@ -408,6 +408,9 @@ pub struct ReceiveReport {
     pub waiting: usize,
     /// Transfers deleted because no linked machine needs them any more.
     pub cleaned: usize,
+    /// Why files that arrived weren't placed: their drive is too full. They
+    /// stay in the folder until there's room.
+    pub no_room: Option<String>,
 }
 
 /// Place every file this machine (`this`) needs, or asked for, that's
@@ -437,12 +440,14 @@ pub fn receive(
 
     let mut placed = BTreeSet::new();
     let mut by_root: BTreeMap<String, Vec<(String, Vec<u8>)>> = BTreeMap::new();
+    let mut names: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (name, w) in &want {
         match fetch(dir, name, w) {
             Fetch::Absent => {}
             Fetch::Waiting => report.waiting += 1,
             Fetch::Ready(bytes) => {
                 placed.insert(name.clone());
+                names.entry(w.root.clone()).or_default().push(name.clone());
                 by_root
                     .entry(w.root.clone())
                     .or_default()
@@ -454,6 +459,14 @@ pub fn receive(
         let Some(target) = bring::root_dir(machine.as_ref(), &root) else {
             continue;
         };
+        let bytes = files.iter().map(|(_, b)| b.len() as u64).sum();
+        if let Err(e) = crate::disks::room_for(&target, bytes) {
+            for name in names.get(&root).into_iter().flatten() {
+                placed.remove(name);
+            }
+            report.no_room = Some(e);
+            continue;
+        }
         let label = format!(
             "Brought over {} file{} through {FOLDER_NAME}",
             files.len(),
@@ -775,6 +788,7 @@ mod tests {
                 os_version: None,
                 arch: Arch::Aarch64,
                 path_map: PathMap::new(os).with_root(ROOT, dir.to_string_lossy()),
+                disks: Vec::new(),
             },
             0,
         );

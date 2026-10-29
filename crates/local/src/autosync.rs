@@ -1039,6 +1039,7 @@ mod tests {
                 os_version: None,
                 arch: Arch::Aarch64,
                 path_map,
+                disks: Vec::new(),
             },
             at,
         );

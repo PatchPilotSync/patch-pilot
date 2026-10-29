@@ -55,6 +55,7 @@ pub fn scan_machine(input: ScanInput) -> ScanOutput {
             arch: input.arch,
             os_version: input.os_version,
             path_map: map.clone(),
+            disks: Vec::new(),
         },
         input.now,
     );

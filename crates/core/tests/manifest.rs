@@ -56,6 +56,7 @@ fn builds_and_round_trips_a_macos_manifest() {
             arch: Arch::Aarch64,
             os_version: None,
             path_map: path_map.clone(),
+            disks: Vec::new(),
         },
         1_792_771_200,
     );

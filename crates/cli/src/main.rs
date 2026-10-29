@@ -240,6 +240,7 @@ fn scan(args: ScanArgs, db: Option<PathBuf>) -> Result<(), String> {
             ableton: None,
             watch_reaper: true,
             watch_live: true,
+            vault: None,
         },
         |_| {},
     )?;

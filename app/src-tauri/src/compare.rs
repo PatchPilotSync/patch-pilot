@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use patchpilot_core::{Bundle, Matcher, Os};
+use patchpilot_core::{Bundle, Disk, Matcher, Os};
 use patchpilot_local::ignore::IgnoreView;
 use patchpilot_local::up_to_speed::{PlanStart, load_up_to_speed, save_up_to_speed};
 use patchpilot_parity::{
@@ -41,6 +41,8 @@ pub struct MachineCard {
     pub suggestions: usize,
     /// The same, by kind: plug-ins, scripts, templates... in display order.
     pub suggestion_groups: Vec<(SuggestionGroup, usize)>,
+    /// Its drives as last measured there, home folder's first (decision #101).
+    pub disks: Vec<Disk>,
 }
 
 #[derive(Debug, Serialize)]
@@ -73,7 +75,8 @@ pub struct ImportSummary {
 }
 
 #[tauri::command]
-pub async fn machines() -> Result<MachinesView, String> {
+pub async fn machines(app: AppHandle) -> Result<MachinesView, String> {
+    crate::disks::refresh(&app);
     let Some(store) = existing_store()? else {
         return Ok(MachinesView {
             golden_version: None,
@@ -409,6 +412,7 @@ pub(crate) fn machines_view(store: &Store, this: Option<&str>) -> Result<Machine
             score,
             suggestions: suggestion_groups.iter().map(|(_, n)| n).sum(),
             suggestion_groups,
+            disks: info.disks,
             id: info.id,
             name: info.name,
             os: info.os,
@@ -464,6 +468,7 @@ pub(crate) fn comparison(
             score: Some(comparison.score),
             suggestions: suggestion_groups.iter().map(|(_, n)| n).sum(),
             suggestion_groups,
+            disks: info.disks,
             id: info.id,
             name: info.name,
             os: info.os,

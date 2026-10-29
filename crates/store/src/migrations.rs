@@ -17,6 +17,7 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     ),
     (7, include_str!("../migrations/0007_items_kind_index.sql")),
     (8, include_str!("../migrations/0008_removed_machines.sql")),
+    (9, include_str!("../migrations/0009_machine_disks.sql")),
 ];
 
 pub const LATEST_VERSION: u32 = MIGRATIONS[MIGRATIONS.len() - 1].0;

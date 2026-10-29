@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use patchpilot_core::{Manifest, Os};
+use patchpilot_core::{Disk, Manifest, Os};
 use patchpilot_local::ignore::Daw;
 use patchpilot_local::{ScanOptions, Stage};
 use patchpilot_parity::{Inventory, inventory};
@@ -48,6 +48,8 @@ pub struct MachineSummary {
     pub os: Os,
     /// Unix seconds.
     pub scanned_at: i64,
+    /// Its drives, home folder's first (decision #101).
+    pub disks: Vec<Disk>,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,7 +79,8 @@ pub struct Progress {
 const STEPS: usize = 4;
 
 #[tauri::command]
-pub async fn overview() -> Result<Overview, String> {
+pub async fn overview(app: AppHandle) -> Result<Overview, String> {
+    crate::disks::refresh(&app);
     let db = db_path()?;
     if !db.exists() {
         return Ok(Overview {
@@ -206,6 +209,7 @@ fn scan_blocking(
         extra_roots: prefs.extra_roots(),
         watch_reaper: watched(Daw::Reaper),
         watch_live: watched(Daw::Live),
+        vault: crate::disks::vault(),
         ..ScanOptions::standard(id.clone(), name)
     };
     let scan = patchpilot_local::scan_this_machine(opts, |s| {
@@ -217,6 +221,7 @@ fn scan_blocking(
         emit(step, s.label());
     })?;
     emit(4, "Saving the snapshot");
+    let disks_before = store.machine(&id).map(|m| m.disks).unwrap_or_default();
     let info = patchpilot_local::save_scan(&mut store, &scan.manifest).map_err(err)?;
     let _ = patchpilot_local::up_to_speed::record_check(
         patchpilot_local::app_dir(&db),
@@ -228,6 +233,9 @@ fn scan_blocking(
     );
     if !info.unchanged {
         let _ = app.emit(RIG_CHANGED, ());
+    } else if patchpilot_local::disks::moved(&disks_before, &scan.manifest.machine.disks) {
+        // Only free space moved: linked machines still get the new numbers.
+        crate::sync::nudge(app);
     }
     Ok(ScanReport {
         overview: load_overview(&store, Some(&id))?,
@@ -257,6 +265,7 @@ fn load_overview(store: &Store, this: Option<&str>) -> Result<Overview, String> 
             name: m.machine.name,
             os: m.machine.os,
             scanned_at,
+            disks: m.machine.disks,
         }),
         golden,
     })
