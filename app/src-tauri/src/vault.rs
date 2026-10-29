@@ -230,6 +230,9 @@ pub async fn vault_run(entry_id: String) -> Result<(), String> {
                 entry.source_name
             ));
         }
+        // An installer unpacks to the system drive's temp folder first; if
+        // even that won't fit, say so instead of letting it fail halfway.
+        patchpilot_local::disks::room_for(&std::env::temp_dir(), entry.size)?;
         patchpilot_local::open::open_path(&vault.path_of(&entry)).map_err(|e| e.to_string())
     })
     .await

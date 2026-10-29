@@ -509,6 +509,7 @@ local img = script_path .. 'img/logo.png'
                 arch: Arch::Aarch64,
                 os_version: None,
                 path_map: PathMap::new(Os::Macos),
+                disks: Vec::new(),
             },
             0,
         );

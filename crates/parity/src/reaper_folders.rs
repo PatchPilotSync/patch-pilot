@@ -363,6 +363,7 @@ mod tests {
                 arch: Arch::X86_64,
                 os_version: None,
                 path_map: map.clone(),
+                disks: Vec::new(),
             },
             0,
         );

@@ -17,6 +17,7 @@ import {
   type MachinesView,
   type Overview,
 } from "../api";
+import { DiskSummary } from "../Disks";
 import { Button, Loading, Mark, scoreColor, timeAgo } from "../ui";
 
 // The tray / menu bar popover (decision #35): the compact view of every
@@ -252,6 +253,8 @@ function MachineRow({ m, active, onOpen }: { m: MachineCard; active: boolean; on
           <span className="block truncate font-semibold">{m.name}</span>
           <span className="block truncate text-[11px] text-dim">
             {m.is_this_machine ? "This machine" : m.os === "macos" ? "macOS" : "Windows"} · {timeAgo(m.scanned_at)}
+            {m.disks.length > 0 && " · "}
+            <DiskSummary disks={m.disks} os={m.os} named={false} />
           </span>
         </span>
         <span className={`text-[15px] font-semibold tabular-nums ${scoreColor(m.score)}`}>{m.score ?? "–"}</span>

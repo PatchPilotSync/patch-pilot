@@ -179,6 +179,17 @@ pub async fn bring_files(
     } else {
         "the Primary Rig".to_owned()
     };
+    // All or nothing: check every folder's drive has room before writing any.
+    let bytes: u64 = by_root
+        .values()
+        .flatten()
+        .map(|(_, b)| b.len() as u64)
+        .sum();
+    for (root, _) in by_root.keys() {
+        if let Some(dir) = bring::root_dir(machine.as_ref(), root) {
+            patchpilot_local::disks::room_for(&dir, bytes)?;
+        }
+    }
     let app_dir = app_dir()?;
     let blobs = app_dir.join("blobs");
     let mut store = open(&db_path()?)?;

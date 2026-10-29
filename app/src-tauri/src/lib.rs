@@ -8,6 +8,7 @@ mod backup;
 mod bring;
 mod catalog;
 mod compare;
+mod disks;
 mod duplicates;
 mod github;
 mod history;

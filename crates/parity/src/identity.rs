@@ -111,6 +111,7 @@ mod tests {
                 arch: Arch::X86_64,
                 os_version: None,
                 path_map: PathMap::new(os),
+                disks: Vec::new(),
             },
             0,
         );

@@ -24,12 +24,14 @@ import {
   vendorApps,
   type BringView,
   type ComparisonRow,
+  type Disk,
   type Reason,
   type FileToBring,
   type MachineCard,
   type MachineComparison,
   type MachinesView,
   type Matcher,
+  type Os,
   type ParityState,
   type PluginFormat,
   type SetupProgress,
@@ -44,6 +46,7 @@ import { bringSummary, isReaperScript, isTemplate, Needs } from "../bring";
 import { OtherFormatsNote, StepExtras, StepList, useQuickSteps, type Actions } from "./Setup";
 import { formatSize } from "./VaultTriage";
 import { TemplateLine } from "../Templates";
+import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
 import {
   Badge,
   Button,
@@ -55,6 +58,7 @@ import {
   FolderTree,
   inputClass,
   isConflictCopy,
+  Label,
   Loading,
   Notice,
   Pill,
@@ -258,6 +262,7 @@ export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Pr
   // A refresh can briefly list fewer machines (a sync landing); fall back for
   // the moment but keep the choice, so it comes back when the machine does.
   const selected = view.machines.some((m) => m.id === chosen) ? chosen : (view.machines[0]?.id ?? null);
+  const card = view.machines.find((m) => m.id === selected) ?? null;
   const [loaded, setData] = useState<MachineComparison | null>(() =>
     selected ? (lastComparison.get(selected) ?? null) : null,
   );
@@ -374,6 +379,8 @@ export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Pr
             id={data.machine.id}
             name={data.machine.name}
             here={data.machine.is_this_machine}
+            disks={card?.disks ?? data.machine.disks}
+            os={data.machine.os}
             refresh={view}
             onError={onError}
             onBack={() => setPlan(false)}
@@ -405,7 +412,15 @@ export function Compare({ view, focus, chosen, onChoose, onRescan, onError }: Pr
               bring={bring}
             />
           ) : (
-            <p className="p-4 text-xs text-dim">Select a row to see its versions here and on the Primary Rig.</p>
+            <div className="flex flex-col gap-5 p-4">
+              <p className="text-xs text-dim">Select a row to see its versions here and on the Primary Rig.</p>
+              {card && card.disks.length > 0 && (
+                <section className="flex flex-col gap-2">
+                  <Label>{card.is_this_machine ? "Drives on this machine" : `Drives on ${card.name}`}</Label>
+                  <DiskList disks={card.disks} os={card.os} showWhen={!card.is_this_machine} />
+                </section>
+              )}
+            </div>
           )}
         </aside>
       )}
@@ -494,11 +509,14 @@ function MachineItem({
           <span className={`font-semibold tabular-nums ${scoreColor(m.score)}`}>{m.score ?? "–"}</span>
         </span>
         <ScoreBar score={m.score} className="w-full" />
-        <span className="block w-full truncate text-[11px] text-dim">
-          {m.os === "macos" ? "macOS" : "Windows"}
-          {m.is_this_machine ? " · this machine" : ""}
-          {m.golden_source ? " · Primary machine" : ""}
-          {m.profile ? ` · ${m.profile.name}` : ""}
+        <span className="flex w-full items-baseline gap-2 text-[11px] text-dim">
+          <span className="min-w-0 flex-1 truncate">
+            {m.os === "macos" ? "macOS" : "Windows"}
+            {m.is_this_machine ? " · this machine" : ""}
+            {m.golden_source ? " · Primary machine" : ""}
+            {m.profile ? ` · ${m.profile.name}` : ""}
+          </span>
+          <DiskSummary disks={m.disks} os={m.os} named={false} className="shrink-0 tabular-nums" />
         </span>
       </button>
     </li>
@@ -1602,6 +1620,8 @@ function PlanView({
   id,
   name,
   here,
+  disks,
+  os,
   refresh,
   onError,
   onBack,
@@ -1610,6 +1630,9 @@ function PlanView({
   name: string;
   /** The plan is for this machine, so its apps and installers can be opened. */
   here: boolean;
+  /** The machine's drives, to warn before installing onto a full one. */
+  disks: Disk[];
+  os: Os;
   /** Changes after every rescan, to reload the ticks. */
   refresh: unknown;
   onError: (e: string) => void;
@@ -1683,6 +1706,7 @@ function PlanView({
           Back to Compare
         </Button>
       </header>
+      {here && <LowDiskNotice disks={disks} os={os} />}
       {progress && steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       {progress?.complete && steps.length > 0 && (
         <p className="text-xs font-medium text-ok">Every step is done.</p>

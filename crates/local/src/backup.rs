@@ -984,6 +984,7 @@ mod tests {
                 arch: Arch::Aarch64,
                 path_map: PathMap::new(Os::Macos)
                     .with_root(REAPER_RESOURCES, dir.to_string_lossy()),
+                disks: Vec::new(),
             },
             0,
         );

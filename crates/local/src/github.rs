@@ -820,6 +820,7 @@ mod tests {
                         os_version: None,
                         arch: patchpilot_core::Arch::Aarch64,
                         path_map: patchpilot_core::PathMap::new(patchpilot_core::Os::Macos),
+                        disks: Vec::new(),
                     },
                     0,
                 ),

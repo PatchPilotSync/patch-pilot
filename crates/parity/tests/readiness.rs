@@ -39,6 +39,7 @@ fn machine(plugins: &[&str]) -> Manifest {
         arch: patchpilot_core::Arch::X86_64,
         os_version: None,
         path_map: PathMap::new(Os::Windows),
+        disks: Vec::new(),
     };
     let mut m = Manifest::new(info, 0);
     let (products, items) = template_items(&resource_dir(), Os::Windows, product_of);

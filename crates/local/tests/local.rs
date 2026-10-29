@@ -44,6 +44,10 @@ fn scan_save_and_summarize_a_fixture_tree() {
     };
     let mut stages = Vec::new();
     let scan = scan_this_machine(opts, |s| stages.push(s)).unwrap();
+    // The fixtures' drive, holding the plug-in and DAW folders.
+    let disks = &scan.manifest.machine.disks;
+    assert_eq!(disks.len(), 1, "{disks:?}");
+    assert!(disks[0].holds.iter().any(|h| h == "plugins") && disks[0].free <= disks[0].total);
     assert_eq!(
         stages,
         [Stage::VendorApps, Stage::Plugins, Stage::Templates]

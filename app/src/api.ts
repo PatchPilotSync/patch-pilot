@@ -43,8 +43,19 @@ export interface Inventory {
   presets: { name: string; vendor: string; size: number | null }[];
 }
 
+/** One drive of a machine (decision #101): patchpilot_core::Disk. */
+export interface Disk {
+  /** "C:" on Windows, the volume name on a Mac. */
+  name: string;
+  total: number;
+  free: number;
+  /** "plugins" | "presets" | "daw" | "home" | "vault"; others from newer builds are skipped. */
+  holds: string[];
+  measured_at: number;
+}
+
 export interface Overview {
-  machine: { id: string; name: string; os: Os; scanned_at: number } | null;
+  machine: { id: string; name: string; os: Os; scanned_at: number; disks: Disk[] } | null;
   inventory: Inventory | null;
   golden: { version: number; created_at: number; from_this_machine: boolean } | null;
 }
@@ -120,6 +131,8 @@ export interface MachineCard {
   suggestions: number;
   /** The same by kind, in display order. */
   suggestion_groups: [SuggestionGroup, number][];
+  /** Its drives as last measured there, home folder's first. */
+  disks: Disk[];
 }
 
 export type SuggestionGroup = "plugins" | "apps" | "scripts" | "templates" | "presets" | "themes" | "configs" | "other";
@@ -375,6 +388,8 @@ export interface ReceiveReport {
   placed: number;
   waiting: number;
   cleaned: number;
+  /** Why arrived files weren't placed: their drive is too full. */
+  no_room: string | null;
 }
 
 export interface TransferView {

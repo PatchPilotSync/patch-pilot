@@ -522,6 +522,7 @@ mod tests {
                     arch: Arch::Aarch64,
                     os_version: None,
                     path_map: PathMap::new(Os::Macos),
+                    disks: Vec::new(),
                 },
                 0,
             );

@@ -250,6 +250,40 @@ pub struct MachineInfo {
     pub os_version: Option<String>,
     /// How this machine's logical roots map to folders.
     pub path_map: PathMap,
+    /// Space on the drives that hold what Patch Pilot looks after, measured
+    /// at the scan or since (free space moves without a scan). Not part of
+    /// what a snapshot is: the store leaves it out of the manifest hash.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disks: Vec<Disk>,
+}
+
+/// One drive (volume) of a machine and how full it is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Disk {
+    /// How the OS shows it: `C:` on Windows, the volume name on a Mac
+    /// ("Macintosh HD", "Samples SSD").
+    pub name: String,
+    /// Bytes.
+    pub total: u64,
+    /// Bytes the user can still write.
+    pub free: u64,
+    /// What Patch Pilot found on it, from [`Disk::PLUGINS`] and the other
+    /// constants; an older build ignores names it doesn't know.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holds: Vec<String>,
+    /// When `free` was read, Unix seconds UTC.
+    pub measured_at: i64,
+}
+
+impl Disk {
+    pub const PLUGINS: &'static str = "plugins";
+    pub const PRESETS: &'static str = "presets";
+    /// Reaper's resource folder or Ableton's User Library.
+    pub const DAW: &'static str = "daw";
+    /// The user's home folder, where projects go by default.
+    pub const HOME: &'static str = "home";
+    /// The Installer Vault folder.
+    pub const VAULT: &'static str = "vault";
 }
 
 /// Everything one machine has, at one point in time.

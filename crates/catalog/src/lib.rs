@@ -620,6 +620,7 @@ mod tests {
                 arch: Arch::Aarch64,
                 os_version: None,
                 path_map: PathMap::new(Os::Macos),
+                disks: Vec::new(),
             },
             0,
         );
@@ -695,6 +696,7 @@ mod tests {
                 arch: Arch::X86_64,
                 os_version: None,
                 path_map: PathMap::new(Os::Windows),
+                disks: Vec::new(),
             },
             0,
         );

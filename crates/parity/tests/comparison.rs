@@ -108,6 +108,7 @@ fn rows_say_which_files_they_need_and_the_machine_lacks() {
                 arch: Arch::X86_64,
                 os_version: None,
                 path_map: PathMap::new(Os::Windows),
+                disks: Vec::new(),
             },
             0,
         );

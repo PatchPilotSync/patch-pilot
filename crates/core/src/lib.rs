@@ -18,7 +18,7 @@ pub use bundle::{
 };
 pub use golden::{GoldenVersion, GoldenVersionInfo, golden_machine_id, golden_name};
 pub use manifest::{
-    Arch, Confidence, ContentHash, Item, ItemKind, MachineInfo, Manifest, ManifestError, Os,
+    Arch, Confidence, ContentHash, Disk, Item, ItemKind, MachineInfo, Manifest, ManifestError, Os,
     PluginFormat, Product, ProductId,
 };
 pub use path::{PathMap, PortablePath};
