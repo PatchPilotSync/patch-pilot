@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { backupView, setBackupFolder, setKeepInSync, type BackupView } from "./api";
 import { FolderPicker } from "./BigFiles";
-import { Badge, Button, Mark, ScoreBar, scoreColor } from "./ui";
+import { Badge, Button, Glyph, Mark, ScoreBar, scoreColor, Tile, type GlyphName } from "./ui";
 
 // The first-run tutorial (decision #36): a short, skippable card that explains
 // the core ideas. Shown once on first launch, reopened from "How it works".
@@ -230,9 +230,10 @@ function Chip({ children, className = "" }: { children: ReactNode; className?: s
   );
 }
 
-function Dot({ tone }: { tone: "ok" | "warn" | "bad" | "dim" }) {
-  const fill = { ok: "bg-ok", warn: "bg-warn", bad: "bg-bad", dim: "bg-dim" }[tone];
-  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${fill}`} />;
+/** A small line icon in a tone's colour, as the app's rows show them. */
+function Icon({ name, tone }: { name: GlyphName; tone: "ok" | "warn" | "bad" | "dim" | "accent" }) {
+  const colour = { ok: "text-ok", warn: "text-warn", bad: "text-bad", dim: "text-dim", accent: "text-accent-text" }[tone];
+  return <Glyph name={name} size={12} className={colour} />;
 }
 
 function MachinesArt() {
@@ -240,13 +241,13 @@ function MachinesArt() {
     <div className="flex items-center gap-4" aria-hidden="true">
       <div className="flex flex-col gap-1.5">
         <Chip>
-          <Dot tone="ok" /> Studio PC
+          <Icon name="desktop" tone="ok" /> Studio PC
         </Chip>
         <Chip>
-          <Dot tone="ok" /> MacBook
+          <Icon name="desktop" tone="ok" /> MacBook
         </Chip>
         <Chip>
-          <Dot tone="warn" /> Travel laptop
+          <Icon name="desktop" tone="warn" /> Travel laptop
         </Chip>
       </div>
       <svg width="28" height="60" viewBox="0 0 28 60" fill="none" className="text-line">
@@ -262,8 +263,8 @@ function MachinesArt() {
 function GoldenArt() {
   return (
     <div className="w-[220px] rounded-md border border-line bg-panel py-1 text-xs" aria-hidden="true">
-      <div className="flex items-center gap-1.5 px-2.5 py-1">
-        <span className="text-warn">★</span>
+      <div className="flex items-center gap-2 border-b border-line px-1.5 pb-1">
+        <Tile name="star" tone="ok" className="" />
         <span className="font-semibold">Primary Rig</span>
         <span className="flex-1" />
         <Badge>v3</Badge>
@@ -274,7 +275,7 @@ function GoldenArt() {
         ["Kontakt 8", "8.4.1"],
       ].map(([name, v]) => (
         <div key={name} className="flex h-6 items-center gap-2 px-2.5">
-          <span className="text-ok">✓</span>
+          <Icon name="check" tone="ok" />
           <span className="flex-1">{name}</span>
           <span className="text-[11px] text-dim">{v}</span>
         </div>
@@ -295,13 +296,13 @@ function CompareArt() {
         <div className="px-2.5 py-0.5 text-[11px] text-dim">Why 87, not 100</div>
         {(
           [
-            ["bad", "Serum 2 is missing", "−8"],
-            ["warn", "Pro-Q 4 is older", "−3"],
-            ["warn", "2 presets differ", "−2"],
+            ["x", "bad", "Serum 2 is missing", "−8"],
+            ["download", "warn", "Pro-Q 4 is older", "−3"],
+            ["pencil", "warn", "2 presets differ", "−2"],
           ] as const
-        ).map(([tone, label, pts]) => (
+        ).map(([glyph, tone, label, pts]) => (
           <div key={label} className="flex h-6 items-center gap-2 px-2.5">
-            <Dot tone={tone} />
+            <Icon name={glyph} tone={tone} />
             <span className="flex-1">{label}</span>
             <span className="text-[11px] text-dim tabular-nums">{pts}</span>
           </div>
@@ -324,11 +325,11 @@ function ChecklistArt() {
       ).map(([done, label, tag]) => (
         <div key={label} className="flex h-6 items-center gap-2 px-2.5">
           <span
-            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] text-[9px] ${
-              done ? "bg-accent text-on-accent" : "border border-dim"
+            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] ${
+              done ? "bg-ok/15 text-ok" : "border border-dim/50"
             }`}
           >
-            {done ? "✓" : ""}
+            {done && <Glyph name="check" size={10} />}
           </span>
           <span className={`flex-1 ${done ? "text-dim line-through" : ""}`}>{label}</span>
           {tag && <span className="text-[11px] text-dim">{tag}</span>}
@@ -348,7 +349,7 @@ function SyncArt() {
     <div className="flex flex-col items-center gap-2.5" aria-hidden="true">
       <div className="flex items-center gap-3">
         <Chip>
-          <Dot tone="ok" /> MacBook
+          <Icon name="desktop" tone="ok" /> MacBook
         </Chip>
         <span className="text-dim">→</span>
         <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-line bg-panel">
@@ -363,7 +364,7 @@ function SyncArt() {
         </div>
         <span className="text-dim">→</span>
         <Chip>
-          <Dot tone="ok" /> Studio PC
+          <Icon name="desktop" tone="ok" /> Studio PC
         </Chip>
       </div>
       <div className="flex gap-1.5 text-[11px] text-dim">
@@ -380,13 +381,13 @@ function HistoryArt() {
     <div className="w-[250px] rounded-md border border-line bg-panel py-1 text-xs" aria-hidden="true">
       {(
         [
-          ["Synced 3 presets from PC", "2 min"],
-          ["Cleaned up 12 duplicates", "1 h"],
-          ["Serum 2 installed", "Mon"],
+          ["copies", "Synced 3 presets from PC", "2 min"],
+          ["copies", "Cleaned up 12 duplicates", "1 h"],
+          ["search", "Serum 2 installed", "Mon"],
         ] as const
-      ).map(([label, when], n) => (
+      ).map(([glyph, label, when], n) => (
         <div key={label} className="flex h-6 items-center gap-2 px-2.5">
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${n === 0 ? "bg-accent" : "bg-track"}`} />
+          <Icon name={glyph} tone={n === 2 ? "dim" : "accent"} />
           <span className="flex-1 truncate">{label}</span>
           <span className={`text-[11px] ${n === 1 ? "text-accent-text" : "text-dim"}`}>{n === 1 ? "Go back…" : when}</span>
         </div>
@@ -401,22 +402,23 @@ function TrayArt() {
     ["Travel laptop", 87],
   ] as const;
   return (
-    <div className="w-[230px] rounded-md border border-line bg-panel text-xs shadow-sm" aria-hidden="true">
-      <div className="flex h-7 items-center gap-1.5 px-2.5">
+    <div className="w-[230px] overflow-hidden rounded-md border border-line bg-canvas text-xs shadow-sm" aria-hidden="true">
+      <div className="flex h-7 items-center gap-1.5 border-b border-line bg-panel px-2.5">
         <Mark size={12} className="text-accent-text" />
         <span className="font-semibold">Patch Pilot</span>
         <span className="flex-1" />
         <span className="text-[10px] text-dim">Scanned just now</span>
       </div>
-      <div className="flex flex-col gap-1 px-2 pb-2">
+      <div className="m-2 flex flex-col divide-y divide-line rounded-md border border-line bg-panel">
         {rows.map(([name, score]) => (
-          <div key={name} className="flex h-7 items-center gap-2 rounded-md border border-line bg-canvas px-2.5">
+          <div key={name} className="flex h-7 items-center gap-2 px-2">
+            <Icon name="desktop" tone={score >= 95 ? "ok" : "warn"} />
             <span className="flex-1 font-medium">{name}</span>
             <span className={`font-semibold tabular-nums ${scoreColor(score)}`}>{score}</span>
           </div>
         ))}
       </div>
-      <div className="flex h-8 items-center justify-end gap-1 border-t border-line px-2">
+      <div className="flex h-8 items-center justify-end gap-1 border-t border-line bg-panel px-2">
         <span className="rounded-md px-2 py-0.5 text-dim">Expand</span>
         <span className="rounded-md bg-accent px-2 py-0.5 font-semibold text-on-accent">Get Up To Speed</span>
       </div>

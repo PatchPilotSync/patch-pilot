@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { rigReportPreview, saveRigReport, type ReportOptions } from "./api";
-import { Button, inputClass } from "./ui";
+import { Button, inputClass, Message, Panel, Tile } from "./ui";
 
 // Rig Report: a shareable summary of this machine. Names, formats and versions
 // only; the preview is exactly what gets saved or copied.
@@ -139,10 +139,13 @@ export function ReportDialog({
       >
         <div className="flex w-64 shrink-0 flex-col gap-3 border-r border-line p-4">
           <div>
-            <h2 id="report-title" className="text-[15px] font-semibold">
-              Rig Report
-            </h2>
-            <p className="mt-1 leading-relaxed text-dim">
+            <header className="flex items-center gap-2.5">
+              <Tile name="doc" className="" />
+              <h2 id="report-title" className="text-[15px] font-semibold">
+                Rig Report
+              </h2>
+            </header>
+            <p className="mt-2 leading-relaxed text-dim">
               A summary of this machine to share. Names and versions only: no file paths, serials or licence details.
             </p>
           </div>
@@ -157,27 +160,37 @@ export function ReportDialog({
             />
           </label>
           <fieldset className="flex flex-col gap-1.5">
-            <legend className="mb-1 text-xs text-dim">Include</legend>
-            {toggles.map(([key, label, enabled]) => (
-              <label
-                key={key}
-                className={`flex items-center gap-2 ${enabled ? "" : "text-dim"}`}
-                title={enabled ? undefined : "Make a Primary Rig first"}
-              >
-                <input
-                  type="checkbox"
-                  className="accent-accent"
-                  disabled={!enabled}
-                  checked={enabled && (choices[key] as boolean)}
-                  onChange={(e) => set({ [key]: e.target.checked })}
-                />
-                {label}
-              </label>
-            ))}
+            <legend className="mb-1.5 text-xs text-dim">Include</legend>
+            <Panel divided>
+              {toggles.map(([key, label, enabled]) => (
+                <label
+                  key={key}
+                  className={`flex min-h-8 items-center gap-2.5 px-2.5 py-1.5 text-xs leading-snug ${enabled ? "hover:bg-sel/40" : "text-dim"}`}
+                  title={enabled ? undefined : "Make a Primary Rig first"}
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-accent"
+                    disabled={!enabled}
+                    checked={enabled && (choices[key] as boolean)}
+                    onChange={(e) => set({ [key]: e.target.checked })}
+                  />
+                  {label}
+                </label>
+              ))}
+            </Panel>
           </fieldset>
           <span className="flex-1" />
-          {status && <p className="text-xs text-ok">{status}</p>}
-          {error && <p className="text-xs text-bad">{error}</p>}
+          {status && (
+            <Message tone="ok" icon="check">
+              {status}
+            </Message>
+          )}
+          {error && (
+            <Message tone="bad" icon="info">
+              {error}
+            </Message>
+          )}
           <div className="flex flex-col gap-2">
             <Button onClick={saveFile} disabled={!report}>
               Save as web page…
