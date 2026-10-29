@@ -41,7 +41,6 @@ function metaOf(item: InboxItem, edits: Record<string, NewEntry>): NewEntry {
  */
 export function Triage({
   items,
-  skipped,
   products,
   fromDownloads,
   onChanged,
@@ -49,7 +48,6 @@ export function Triage({
   onNotice,
 }: {
   items: InboxItem[];
-  skipped: InboxItem[];
   products: Product[];
   fromDownloads: boolean;
   onChanged: () => void;
@@ -67,7 +65,7 @@ export function Triage({
   const [toast, setToast] = useState<{ text: string; at: number } | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
-  const folders = useFolders("vault-inbox", (id) => id !== UNMATCHED && id !== "skipped");
+  const folders = useFolders("vault-inbox", (id) => id !== UNMATCHED);
 
   useEffect(() => {
     setShown((prev) => {
@@ -222,7 +220,7 @@ export function Triage({
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (shown.length === 0 && skipped.length === 0) return null;
+  if (shown.length === 0) return null;
 
   return (
     <section className="border-b border-line pb-2">
@@ -306,31 +304,6 @@ export function Triage({
           </Folder>
         );
       })}
-      {skipped.length > 0 && (
-        <Folder
-          title="Skipped"
-          count={skipped.length}
-          open={folders.isOpen("skipped")}
-          onToggle={() => folders.toggle("skipped")}
-        >
-          <ul className="pb-1">
-            {skipped.map((i) => (
-              <li key={i.path} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
-                <span className="min-w-0 flex-1 truncate text-dim" title={i.path}>
-                  {i.file_name}
-                </span>
-                <Button
-                  variant="quiet"
-                  className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                  onClick={() => vaultSkip([i.path], false).then(onChanged, (e) => onError(String(e)))}
-                >
-                  Bring back
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </Folder>
-      )}
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-20 flex justify-center">
           <div className="pointer-events-auto flex items-center gap-3 rounded-md border border-line bg-panel px-3 py-1.5 text-xs shadow-lg">
@@ -345,6 +318,47 @@ export function Triage({
         </div>
       )}
     </section>
+  );
+}
+
+/** Installers the user skipped, listed under the vault so they can be brought back. */
+export function Skipped({
+  items,
+  onChanged,
+  onError,
+}: {
+  items: InboxItem[];
+  onChanged: () => void;
+  onError: (e: string) => void;
+}) {
+  const folders = useFolders("vault-skipped");
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-2 border-t border-line pt-1">
+      <Folder
+        title="Skipped installers"
+        count={items.length}
+        open={folders.isOpen("skipped")}
+        onToggle={() => folders.toggle("skipped")}
+      >
+        <ul className="pb-1">
+          {items.map((i) => (
+            <li key={i.path} className="group flex h-7 items-center gap-2 pl-8 pr-4 hover:bg-sel/60">
+              <span className="min-w-0 flex-1 truncate text-dim" title={i.path}>
+                {i.file_name}
+              </span>
+              <Button
+                variant="quiet"
+                className="h-6 px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                onClick={() => vaultSkip([i.path], false).then(onChanged, (e) => onError(String(e)))}
+              >
+                Bring back
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </Folder>
+    </div>
   );
 }
 
