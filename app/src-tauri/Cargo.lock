@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "patchpilot-app"
-version = "0.4.47"
+version = "0.4.48"
 dependencies = [
  "base64 0.22.1",
  "chrono",
