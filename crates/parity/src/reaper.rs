@@ -581,13 +581,14 @@ pub fn resource_items(
             }
         }
         let id = ProductId(format!("{}/{}", kind.product_prefix(), slug(&rel)));
-        let mut requires: Vec<ProductId> = if kind.is_template() {
-            parse_template(&String::from_utf8_lossy(&bytes))
+        let mut requires: Vec<ProductId> = match kind {
+            k if k.is_template() => parse_template(&String::from_utf8_lossy(&bytes))
                 .iter()
                 .filter_map(&product_of)
-                .collect()
-        } else {
-            Vec::new()
+                .collect(),
+            // The extensions a script calls (decision #104).
+            ResourceKind::Script => crate::reaper_ext::script_needs(&rel, &bytes),
+            _ => Vec::new(),
         };
         requires.sort();
         requires.dedup();
@@ -993,5 +994,58 @@ mod tests {
             ))
         );
         assert!(reaper_resource_dir(Os::Windows, "", "/Users/alice").is_none());
+    }
+
+    #[test]
+    fn scripts_require_the_extensions_they_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let scripts = dir.path().join("Scripts").join("nvk");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::write(
+            scripts.join("FOLDER_ITEMS.lua"),
+            "if not reaper.BR_GetMouseCursorContext then return end",
+        )
+        .unwrap();
+        std::fs::write(scripts.join("plain.lua"), "reaper.ShowConsoleMsg('hi')").unwrap();
+        let (_, items) = template_items(dir.path(), Os::Macos, |_| None);
+        let req: Vec<_> = items
+            .iter()
+            .map(|i| (i.path.clone(), i.requires.clone()))
+            .collect();
+        assert_eq!(
+            req,
+            [
+                (
+                    PortablePath::logical(REAPER_RESOURCES, "Scripts/nvk/FOLDER_ITEMS.lua"),
+                    vec![ProductId::from("reaper-ext/sws")]
+                ),
+                (
+                    PortablePath::logical(REAPER_RESOURCES, "Scripts/nvk/plain.lua"),
+                    vec![]
+                ),
+            ]
+        );
+        // Not a template missing a plug-in: the extensions check reports it.
+        let mut m = patchpilot_core::Manifest::new(
+            patchpilot_core::MachineInfo {
+                id: "m".into(),
+                name: "m".into(),
+                os: Os::Macos,
+                arch: patchpilot_core::Arch::Aarch64,
+                os_version: None,
+                path_map: patchpilot_core::PathMap::new(Os::Macos),
+                disks: Vec::new(),
+            },
+            0,
+        );
+        m.items = items;
+        assert!(crate::template_readiness(&m).is_empty());
+        assert!(crate::required_products(&[&m]).is_empty());
+        assert_eq!(
+            crate::reaper_ext::needed_by_scripts(&m)[&ProductId::from("reaper-ext/sws")]
+                .iter()
+                .collect::<Vec<_>>(),
+            ["Scripts/nvk/FOLDER_ITEMS.lua"]
+        );
     }
 }

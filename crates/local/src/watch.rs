@@ -16,9 +16,9 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use patchpilot_core::Os;
 use patchpilot_scanner::{ADAPTERS, SystemDirs, default_roots};
 
-/// Reaper resource subfolders holding the templates a scan reads (#37), and
-/// FX presets and toolbar icons (#77).
-const REAPER_TEMPLATE_DIRS: [&str; 7] = [
+/// Reaper resource subfolders holding the templates a scan reads (#37),
+/// FX presets and toolbar icons (#77), and extensions (#104).
+const REAPER_TEMPLATE_DIRS: [&str; 8] = [
     "TrackTemplates",
     "ProjectTemplates",
     "FXChains",
@@ -26,6 +26,7 @@ const REAPER_TEMPLATE_DIRS: [&str; 7] = [
     "ColorThemes",
     "presets",
     "Data/toolbar_icons",
+    "UserPlugins",
 ];
 
 /// Reaper's settings files a scan shares (#53, #77). They sit at the top of

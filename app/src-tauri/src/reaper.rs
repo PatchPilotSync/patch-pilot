@@ -3,10 +3,12 @@
 //! machine's folders. Writes go through restore points, so they refuse while
 //! Reaper is open and can be undone from History.
 
+use patchpilot_local::reaper_ext::{self, ExtensionCheck, FixPlan};
 use patchpilot_local::reaper_extras::{
     self, NewFile, ReaperExtras, folder_changes, reapack_changes,
 };
 use patchpilot_local::restore::{ApplyError, ChangeSet, Daw, FileChange, apply_changes};
+use patchpilot_parity::reaper_ext::FixAction;
 use patchpilot_store::Store;
 use tauri::{AppHandle, State};
 
@@ -122,4 +124,72 @@ fn this_machine(db: &std::path::Path) -> Result<Option<String>, String> {
 
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
+}
+
+/// Reaper's extensions here (decision #104): whether each one loads, and
+/// the ones scripts here call that aren't installed. `None` when Reaper
+/// isn't set up on this machine. Works on every machine, Primary Rig too.
+#[tauri::command]
+pub async fn reaper_extensions() -> Result<Option<ExtensionCheck>, String> {
+    let Some(dir) = patchpilot_local::standard_reaper_dir() else {
+        return Ok(None);
+    };
+    let db = db_path()?;
+    let machine = match this_machine(&db)? {
+        Some(id) if db.exists() => open(&db)?.latest_manifest(&id).map_err(err)?,
+        _ => None,
+    };
+    Ok(Some(check_here(&dir, machine.as_ref())))
+}
+
+/// Make the fix the extensions check offers for `file` (below
+/// `UserPlugins/`): unblock it, move it out of a subfolder, or remove an
+/// older copy. Moves and removals are restore points (Reaper closed, undo
+/// in History); unblocking only clears macOS's quarantine flag.
+#[tauri::command]
+pub async fn fix_reaper_extension(
+    app: AppHandle,
+    scanning: State<'_, Scanning>,
+    file: String,
+    action: FixAction,
+) -> Result<Option<ExtensionCheck>, String> {
+    let dir =
+        patchpilot_local::standard_reaper_dir().ok_or("Reaper isn't set up on this machine")?;
+    let os = patchpilot_core::Os::current().ok_or("unsupported OS")?;
+    match reaper_ext::fix_plan(&dir, os, patchpilot_local::current_arch(), &file, action)? {
+        FixPlan::Unblock(path) => reaper_ext::unblock(&path)?,
+        FixPlan::Files(label, changes) => {
+            let db = db_path()?;
+            let mut store = open(&db)?;
+            let id = this_machine(&db)?.ok_or("scan this machine first")?;
+            let blobs =
+                patchpilot_local::restore::default_blob_dir().ok_or("no app-data folder")?;
+            let req = ChangeSet {
+                machine_id: id,
+                label,
+                daw: Some(Daw::Reaper),
+                changes,
+                now: patchpilot_local::now(),
+            };
+            apply_changes(&mut store, &blobs, &req).map_err(|e: ApplyError| e.to_string())?;
+        }
+    }
+    // Rescan so Compare and the checklist see it installed.
+    if scanning.start() {
+        let r = rescan_quietly(&app);
+        scanning.finish();
+        r?;
+    }
+    reaper_extensions().await
+}
+
+fn check_here(
+    dir: &std::path::Path,
+    machine: Option<&patchpilot_core::Manifest>,
+) -> ExtensionCheck {
+    let os = machine.map_or_else(
+        || patchpilot_core::Os::current().unwrap_or(patchpilot_core::Os::Windows),
+        |m| m.machine.os,
+    );
+    reaper_ext::check(dir, os, patchpilot_local::current_arch(), machine)
 }

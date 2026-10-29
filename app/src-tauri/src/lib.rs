@@ -150,6 +150,8 @@ pub fn run() {
             reaper::reaper_extras,
             reaper::restore_reapack,
             reaper::fix_reaper_folders,
+            reaper::reaper_extensions,
+            reaper::fix_reaper_extension,
             bring::files_to_bring,
             bring::bring_files,
             transfer::transfer_view,

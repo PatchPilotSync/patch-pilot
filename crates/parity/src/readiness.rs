@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 use patchpilot_core::{Manifest, ProductId};
 
+use crate::reaper_ext::is_extension;
+
 /// One template (or rack, or project) on a machine.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TemplateReadiness {
@@ -26,7 +28,8 @@ impl TemplateReadiness {
 
 /// Readiness of every item on `machine` that requires other products,
 /// in manifest order. Run [`crate::align_products`] first so `unknown/`
-/// references match.
+/// references match. The Reaper extensions scripts call are left out:
+/// the extensions check reports those (decision #104).
 pub fn template_readiness(machine: &Manifest) -> Vec<TemplateReadiness> {
     let have: BTreeSet<&ProductId> = machine
         .items
@@ -36,7 +39,7 @@ pub fn template_readiness(machine: &Manifest) -> Vec<TemplateReadiness> {
     machine
         .items
         .iter()
-        .filter(|i| !i.requires.is_empty())
+        .filter(|i| i.requires.iter().any(|r| !is_extension(r)))
         .filter_map(|i| {
             let id = i.product_id.clone()?;
             let name = machine
@@ -46,7 +49,7 @@ pub fn template_readiness(machine: &Manifest) -> Vec<TemplateReadiness> {
                 missing: i
                     .requires
                     .iter()
-                    .filter(|r| !have.contains(r))
+                    .filter(|r| !have.contains(r) && !is_extension(r))
                     .cloned()
                     .collect(),
                 product_id: id,
@@ -64,5 +67,6 @@ pub fn required_products(manifests: &[&Manifest]) -> BTreeSet<ProductId> {
         .iter()
         .flat_map(|m| &m.items)
         .flat_map(|i| i.requires.iter().cloned())
+        .filter(|r| !is_extension(r))
         .collect()
 }

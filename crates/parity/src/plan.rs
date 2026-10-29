@@ -239,10 +239,10 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         license_steps.push(n);
     }
     let mut app_steps: BTreeMap<String, usize> = BTreeMap::new();
-    for p in todo
-        .iter()
-        .filter(|p| kind_of(&p.product_id) == ItemKind::VendorApp)
-    {
+    for p in todo.iter().filter(|p| {
+        kind_of(&p.product_id) == ItemKind::VendorApp
+            && !crate::reaper_ext::is_extension(&p.product_id)
+    }) {
         let n = push(
             Phase::Foundation,
             format!("{} {}", verb(p), p.name),
@@ -308,6 +308,24 @@ pub fn up_to_speed(golden: &Manifest, profile: &TargetProfile, machine: &Manifes
         let n = push(Phase::Manual, title, items, license_steps.clone(), None);
         let link = catalog.vendor_named(vendor).and_then(|v| v.website.clone());
         sources.push((n, link, vendor.is_empty()));
+    }
+
+    // Reaper extensions come from their projects' websites, one build per OS
+    // and CPU (decision #104); scripts need them before they run.
+    for p in todo
+        .iter()
+        .copied()
+        .filter(|p| crate::reaper_ext::is_extension(&p.product_id))
+    {
+        let n = push(
+            Phase::Foundation,
+            format!("{} {} for Reaper", verb(p), p.name),
+            &[p],
+            Vec::new(),
+            None,
+        );
+        let link = crate::reaper_ext::known(&p.product_id).map(|k| k.page.to_owned());
+        sources.push((n, link, false));
     }
 
     // ReaPack installs its own packages once its repositories are there, and
@@ -559,6 +577,62 @@ mod tests {
                     false
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn a_missing_reaper_extension_links_to_its_downloads() {
+        use crate::reaper_ext::{Binary, Cpu, extension_item, parse_file_name};
+        use patchpilot_core::{Arch, MachineInfo, Os, PathMap};
+        let machine = |os| {
+            Manifest::new(
+                MachineInfo {
+                    id: "m".into(),
+                    name: "m".into(),
+                    os,
+                    arch: Arch::X86_64,
+                    os_version: None,
+                    path_map: PathMap::new(os),
+                    disks: Vec::new(),
+                },
+                0,
+            )
+        };
+        let mut golden = machine(Os::Windows);
+        let (p, i) = extension_item(
+            &parse_file_name("reaper_sws-x64.dll").unwrap(),
+            "reaper_sws-x64.dll",
+            &Binary {
+                os: Os::Windows,
+                cpus: vec![Cpu::X86_64],
+            },
+            Some("2.14.0.7".into()),
+            None,
+            None,
+        );
+        golden.products.push(p);
+        golden.items.push(i);
+        let plan = up_to_speed(&golden, &TargetProfile::default(), &machine(Os::Macos));
+        let rows: Vec<_> = plan
+            .steps
+            .iter()
+            .map(|s| {
+                (
+                    s.phase,
+                    s.title.as_str(),
+                    s.link.as_deref(),
+                    s.app.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [(
+                Phase::Foundation,
+                "Install SWS Extension for Reaper",
+                Some("https://www.sws-extension.org/"),
+                None
+            )]
         );
     }
 }

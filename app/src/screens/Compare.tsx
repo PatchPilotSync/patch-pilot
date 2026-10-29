@@ -47,6 +47,7 @@ import { OtherFormatsNote, StepExtras, StepList, useQuickSteps, type Actions } f
 import { formatSize } from "./VaultTriage";
 import { TemplateLine } from "../Templates";
 import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
+import { ReaperExtensionsNotice } from "../ReaperExtensions";
 import {
   Badge,
   Button,
@@ -1707,6 +1708,7 @@ function PlanView({
         </Button>
       </header>
       {here && <LowDiskNotice disks={disks} os={os} />}
+      {here && <ReaperExtensionsNotice onError={onError} />}
       {progress && steps.length === 0 && <p className="text-dim">Nothing to do.</p>}
       {progress?.complete && steps.length > 0 && (
         <p className="text-xs font-medium text-ok">Every step is done.</p>

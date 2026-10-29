@@ -779,6 +779,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "walkdir",
+ "xattr",
 ]
 
 [[package]]

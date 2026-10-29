@@ -976,6 +976,39 @@ export const reaperExtras = () => invoke<ReaperExtras | null>("reaper_extras");
 export const restoreReapack = () => invoke<ReaperExtras | null>("restore_reapack");
 export const fixReaperFolders = () => invoke<ReaperExtras | null>("fix_reaper_folders");
 
+// Reaper extensions (decision #104): patchpilot_local::reaper_ext::ExtensionCheck.
+export type ExtensionStatus =
+  | "blocked"
+  | "in_subfolder"
+  | "wrong_cpu"
+  | "wrong_os"
+  | "damaged"
+  | "missing"
+  | "two_copies"
+  | "ok";
+export type ExtensionFixAction = "unblock" | "move_up" | "remove";
+export interface ExtensionState {
+  product_id: string;
+  name: string;
+  status: ExtensionStatus;
+  /** Below UserPlugins. */
+  file: string | null;
+  detail: string;
+  fix: { action: ExtensionFixAction; file: string } | null;
+  download: { page: string; file: string | null; reapack: boolean } | null;
+  /** Scripts that call it, below Reaper's resource folder. */
+  needed_by: string[];
+}
+export interface ExtensionCheck {
+  /** UserPlugins on this machine. */
+  folder: string;
+  reaper_cpu: "x86" | "x86_64" | "arm64";
+  extensions: ExtensionState[];
+}
+export const reaperExtensions = () => invoke<ExtensionCheck | null>("reaper_extensions");
+export const fixReaperExtension = (file: string, action: ExtensionFixAction) =>
+  invoke<ExtensionCheck | null>("fix_reaper_extension", { file, action });
+
 // Rig Report (src-tauri/src/report.rs and patchpilot_parity::ReportOptions).
 
 export interface ReportOptions {
