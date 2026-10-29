@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.47 - 2026-10-29
+
+### New
+
+- Reaper's startup action now follows your Primary Rig. If SWS runs an action every time Reaper opens on your Primary Rig (Extensions > Startup actions > Set global startup action), This machine and Get Up To Speed say when another machine runs none or a different one, name the action, and set it in one click while Reaper is closed. You can undo it in History. The scripts the action runs come with it, and Keep Files in Sync carries later changes. Only the startup action is copied; the rest of SWS's settings stay as they are on each machine. You can turn it off in Choose what syncs.
+
 ## 0.4.46 - 2026-10-29
 
 ### Changed
