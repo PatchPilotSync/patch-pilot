@@ -123,11 +123,12 @@ export function ReaperExtensionsNotice({ onError }: { onError: (e: string) => vo
   const only = problems.length === 1 ? problems[0] : null;
 
   if (problems.length === 0) {
-    return <Notice tone="ok" text={<span className="text-ok">{done}</span>} />;
+    return <Notice tone="ok" icon="plug" text={<span className="text-ok">{done}</span>} />;
   }
   return (
     <Notice
       tone="warn"
+      icon="plug"
       open={open}
       onToggle={() => setOpen((o) => !o)}
       text={

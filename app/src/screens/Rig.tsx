@@ -133,7 +133,7 @@ export function Rig({
       </header>
 
       {/* One line each, in one place: what this machine is to the Primary Rig, then anything to do. */}
-      <div className="flex flex-col border-b border-line px-2 py-1.5">
+      <div className="mx-3 mt-3 flex flex-col rounded-lg border border-line bg-panel p-1">
         <GoldenLine golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
         <BackupLine onError={onError} fresh={!golden} openAt={syncSetupAt} />
         {setupOffer}
@@ -146,6 +146,7 @@ export function Rig({
         {warnings.length > 0 && (
           <Notice
             tone="dim"
+            icon="info"
             text={`${plural(warnings.length, "file")} couldn't be read fully. Still listed, by name.`}
             open={warningsOpen}
             onToggle={() => setWarningsOpen((o) => !o)}
@@ -166,10 +167,12 @@ export function Rig({
       </div>
 
       {/* The whole plug-in list folds into one folder (closed at first) so the screen stays short. */}
-      <div className="pt-2">
+      <div className="mx-3 mt-3 overflow-hidden rounded-lg border border-line bg-panel">
         <Folder
           title="All plug-ins"
           count={inv.products}
+          icon={<Tile name="knob" />}
+          className="pl-3 pr-4"
           open={extra.isOpen("plugins")}
           onToggle={() => extra.toggle("plugins")}
           badges={
@@ -185,7 +188,7 @@ export function Rig({
             </>
           }
         >
-          <div className="flex flex-wrap items-center gap-1 pb-1 pl-8 pr-3 pt-1">
+          <div className="flex flex-wrap items-center gap-1 pb-1 pl-16 pr-3 pt-1">
             {(["vendor", "format"] as const).map((g) => (
               <Pill key={g} active={grouping === g} onClick={() => setGrouping(g)}>
                 By {g}
@@ -210,7 +213,7 @@ export function Rig({
           </div>
 
           {groups.length === 0 && (
-            <p className="py-3 pl-8 pr-4 text-dim">
+            <p className="py-3 pl-16 pr-4 text-dim">
               {inv.products === 0 ? "No plug-ins found in the standard folders." : "Nothing matches."}
             </p>
           )}
@@ -222,7 +225,7 @@ export function Rig({
                 title={g.title}
                 count={g.rows.length}
                 className="pr-4"
-                indent={32}
+                indent={60}
                 open={filtering || folders.isOpen(g.title)}
                 onToggle={() => folders.toggle(g.title)}
                 badges={
@@ -359,6 +362,7 @@ function Updates({ alerts }: { alerts: UpdateAlert[] }) {
   const [open, setOpen] = useState(false);
   return (
     <Notice
+      icon="download"
       text={`${alerts.length} plug-in update${alerts.length === 1 ? "" : "s"} available`}
       open={open}
       onToggle={() => setOpen((o) => !o)}
@@ -383,7 +387,7 @@ function Updates({ alerts }: { alerts: UpdateAlert[] }) {
 
 function ProductLine({ p, vendor, update }: { p: ProductRow; vendor: string | null; update?: UpdateAlert }) {
   return (
-    <li className="flex h-7 items-center gap-3 pl-14 pr-4 hover:bg-sel/60">
+    <li className="flex h-7 items-center gap-3 pl-20 pr-4 hover:bg-sel/60">
       <span className="min-w-0 flex-1 truncate">
         {p.name}
         {vendor && <span className="ml-2 text-xs text-dim">{vendor}</span>}
@@ -417,6 +421,7 @@ function GoldenLine({
     return (
       <Notice
         tone="ok"
+        icon="star"
         text={
           <>
             <span className="font-medium">Primary Rig v{golden.version}</span>
@@ -432,6 +437,7 @@ function GoldenLine({
   }
   return (
     <Notice
+      icon="star"
       text={
         <>
           <span className="font-medium">Make this your Primary Rig?</span>

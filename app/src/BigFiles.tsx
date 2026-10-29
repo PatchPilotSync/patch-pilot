@@ -145,6 +145,7 @@ export function BigFiles({
     return (
       <Notice
         tone={view.last.no_room ? "warn" : "accent"}
+        icon="cloud"
         text={ready ? `${summary}. They travel through ${via}.` : `${summary}. Pick a cloud folder to carry them.`}
         open={open}
         onToggle={() => setOpen((o) => !o)}
