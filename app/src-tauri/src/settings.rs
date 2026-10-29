@@ -184,9 +184,9 @@ pub fn reset_this_machine() -> Result<(), String> {
 
 /// At launch, before anything opens the store: finish a reset asked for.
 pub fn finish_reset() {
-    if let Ok(dir) = app_dir() {
+    if let Ok(db) = crate::rig::db_path() {
         let stamp = chrono::Local::now().format("%Y-%m-%d %H%M").to_string();
-        let _ = patchpilot_local::reset::finish(&dir, &stamp);
+        let _ = patchpilot_local::reset::finish(&db, &stamp);
     }
 }
 
