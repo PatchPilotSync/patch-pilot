@@ -718,7 +718,9 @@ function Diff({
                 <>
                   {bring.scripts.files.length.toLocaleString()} Reaper script file
                   {bring.scripts.files.length === 1 ? "" : "s"}{" "}
-                  {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
+                  {bring.from
+                    ? `on ${machine.name} ${bring.scripts.files.length === 1 ? "differs" : "differ"} from this machine's`
+                    : `from the Primary Rig ${bring.scripts.files.length === 1 ? "isn't" : "aren't"} here yet`}
                   {bring.scripts.tooLarge > 0 && (
                     <span className="text-dim"> ({bring.scripts.tooLarge} too large to send)</span>
                   )}
@@ -745,7 +747,9 @@ function Diff({
                 <>
                   {bring.templates.files.length.toLocaleString()} template
                   {bring.templates.files.length === 1 ? "" : "s"}{" "}
-                  {bring.from ? `on ${machine.name} differ from this machine's` : "from the Primary Rig aren't here yet"}
+                  {bring.from
+                    ? `on ${machine.name} ${bring.templates.files.length === 1 ? "differs" : "differ"} from this machine's`
+                    : `from the Primary Rig ${bring.templates.files.length === 1 ? "isn't" : "aren't"} here yet`}
                   {bring.templates.tooLarge > 0 && (
                     <span className="text-dim"> ({bring.templates.tooLarge} too large to send)</span>
                   )}
