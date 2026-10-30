@@ -34,6 +34,8 @@ const RETRY: Duration = Duration::from_secs(120);
 const FOLLOW_UP: Duration = Duration::from_secs(180);
 /// The first look after launch waits for the catch-up scan and backup.
 const STARTUP_DELAY: Duration = Duration::from_secs(90);
+/// How often to look again while a scan runs.
+const SCAN_WAIT: Duration = Duration::from_secs(2);
 /// Emitted after files were placed or a conflict found, for the UI.
 pub const SYNC_CHANGED: &str = "sync-changed";
 
@@ -139,6 +141,13 @@ fn rewatch(app: &AppHandle) {
 /// Place what's new from linked machines, then tell the user. Quiet on
 /// errors: the next change tries again, and the UI shows the last one.
 pub fn look(app: &AppHandle) {
+    // Not on top of a scan (the first launch after an update starts both):
+    // each walks tens of thousands of files and writes the store.
+    let scanning = app.state::<crate::rig::Scanning>();
+    while scanning.running() {
+        std::thread::sleep(SCAN_WAIT);
+    }
+    let _quiet = patchpilot_local::quiet::background();
     let state = app.state::<SyncState>();
     let Ok(_one) = state.running.lock() else {
         return;

@@ -232,7 +232,12 @@ fn rescans(app: &AppHandle, rx: &Receiver<bool>) {
             watcher.update_scan.store(true, Ordering::SeqCst);
             let _ = app.emit(UPDATE_SCAN, true);
         }
-        let result = rig::rescan_existing(app, visible);
+        // Background priority (decision #114), even for the visible
+        // after-update rescan: the desktop and a DAW come first.
+        let result = {
+            let _quiet = patchpilot_local::quiet::background();
+            rig::rescan_existing(app, visible)
+        };
         scanning.finish();
         if visible {
             watcher.update_scan.store(false, Ordering::SeqCst);

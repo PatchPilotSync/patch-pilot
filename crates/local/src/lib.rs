@@ -20,6 +20,7 @@ pub mod ignore;
 pub mod lan;
 pub mod mac_keys;
 pub mod open;
+pub mod quiet;
 pub mod reaper_ext;
 pub mod reaper_extras;
 pub mod reaper_startup;

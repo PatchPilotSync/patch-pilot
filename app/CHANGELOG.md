@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.53 - 2026-10-30
+
+### Fixed
+
+- The first launch after an update no longer starts everything at once. Patch Pilot used to rescan this machine and catch up on synced files from your other machines at the same moment, both going through tens of thousands of files at full speed. Now catching up waits for the rescan, and all of Patch Pilot's work in the background runs at low priority, so your computer, and your DAW, always come first.
+
 ## 0.4.52 - 2026-10-30
 
 ### Fixed

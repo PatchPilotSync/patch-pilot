@@ -25,6 +25,10 @@ impl Scanning {
     pub fn finish(&self) {
         self.0.store(false, Ordering::SeqCst);
     }
+
+    pub fn running(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
 }
 
 /// Emitted after a scan saved a snapshot that differs from the previous one,
