@@ -28,6 +28,7 @@ pub fn setup(app: &AppHandle) {
 }
 
 fn check(app: &AppHandle) {
+    let _quiet = patchpilot_local::quiet::background();
     let state = app.state::<Checking>();
     let Ok(_guard) = state.0.lock() else {
         return;

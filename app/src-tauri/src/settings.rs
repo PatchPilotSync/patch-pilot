@@ -193,6 +193,7 @@ pub fn finish_reset() {
 /// Forget restore points older than Settings keeps, and the saved copies only
 /// they needed. At launch and when the setting changes.
 pub fn prune_restore_points(_app: &AppHandle) {
+    let _quiet = patchpilot_local::quiet::background();
     let Some(days) = app_prefs().restore_days else {
         return;
     };

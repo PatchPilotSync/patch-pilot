@@ -92,6 +92,7 @@ fn vault_root() -> Option<PathBuf> {
 
 pub(crate) fn auto_back_up(app: &AppHandle) {
     if settings().is_ok_and(|s| s.backs_up_on_change()) {
+        let _quiet = patchpilot_local::quiet::background();
         let _ = run(app);
     }
 }
