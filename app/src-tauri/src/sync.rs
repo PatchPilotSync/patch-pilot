@@ -4,6 +4,11 @@
 //!
 //! Idle cost: one hibernating WebSocket and a ping every 50 s. Uploads happen
 //! after a changed scan (`rig::RIG_CHANGED`), on start, and after making Primary Rig.
+//!
+//! The relay's Durable Objects bill by rows read (5 million a day free), and a
+//! rig holds one row per shared file, often tens of thousands. So nothing here
+//! lists every object: the start lists `machine/` only, and uploads ask about
+//! files this run hasn't already seen on the relay.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,6 +31,10 @@ const PING_EVERY: Duration = Duration::from_secs(50);
 const TRIES: u32 = 3;
 /// Shared files that may fail in one upload before it stops trying.
 const MAX_FAILED_FILES: u32 = 3;
+/// Longest wait before reconnecting after a failed session.
+const MAX_BACKOFF: Duration = Duration::from_secs(300);
+/// Names per `present` request; the relay takes up to 1,000.
+const PRESENT_BATCH: usize = 1000;
 
 /// Shown in the UI. Mirrored in `src/api.ts`.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -38,12 +47,21 @@ pub struct SyncStatus {
 #[derive(Default)]
 pub struct Sync {
     status: Mutex<SyncStatus>,
+    on_relay: Mutex<OnRelay>,
     running: AtomicBool,
     nudge: Notify,
     stop: Notify,
 }
 
 pub type SyncState = Arc<Sync>;
+
+/// Shared-file objects known to be on the relay, for one rig. Files are
+/// content-addressed and never deleted, so once seen they stay there.
+#[derive(Default)]
+struct OnRelay {
+    rig_id: String,
+    names: std::collections::HashSet<String>,
+}
 
 /// Start syncing if this machine is linked, and upload after changed scans.
 pub fn setup(app: &AppHandle) {
@@ -89,10 +107,17 @@ async fn run(app: &AppHandle, state: &Sync) {
         tokio::select! {
             r = session(app, state, &rig) => {
                 let e = r.err().unwrap_or_else(|| "the relay closed the connection".to_owned());
+                let was_online = state.status.lock().expect("sync status lock").online;
                 set(app, state, |s| {
                     s.online = false;
                     s.error = Some(e);
                 });
+                // A session that got going dropped (a relay deploy, sleep):
+                // come back quickly. One failing at the start waits longer
+                // each time, as every attempt costs relay reads.
+                if was_online {
+                    backoff = Duration::from_secs(2);
+                }
             }
             () = state.stop.notified() => {
                 set(app, state, |s| *s = SyncStatus::default());
@@ -108,7 +133,7 @@ async fn run(app: &AppHandle, state: &Sync) {
                 return;
             }
         }
-        backoff = (backoff * 2).min(Duration::from_secs(60));
+        backoff = (backoff * 2).min(MAX_BACKOFF);
     }
 }
 
@@ -116,10 +141,10 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     let relay = Relay::new(rig);
     let this = this_machine()?;
     // Upload first: the first upload claims a new rig, and live needs a claimed one.
-    upload(&relay, &this, rig).await?;
+    upload(&relay, state, &this, rig).await?;
     let mut ws = relay.live().await?;
     let mut changed = false;
-    for o in relay.list().await? {
+    for o in relay.list("machine/").await? {
         if patchpilot_local::sync::is_other_machine(&o.name, &this) {
             changed |= pull(&relay, &this, rig, &o.name).await?;
         }
@@ -150,13 +175,13 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
                     let _ = app.emit("data-changed", ());
                 }
             }
-            () = state.nudge.notified() => upload(&relay, &this, rig).await?,
+            () = state.nudge.notified() => upload(&relay, state, &this, rig).await?,
             _ = ping.tick() => ws.send(Message::text("ping")).await.map_err(|e| e.to_string())?,
         }
     }
 }
 
-async fn upload(relay: &Relay, this: &str, rig: &RigKey) -> Result<(), String> {
+async fn upload(relay: &Relay, state: &Sync, this: &str, rig: &RigKey) -> Result<(), String> {
     let (out, files) = {
         let store = open(&db_path()?)?;
         let files = store
@@ -170,27 +195,43 @@ async fn upload(relay: &Relay, this: &str, rig: &RigKey) -> Result<(), String> {
         return Ok(());
     };
     relay.put(&object, sealed).await?;
-    upload_files(relay, rig, &files).await
+    upload_files(relay, rig, &files, &state.on_relay).await
 }
 
 /// Put this machine's shareable files (templates, scripts, themes) on the
 /// relay, so others can bring them over (decision #45). Content-addressed:
-/// only files no machine has uploaded yet are sent.
+/// only files no machine has uploaded yet are sent, and only files not seen
+/// on the relay before in this run are asked about.
 async fn upload_files(
     relay: &Relay,
     rig: &RigKey,
     files: &[patchpilot_local::bring::SharedFile],
+    on_relay: &Mutex<OnRelay>,
 ) -> Result<(), String> {
-    if files.is_empty() {
+    let mut unknown: Vec<(String, &patchpilot_local::bring::SharedFile)> = {
+        let mut known = on_relay.lock().expect("on-relay lock");
+        if known.rig_id != rig.rig_id() {
+            *known = OnRelay {
+                rig_id: rig.rig_id(),
+                ..OnRelay::default()
+            };
+        }
+        let mut asked = std::collections::HashSet::new();
+        files
+            .iter()
+            .map(|f| (rig.file_object(&f.hash), f))
+            .filter(|(name, _)| !known.names.contains(name) && asked.insert(name.clone()))
+            .collect()
+    };
+    if unknown.is_empty() {
         return Ok(());
     }
-    let there: std::collections::HashSet<String> =
-        relay.list().await?.into_iter().map(|o| o.name).collect();
+    let names: Vec<String> = unknown.iter().map(|(n, _)| n.clone()).collect();
+    let there = relay.present(&names).await?;
+    unknown.retain(|(name, _)| !there.contains(name));
+    remember(on_relay, there);
     let mut failed = 0;
-    for file in files {
-        if there.contains(&rig.file_object(&file.hash)) {
-            continue;
-        }
+    for (name, file) in unknown {
         // Changed since the scan: the next scan uploads the new one.
         let Some(bytes) = patchpilot_local::bring::read_shared(file) else {
             continue;
@@ -199,15 +240,22 @@ async fn upload_files(
         // A file that won't go up stays off the relay until the next upload;
         // it doesn't take live sync offline. A few in a row means the
         // connection is gone, and the next upload starts over.
-        if let Err(e) = relay.put(&rig.file_object(&file.hash), sealed).await {
-            eprintln!("sync: {} not shared: {e}", file.rel);
-            failed += 1;
-            if failed == MAX_FAILED_FILES {
-                break;
+        match relay.put(&name, sealed).await {
+            Ok(()) => remember(on_relay, [name]),
+            Err(e) => {
+                eprintln!("sync: {} not shared: {e}", file.rel);
+                failed += 1;
+                if failed == MAX_FAILED_FILES {
+                    break;
+                }
             }
         }
     }
     Ok(())
+}
+
+fn remember(on_relay: &Mutex<OnRelay>, names: impl IntoIterator<Item = String>) {
+    on_relay.lock().expect("on-relay lock").names.extend(names);
 }
 
 /// Fetch one shared file by hash; `None` when no machine has uploaded it.
@@ -411,6 +459,11 @@ struct ObjectList {
     objects: Vec<ObjectInfo>,
 }
 
+#[derive(Debug, Deserialize)]
+struct Present {
+    present: Vec<String>,
+}
+
 /// The relay's HTTP API for one rig (`relay/README.md`).
 struct Relay {
     http: reqwest::Client,
@@ -465,15 +518,40 @@ impl Relay {
         Ok(Some(res.bytes().await.map_err(|e| e.to_string())?.to_vec()))
     }
 
-    async fn list(&self) -> Result<Vec<ObjectInfo>, String> {
-        let url = format!("{}/objects", self.base);
+    /// The objects whose names start with `prefix`. A relay from before
+    /// prefixes sends them all, so callers still filter.
+    async fn list(&self, prefix: &str) -> Result<Vec<ObjectInfo>, String> {
+        let url = format!("{}/objects?prefix={prefix}", self.base);
         let res = self.send(|| self.http.get(&url)).await?;
         // A rig nobody has uploaded to yet isn't claimed.
         if res.status() == reqwest::StatusCode::UNAUTHORIZED {
             return Ok(Vec::new());
         }
         let list: ObjectList = check(res).await?.json().await.map_err(|e| e.to_string())?;
-        Ok(list.objects)
+        Ok(list
+            .objects
+            .into_iter()
+            .filter(|o| o.name.starts_with(prefix))
+            .collect())
+    }
+
+    /// Which of `names` are on the relay. Reads only those rows, where a
+    /// list reads every object the rig has.
+    async fn present(&self, names: &[String]) -> Result<std::collections::HashSet<String>, String> {
+        let url = format!("{}/present", self.base);
+        let mut there = std::collections::HashSet::new();
+        for chunk in names.chunks(PRESENT_BATCH) {
+            let body = serde_json::json!({ "names": chunk });
+            let res = self.send(|| self.http.post(&url).json(&body)).await?;
+            // A relay from before `present`: fall back to one full list.
+            if res.status() == reqwest::StatusCode::NOT_FOUND {
+                let all = self.list("").await?;
+                return Ok(all.into_iter().map(|o| o.name).collect());
+            }
+            let found: Present = check(res).await?.json().await.map_err(|e| e.to_string())?;
+            there.extend(found.present);
+        }
+        Ok(there)
     }
 
     async fn live(&self) -> Result<Socket, String> {
@@ -574,7 +652,7 @@ mod tests {
         assert!(join(&code).await.unwrap_err().contains("already used"));
 
         let relay = Relay::new(&rig);
-        assert!(relay.list().await.unwrap().is_empty());
+        assert!(relay.list("").await.unwrap().is_empty());
         relay.put("machine/abc", b"first".to_vec()).await.unwrap();
         let mut ws = relay.live().await.unwrap();
         relay.put("machine/abc", b"sealed".to_vec()).await.unwrap();
@@ -587,7 +665,7 @@ mod tests {
             ("changed", "machine/abc")
         );
         assert_eq!(relay.get("machine/abc").await.unwrap().unwrap(), b"sealed");
-        assert_eq!(relay.list().await.unwrap()[0].name, "machine/abc");
+        assert_eq!(relay.list("machine/").await.unwrap()[0].name, "machine/abc");
         assert_eq!(relay.get("machine/nope").await.unwrap(), None);
 
         // Another rig can't read it.
@@ -614,9 +692,15 @@ mod tests {
         // The machine object claims the rig first, as `upload` does.
         relay.put("machine/abc", b"sealed".to_vec()).await.unwrap();
         assert_eq!(fetch_file(&rig, &hash).await.unwrap(), None);
-        upload_files(&relay, &rig, &files).await.unwrap();
-        upload_files(&relay, &rig, &files).await.unwrap();
-        assert_eq!(relay.list().await.unwrap().len(), 2);
+        let on_relay = Mutex::default();
+        upload_files(&relay, &rig, &files, &on_relay).await.unwrap();
+        upload_files(&relay, &rig, &files, &on_relay).await.unwrap();
+        // A fresh run asks the relay, finds it there and sends nothing.
+        upload_files(&relay, &rig, &files, &Mutex::default())
+            .await
+            .unwrap();
+        assert_eq!(relay.list("").await.unwrap().len(), 2);
+        assert_eq!(relay.list("file/").await.unwrap().len(), 1);
         assert_eq!(
             fetch_file(&rig, &hash).await.unwrap().unwrap(),
             b"<FXCHAIN\n>\n"

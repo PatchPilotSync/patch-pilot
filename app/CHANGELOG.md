@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.52 - 2026-10-30
+
+### Fixed
+
+- Linked machines use far less of the sync service. Every time a machine uploaded a new scan it asked the service for its whole list of shared files, which with thousands of presets and scripts used up the daily free allowance. Now it asks only about files it hasn't seen there before, and waits longer between tries when the service can't be reached.
+
 ## 0.4.51 - 2026-10-29
 
 ### Fixed

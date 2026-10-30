@@ -4,7 +4,9 @@
 // ever holds opaque bytes. It does three things:
 //
 //   /v1/rigs/<rig id>/objects/<name>   PUT / GET / DELETE one sealed object
-//   /v1/rigs/<rig id>/objects          GET the list (name, size, updated)
+//   /v1/rigs/<rig id>/objects          GET the list (name, size, updated);
+//                                      ?prefix=machine/ lists only those
+//   /v1/rigs/<rig id>/present          POST {"names":[...]}: which of them exist
 //   /v1/rigs/<rig id>/live             WebSocket: {"type":"changed",...} pings
 //   /v1/link/<mailbox>                 WebSocket: pairs two machines for a link
 //
@@ -24,6 +26,10 @@ const OBJECT = /^[a-z0-9-]+(\/[a-z0-9-]+)*$/;
 const MAILBOX_NAME = /^[0-9A-HJKMNP-TV-Z]{4}$/;
 /** Durable Object SQLite rows top out at 2 MB. */
 const MAX_OBJECT_BYTES = 2_000_000;
+/** Names one `present` request may ask about. */
+const MAX_PRESENT_NAMES = 1000;
+/** Durable Object SQL takes at most 100 bound parameters per statement. */
+const SQL_PARAMS = 100;
 /** How long a link attempt may stay open. */
 const LINK_TTL_MS = 10 * 60 * 1000;
 
@@ -76,15 +82,56 @@ export class Rig extends DurableObject<Env> {
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
 
+    // Durable Objects bill by rows read, so nothing here scans the table
+    // unless asked to: shared files make it tens of thousands of rows.
+    if (rest[0] === "present" && rest.length === 1) {
+      if (request.method !== "POST") return text(405, "method not allowed");
+      if (auth !== "ok") return text(401, "unauthorized");
+      const body = await request.json<{ names?: unknown }>().catch(() => ({ names: undefined }));
+      const names = body.names;
+      if (
+        !Array.isArray(names) ||
+        names.length > MAX_PRESENT_NAMES ||
+        !names.every((n) => typeof n === "string" && n.length <= 128 && OBJECT.test(n))
+      ) {
+        return text(400, "bad names");
+      }
+      const present: string[] = [];
+      for (let i = 0; i < names.length; i += SQL_PARAMS) {
+        const chunk = names.slice(i, i + SQL_PARAMS);
+        const marks = chunk.map(() => "?").join(", ");
+        for (const row of this.sql.exec<{ name: string }>(
+          `SELECT name FROM objects WHERE name IN (${marks})`,
+          ...chunk,
+        )) {
+          present.push(row.name);
+        }
+      }
+      return Response.json({ present });
+    }
+
     if (rest[0] !== "objects") return text(404, "not found");
     if (rest.length === 1) {
       if (request.method !== "GET") return text(405, "method not allowed");
       if (auth !== "ok") return text(401, "unauthorized");
-      const rows = this.sql
-        .exec<{ name: string; size: number; updated: number }>(
-          "SELECT name, length(data) AS size, updated FROM objects ORDER BY name",
-        )
-        .toArray();
+      const prefix = url.searchParams.get("prefix") ?? "";
+      if (prefix.length > 128 || !/^[a-z0-9/-]*$/.test(prefix)) return text(400, "bad prefix");
+      // A range on the primary key reads only the matching rows; LIKE would
+      // read them all.
+      const rows = prefix
+        ? this.sql
+            .exec<{ name: string; size: number; updated: number }>(
+              "SELECT name, length(data) AS size, updated FROM objects " +
+                "WHERE name >= ? AND name < ? ORDER BY name",
+              prefix,
+              prefixEnd(prefix),
+            )
+            .toArray()
+        : this.sql
+            .exec<{ name: string; size: number; updated: number }>(
+              "SELECT name, length(data) AS size, updated FROM objects ORDER BY name",
+            )
+            .toArray();
       return Response.json({ objects: rows });
     }
 
@@ -239,6 +286,12 @@ export class Mailbox extends DurableObject<Env> {
       }
     }
   }
+}
+
+/** The first string after every string starting with `prefix` (ASCII only). */
+function prefixEnd(prefix: string): string {
+  const last = prefix.charCodeAt(prefix.length - 1);
+  return prefix.slice(0, -1) + String.fromCharCode(last + 1);
 }
 
 async function sha256(s: string): Promise<string> {

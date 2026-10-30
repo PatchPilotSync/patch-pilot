@@ -7,7 +7,8 @@ the relay only stores bytes it can't read.
 | Route | What it does |
 | --- | --- |
 | `PUT/GET/DELETE /v1/rigs/<rig id>/objects/<name>` | One sealed object, e.g. `machine/<machine id>`. Max 2 MB. |
-| `GET /v1/rigs/<rig id>/objects` | `{ objects: [{ name, size, updated }] }` |
+| `GET /v1/rigs/<rig id>/objects[?prefix=machine/]` | `{ objects: [{ name, size, updated }] }`, only names starting with `prefix` when given |
+| `POST /v1/rigs/<rig id>/present` | Body `{ names: [...] }` (up to 1,000): `{ present: [...] }`, the ones that exist |
 | `GET /v1/rigs/<rig id>/live` (WebSocket) | `{"type":"changed"\|"deleted","name","updated"}` on every write |
 | `GET /v1/link/<mailbox>` (WebSocket) | Pairs two machines for the link handshake; one attempt per code, 10 minutes max |
 | `GET /health` | `ok` |
@@ -16,6 +17,12 @@ Rig routes need `Authorization: Bearer <relay token>` (`RigKey::relay_token`).
 The first `PUT` to a rig claims it; the relay keeps only a SHA-256 of the token.
 Each rig and each mailbox is a Durable Object with its own SQLite storage.
 Live listeners hibernate, so a quiet rig costs nothing.
+
+Durable Objects bill by **rows read** (5 million a day on the free plan), and
+a rig has one row per shared file, often tens of thousands. A full
+`GET objects` reads every one, so the app never makes it: it lists with a
+prefix (a primary-key range) and asks `present` about files it hasn't seen
+there yet (decision #113).
 
 ## Develop
 

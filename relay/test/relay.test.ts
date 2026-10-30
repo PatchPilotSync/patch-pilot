@@ -80,6 +80,50 @@ describe("rig objects", () => {
     expect(gone.status).toBe(404);
   });
 
+  it("lists only the objects under a prefix", async () => {
+    const rig = "3".repeat(32);
+    for (const n of ["file/aa", "machine/mac", "file/bb", "machine/pc", "machinex"]) {
+      await put(n, "x", TOKEN, rig);
+    }
+    const list = async (q: string) =>
+      (
+        await (
+          await SELF.fetch(`https://relay.test/v1/rigs/${rig}/objects${q}`, { headers: auth() })
+        ).json<{ objects: Array<{ name: string }> }>()
+      ).objects.map((o) => o.name);
+    expect(await list("?prefix=machine/")).toEqual(["machine/mac", "machine/pc"]);
+    expect(await list("?prefix=file/")).toEqual(["file/aa", "file/bb"]);
+    expect((await list("")).length).toBe(5);
+    const bad = await SELF.fetch(`https://relay.test/v1/rigs/${rig}/objects?prefix=A%25`, {
+      headers: auth(),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("says which of a list of objects exist", async () => {
+    const rig = "4".repeat(32);
+    await put("file/aa", "x", TOKEN, rig);
+    await put("file/cc", "x", TOKEN, rig);
+    const ask = (body: unknown, token = TOKEN) =>
+      SELF.fetch(`https://relay.test/v1/rigs/${rig}/present`, {
+        method: "POST",
+        headers: { ...auth(token), "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    // More names than one SQL statement takes, so it goes in chunks.
+    const names = Array.from({ length: 250 }, (_, i) => `file/x${i}`);
+    names.push("file/aa", "file/bb", "file/cc");
+    const res = await ask({ names });
+    expect(res.status).toBe(200);
+    expect((await res.json<{ present: string[] }>()).present.sort()).toEqual([
+      "file/aa",
+      "file/cc",
+    ]);
+    expect((await ask({ names: ["Bad Name"] })).status).toBe(400);
+    expect((await ask({ names: Array(1001).fill("file/aa") })).status).toBe(400);
+    expect((await ask({ names: [] }, OTHER)).status).toBe(401);
+  });
+
   it("refuses bad names, bad tokens, empty and oversized bodies", async () => {
     expect((await put("Machine/PC", "x")).status).toBe(400);
     expect((await put("machine/a_b", "x")).status).toBe(400);
