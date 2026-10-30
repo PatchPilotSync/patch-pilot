@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.54 - 2026-10-30
+
+### Fixed
+
+- On Windows the tray popover could open with its contents pushed up and to the left, cut off, with a white space beside and below them. The part of Windows' web view that draws the window had slipped out of place, and Patch Pilot now puts it back every time the popover or the main window opens.
+
 ## 0.4.53 - 2026-10-30
 
 ### Fixed

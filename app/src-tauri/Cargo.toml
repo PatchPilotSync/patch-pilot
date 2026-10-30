@@ -1,6 +1,6 @@
 [package]
 name = "patchpilot-app"
-version = "0.4.53"
+version = "0.4.54"
 description = "Patch Pilot desktop app"
 edition = "2024"
 rust-version = "1.88"
@@ -51,12 +51,18 @@ tauri-plugin-dialog = "2"
 # Local time for notification quiet hours (decision #97).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
+# Puts WebView2's drawing window back in place (realign.rs, decision #115).
+# The same version and the same features Tauri already builds.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tempfile = "3"
 
 [lints.rust]
-unsafe_code = "forbid"
+# deny, not forbid: realign.rs alone allows it, for four Win32 calls.
+unsafe_code = "deny"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
