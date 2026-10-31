@@ -277,7 +277,7 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// Keep WebView2's drawing in place (decision #115): now, before the window
+/// Keep WebView2's drawing in place (decision #116): now, before the window
 /// shows, and once more after, in case WebView2 rebuilt it meanwhile.
 fn realign_soon(window: &tauri::WebviewWindow) {
     if !cfg!(windows) {

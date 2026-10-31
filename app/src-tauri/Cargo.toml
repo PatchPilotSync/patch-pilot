@@ -51,7 +51,7 @@ tauri-plugin-dialog = "2"
 # Local time for notification quiet hours (decision #97).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
-# Puts WebView2's drawing window back in place (realign.rs, decision #115).
+# Puts WebView2's drawing window back in place (realign.rs, decision #116).
 # The same version and the same features Tauri already builds.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

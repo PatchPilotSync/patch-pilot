@@ -1,6 +1,6 @@
 //! WebView2 can leave the window it draws into ("Intermediate D3D Window",
 //! made by its GPU process) shifted inside ours, so the page shows moved up
-//! and left with white beside and below it (decision #115; Joshua's tray
+//! and left with white beside and below it (decision #116; Joshua's tray
 //! popover on 0.4.53 was 112 x 105 px off). Every other part of the webview
 //! stays put, and Chromium only ever resizes that window, never moves it, so
 //! putting it back in its parent's corner sticks.

@@ -1,4 +1,6 @@
-# Handoff: where Patch Pilot stands
+# Handoff: where Patch Pilot stood on 2026-10-23
+
+> **Historical.** This is a snapshot from the end of the scanner alpha, before the desktop app existed. For where things stand now, see the [README](../README.md), the [changelog](../app/CHANGELOG.md) and the [roadmap](strategy.md#22-12-month-roadmap).
 
 _Written 2026-10-23, after milestone **M1-2: Scanner alpha** closed. For whichever founder (and their Claude) picks up the next milestone. If this file and `docs/decisions.md` disagree, the decisions log wins._
 

@@ -9,6 +9,10 @@ name: Release
 #
 # Secrets: RELEASES_TOKEN (contents: write on patch-pilot-releases),
 # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+# Optional, for Apple Developer ID signing and notarization (decision #115):
+# APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_API_ISSUER,
+# APPLE_API_KEY and APPLE_API_PRIVATE_KEY. Without them Mac builds stay
+# ad-hoc signed.
 
 on:
   push:
@@ -136,6 +140,64 @@ jobs:
       - name: Install front-end dependencies
         working-directory: app
         run: npm ci
+      # With the Apple secrets set, sign with the Developer ID certificate and
+      # notarize with an App Store Connect API key (decision #115). Tauri reads
+      # APPLE_SIGNING_IDENTITY over tauri.conf.json's ad-hoc "-", then submits
+      # the app to Apple and staples the ticket before making the .dmg and the
+      # update package. The variables are only exported when set: Tauri treats
+      # an empty one as set.
+      - name: Set up Developer ID signing
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::No APPLE_CERTIFICATE secret, so this Mac build is ad-hoc signed and not notarized (see docs/releasing.md)"
+            exit 0
+          fi
+          missing=0
+          for name in APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::APPLE_CERTIFICATE is set but $name is not (see docs/releasing.md)"
+              missing=1
+            fi
+          done
+          [ $missing = 0 ] || exit 1
+
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+          identity=$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
+          if [ -z "$identity" ]; then
+            echo "::error::APPLE_CERTIFICATE holds no Developer ID Application certificate with its private key"
+            security find-identity -v -p codesigning "$keychain"
+            exit 1
+          fi
+          echo "Signing as $identity"
+
+          key_path="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+          printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$key_path"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$identity"
+            echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+            echo "APPLE_API_KEY=$APPLE_API_KEY"
+            echo "APPLE_API_KEY_PATH=$key_path"
+            echo "PATCHPILOT_DEVELOPER_ID=1"
+          } >> "$GITHUB_ENV"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
@@ -153,7 +215,10 @@ jobs:
           updaterJsonPreferNsis: true
       # The bundle must carry a real (ad-hoc) signature for the bundle id, not
       # just the linker's one, or macOS asks for Documents on every launch
-      # (decision #84). A failure here stops the publish job.
+      # (decision #84). With Developer ID set up it must also be signed by it,
+      # with the hardened runtime, notarized and stapled, so Gatekeeper opens
+      # it without a warning (decision #115). A failure here stops the publish
+      # job.
       - name: Check the Mac bundle's signature
         if: runner.os == 'macOS'
         run: |
@@ -162,6 +227,12 @@ jobs:
           codesign -dv "$app" 2>&1 | tee sig.txt
           grep -q '^Identifier=com.patchpilot.app$' sig.txt
           /usr/libexec/PlistBuddy -c 'Print :NSDocumentsFolderUsageDescription' "$app/Contents/Info.plist"
+          if [ "$PATCHPILOT_DEVELOPER_ID" = 1 ]; then
+            grep -q '^Authority=Developer ID Application: ' sig.txt
+            grep -q 'flags=.*runtime' sig.txt
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+          fi
 
   publish:
     name: Publish release
