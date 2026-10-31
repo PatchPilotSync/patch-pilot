@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "patchpilot-app"
-version = "0.4.53"
+version = "0.4.54"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3043,6 +3043,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+ "windows 0.61.3",
 ]
 
 [[package]]
