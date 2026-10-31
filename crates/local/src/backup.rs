@@ -37,6 +37,7 @@ use patchpilot_parity::ableton::{ABLETON_PREFS, ABLETON_USER_LIBRARY};
 use patchpilot_parity::presets::{is_preset_item, is_preset_root};
 use patchpilot_parity::reaper::REAPER_RESOURCES;
 use patchpilot_store::Store;
+use patchpilot_sync::RigKey;
 use serde::{Deserialize, Serialize};
 
 use crate::bring::{self, FileToBring};
@@ -50,6 +51,9 @@ pub const FORMAT_VERSION: u32 = 1;
 const FILES: &str = "Files";
 const VERSIONS: &str = "Versions";
 const BACKUPS: &str = "Backups";
+/// Beside each `Backups/<stamp>.json`: its signature with the rig key
+/// (decision #118), written just before the index.
+const SIG_EXT: &str = "sig";
 /// The root the Installer Vault's index is backed up under.
 pub const VAULT_ROOT: &str = "INSTALLER_VAULT";
 const VAULT_INDEX: &str = patchpilot_vault::INDEX_FILE;
@@ -221,17 +225,21 @@ pub fn back_up(
     dir: &Path,
     now: i64,
 ) -> Result<BackupReport, String> {
-    back_up_with(store, this, vault_root, dir, &[], now)
+    back_up_with(store, this, vault_root, dir, &[], None, now)
 }
 
 /// [`back_up`], saying which kinds this machine keeps to itself
-/// (`not_synced`, see [`Backup::not_synced`]).
+/// (`not_synced`, see [`Backup::not_synced`]), and signing the backup with
+/// the rig key when this machine has one (decision #118), so linked
+/// machines can tell it came from one of them.
+#[allow(clippy::too_many_arguments)]
 pub fn back_up_with(
     store: &Store,
     this: &str,
     vault_root: Option<&Path>,
     dir: &Path,
     not_synced: &[String],
+    rig: Option<&RigKey>,
     now: i64,
 ) -> Result<BackupReport, String> {
     let scan = store
@@ -274,6 +282,11 @@ pub fn back_up_with(
     });
     if same_list && all_there {
         report.unchanged = true;
+        if let (Some(rig), Some(p)) = (rig, &prev) {
+            // A backup made before signing, or under another rig: sign it
+            // now, so linked machines take it without waiting for a change.
+            sign_if_needed(&folder, &p.stamp, rig)?;
+        }
         report.stamp = prev.map(|p| p.stamp);
         return Ok(report);
     }
@@ -326,6 +339,12 @@ pub fn back_up_with(
         folder: folder.clone(),
     };
     let json = serde_json::to_vec_pretty(&backup).map_err(|e| e.to_string())?;
+    if let Some(rig) = rig {
+        write_atomic(
+            &sig_path(&folder, &stamp),
+            rig.sign_backup(&json).as_bytes(),
+        )?;
+    }
     write_atomic(&folder.join(BACKUPS).join(format!("{stamp}.json")), &json)?;
     let readme = folder.join("README.txt");
     if !readme.exists() {
@@ -543,11 +562,55 @@ fn read_backup(folder: &Path, stamp: &str) -> Option<Backup> {
     try_read_backup(folder, stamp, 1).ok()
 }
 
+fn sig_path(folder: &Path, stamp: &str) -> PathBuf {
+    folder.join(BACKUPS).join(format!("{stamp}.{SIG_EXT}"))
+}
+
+/// Whether a backup was signed by a machine holding the rig key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signature {
+    /// Signed with this machine's rig key, for exactly these bytes.
+    Valid,
+    /// No signature: made before 0.4.55, or by a machine with no rig key.
+    Missing,
+    /// A signature that doesn't check: another rig's, or the index was
+    /// changed after it was signed.
+    Bad,
+}
+
+fn signature(folder: &Path, stamp: &str, json: &[u8], rig: Option<&RigKey>) -> Signature {
+    match std::fs::read_to_string(sig_path(folder, stamp)) {
+        Err(_) => Signature::Missing,
+        Ok(sig) if rig.is_some_and(|r| r.check_backup(json, &sig)) => Signature::Valid,
+        Ok(_) => Signature::Bad,
+    }
+}
+
+/// Sign `folder`'s backup `stamp` unless its signature already checks.
+fn sign_if_needed(folder: &Path, stamp: &str, rig: &RigKey) -> Result<(), String> {
+    let path = folder.join(BACKUPS).join(format!("{stamp}.json"));
+    let json = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if signature(folder, stamp, &json, Some(rig)) != Signature::Valid {
+        write_atomic(&sig_path(folder, stamp), rig.sign_backup(&json).as_bytes())?;
+    }
+    Ok(())
+}
+
 /// The backup `stamp` in `folder`, or why it can't be read, in words a user
 /// can act on. A cloud app can hold a file it's syncing for a moment
 /// (Dropbox on Windows does) or hand over a half-downloaded one, so a failed
 /// read is tried `tries` times, a short while apart.
 fn try_read_backup(folder: &Path, stamp: &str, tries: u32) -> Result<Backup, String> {
+    try_read_backup_bytes(folder, stamp, tries).map(|(b, _)| b)
+}
+
+/// [`try_read_backup`], with the index's bytes as read (what its
+/// signature covers).
+fn try_read_backup_bytes(
+    folder: &Path,
+    stamp: &str,
+    tries: u32,
+) -> Result<(Backup, Vec<u8>), String> {
     let path = folder.join(BACKUPS).join(format!("{stamp}.json"));
     let mut last = String::new();
     for attempt in 0..tries.max(1) {
@@ -572,7 +635,7 @@ fn try_read_backup(folder: &Path, stamp: &str, tries: u32) -> Result<Backup, Str
         match serde_json::from_slice::<Backup>(&bytes) {
             Ok(mut b) => {
                 b.folder = folder.to_owned();
-                return Ok(b);
+                return Ok((b, bytes));
             }
             // Cut short: the cloud app hasn't finished downloading it.
             Err(e) if e.is_eof() => {
@@ -597,6 +660,34 @@ pub(crate) fn latest(folder: &Path) -> Option<Backup> {
         .iter()
         .rev()
         .find_map(|s| read_backup(folder, s))
+}
+
+/// The newest backup in `folder` that `rig` signed, or when there's none,
+/// the newest that can be read, with what its signature says. A newer
+/// backup someone else dropped in (even one stamped years ahead) can't hide
+/// the machine's real ones. The signature is checked against the very bytes
+/// parsed; only backups with a signature file are read, so a folder from
+/// before signing costs no more than [`latest`].
+pub(crate) fn latest_signed(folder: &Path, rig: Option<&RigKey>) -> Option<(Backup, Signature)> {
+    let all = stamps(folder);
+    if let Some(rig) = rig {
+        for s in all.iter().rev() {
+            if !sig_path(folder, s).is_file() {
+                continue;
+            }
+            let Ok((b, json)) = try_read_backup_bytes(folder, s, 1) else {
+                continue;
+            };
+            if signature(folder, s, &json, Some(rig)) == Signature::Valid {
+                return Some((b, Signature::Valid));
+            }
+        }
+    }
+    all.iter().rev().find_map(|s| {
+        let (b, json) = try_read_backup_bytes(folder, s, 1).ok()?;
+        let sig = signature(folder, s, &json, rig);
+        Some((b, sig))
+    })
 }
 
 /// `YYYY-MM-DD HH.MM.SS` (UTC) for `now`, moved on a second at a time until

@@ -218,6 +218,7 @@ fn sync_now(app: &AppHandle) -> Result<Option<SyncReport>, String> {
         &dir,
         &mut state,
         &sync_prefs::load(&app_dir),
+        crate::sync::load_rig().ok().flatten().as_ref(),
         patchpilot_local::now(),
     )?;
     autosync::save_state(&app_dir, &state)?;

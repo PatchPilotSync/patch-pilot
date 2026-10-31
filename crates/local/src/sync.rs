@@ -16,7 +16,7 @@ pub fn load_rig(app_dir: &Path) -> Result<Option<RigKey>, String> {
     let path = rig_key_path(app_dir);
     match std::fs::read_to_string(&path) {
         Ok(s) => {
-            // Keys saved before 0.4.54 kept the default file permissions.
+            // Keys saved before 0.4.55 kept the default file permissions.
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;

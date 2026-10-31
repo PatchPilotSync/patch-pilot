@@ -153,6 +153,7 @@ fn back_up() -> Result<BackupReport, String> {
         vault_root().as_deref(),
         &dir,
         &not_synced,
+        crate::sync::load_rig().ok().flatten().as_ref(),
         patchpilot_local::now(),
     )
 }

@@ -407,13 +407,17 @@ pub fn pull(
             .into_iter()
             .filter(|(p, _)| p.starts_with(&prefix) && safe_rel(p))
             .collect();
-        // A backup's index last, so it never shows before its files.
+        // A backup's index last, after its signature, so it never shows
+        // before its files.
         let backups = format!("{prefix}{BACKUPS}/");
         let mut need: Vec<(&String, &String)> = theirs
             .iter()
             .filter(|(p, id)| here.get(*p) != Some(id))
             .collect();
-        need.sort_by_key(|(p, _)| (p.starts_with(&backups), p.as_str()));
+        need.sort_by_key(|(p, _)| {
+            let list = p.starts_with(&backups);
+            (list, list && p.ends_with(".json"), p.as_str())
+        });
         let total = need.len();
         progress(0, total);
         for (n, (path, id)) in need.into_iter().enumerate() {

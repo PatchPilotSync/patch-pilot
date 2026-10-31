@@ -29,6 +29,10 @@
 //!   (CLAUDE.md rule 5); waiting files are tried again later.
 //! - Only from linked machines: a retired machine's old backup in the same
 //!   folder can't bring stale files back.
+//! - Only backups signed with the rig key (decision #118): anyone else who
+//!   can write to the cloud folder or the GitHub repo can't pass a backup
+//!   off as a linked machine's. A machine's unsigned backups (made before
+//!   0.4.55) are taken only until it has sent a signed one.
 //!
 //! What was seen and synced is kept in app-data `autosync.json`.
 
@@ -43,7 +47,7 @@ use patchpilot_parity::ableton::{
     ABLETON_PREFS, LIBRARY_CFG, is_names_only, library_cfg_parts, places_not_here,
 };
 
-use crate::backup::{self, BackedUpFile, Backup, FORMAT_VERSION, VAULT_ROOT};
+use crate::backup::{self, BackedUpFile, Backup, FORMAT_VERSION, Signature, VAULT_ROOT};
 use crate::bring::{self, FileToBring};
 use crate::restore::{Daw, daw_running};
 use crate::sync_prefs::{self, SyncPrefs};
@@ -68,6 +72,10 @@ pub struct SyncState {
     /// What this state was written for; see [`STATE_VERSION`].
     #[serde(default)]
     pub version: u32,
+    /// Linked machines that have sent a backup signed with the rig key
+    /// (decision #118): from then on their unsigned backups are refused.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub signed: BTreeSet<String>,
 }
 
 /// 1: Live's `Library.cfg` shares Places too (decision #79), so what was
@@ -188,6 +196,9 @@ pub struct SourceSummary {
     pub downloading: usize,
     /// False for a machine not linked to this one: its backup is left alone.
     pub linked: bool,
+    /// Its latest backup isn't signed with the rig key although it should
+    /// be (decision #118), so it was left alone.
+    pub unsigned: bool,
 }
 
 impl SyncReport {
@@ -313,11 +324,23 @@ pub fn sync_in(
     state: &mut SyncState,
     now: i64,
 ) -> Result<SyncReport, String> {
-    sync_in_with(store, blobs, this, dir, state, &SyncPrefs::default(), now)
+    sync_in_with(
+        store,
+        blobs,
+        this,
+        dir,
+        state,
+        &SyncPrefs::default(),
+        None,
+        now,
+    )
 }
 
 /// [`sync_in`] with this machine's sync preferences (decision #80): kinds
-/// turned off here, or on the machine a backup is from, are left alone.
+/// turned off here, or on the machine a backup is from, are left alone. A
+/// backup is taken only when `rig` signed it, or it has no signature and
+/// its machine never sent a signed one (decision #118).
+#[allow(clippy::too_many_arguments)]
 pub fn sync_in_with(
     store: &mut Store,
     blobs: &Path,
@@ -325,6 +348,7 @@ pub fn sync_in_with(
     dir: &Path,
     state: &mut SyncState,
     prefs: &SyncPrefs,
+    rig: Option<&patchpilot_sync::RigKey>,
     now: i64,
 ) -> Result<SyncReport, String> {
     let machine = store
@@ -351,20 +375,32 @@ pub fn sync_in_with(
         ..SyncReport::default()
     };
     let mut backups: Vec<Backup> = Vec::new();
-    for b in backup::subdirs(dir)
+    for (b, sig) in backup::subdirs(dir)
         .iter()
-        .filter_map(|f| backup::latest(f))
+        .filter_map(|f| backup::latest_signed(f, rig))
     {
         if b.machine_id == this || b.format > FORMAT_VERSION {
             continue;
         }
-        let ok = linked.contains(&b.machine_id);
+        let linked_here = linked.contains(&b.machine_id);
+        let trusted = match sig {
+            Signature::Valid => {
+                if linked_here {
+                    state.signed.insert(b.machine_id.clone());
+                }
+                true
+            }
+            Signature::Missing => !state.signed.contains(&b.machine_id),
+            Signature::Bad => false,
+        };
+        let ok = linked_here && trusted;
         report.sources.push(SourceSummary {
             machine_id: b.machine_id.clone(),
             machine_name: b.machine_name.clone(),
             made_at: b.made_at,
             files: b.files.iter().filter(|f| syncs(&f.root)).count(),
-            linked: ok,
+            linked: linked_here,
+            unsigned: linked_here && !trusted,
             ..SourceSummary::default()
         });
         if ok {
@@ -373,6 +409,7 @@ pub fn sync_in_with(
     }
     // Machines unlinked since are forgotten.
     state.seen.retain(|id, _| linked.contains(id));
+    state.signed.retain(|id| linked.contains(id));
     state.conflicts.retain(|c| linked.contains(&c.machine_id));
     // Copies that differed before the machines ever synced were asked about
     // before 0.4.8; the Primary Rig's machine now decides them, so look again.
@@ -1069,6 +1106,76 @@ mod tests {
     }
 
     #[test]
+    fn takes_only_backups_signed_with_the_rig_key_once_a_machine_signs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mac = tmp.path().join("Mac REAPER");
+        let pc = tmp.path().join("PC REAPER");
+        let dir = tmp.path().join("Dropbox").join(backup::FOLDER_NAME);
+        let blobs = tmp.path().join("blobs");
+        let mut store = Store::open_in_memory().unwrap();
+        let mut state = SyncState::default();
+        let rig = patchpilot_sync::RigKey::generate();
+        let take = |store: &mut Store, state: &mut SyncState, rig, at| {
+            let prefs = SyncPrefs::default();
+            sync_in_with(store, &blobs, "pc", &dir, state, &prefs, rig, at).unwrap()
+        };
+
+        put(&mac, DRUMS, "drums v1");
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS], 1);
+        scan(&mut store, "pc", "Studio PC", &pc, &[DRUMS], 1);
+        // Made before signing: still taken, since the Mac never signed one.
+        back_up(&store, "mac", None, &dir, 1_000).unwrap();
+        let r = take(&mut store, &mut state, Some(&rig), 2);
+        assert_eq!(r.files_placed(), 1, "{r:?}");
+        assert!(!r.sources[0].unsigned);
+        assert!(state.signed.is_empty());
+
+        // The Mac updates: its unchanged backup gets signed in place.
+        let again =
+            backup::back_up_with(&store, "mac", None, &dir, &[], Some(&rig), 1_500).unwrap();
+        assert!(again.unchanged);
+        let r = take(&mut store, &mut state, Some(&rig), 3);
+        assert!(!r.sources[0].unsigned, "{r:?}");
+        assert!(state.signed.contains("mac"));
+
+        // A new signed backup comes over.
+        put(&mac, DRUMS, "drums v2");
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS], 4);
+        backup::back_up_with(&store, "mac", None, &dir, &[], Some(&rig), 2_000).unwrap();
+        let r = take(&mut store, &mut state, Some(&rig), 5);
+        assert_eq!(r.files_placed(), 1, "{r:?}");
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums v2"));
+
+        // Someone with the cloud folder drops in a newer, unsigned "Mac"
+        // backup: the Mac's signed one is still the one used, and nothing
+        // from the fake one lands.
+        put(&mac, DRUMS, "evil");
+        scan(&mut store, "mac", "MacBook", &mac, &[DRUMS], 6);
+        back_up(&store, "mac", None, &dir, 3_000).unwrap();
+        let r = take(&mut store, &mut state, Some(&rig), 7);
+        assert_eq!(r.files_placed(), 0, "{r:?}");
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums v2"));
+        assert_eq!(r.sources[0].made_at, 2_000, "the signed backup");
+
+        // Signed with another rig's key: refused too.
+        let other = patchpilot_sync::RigKey::generate();
+        backup::back_up_with(&store, "mac", None, &dir, &[], Some(&other), 4_000).unwrap();
+        let r = take(&mut store, &mut state, Some(&rig), 8);
+        assert_eq!(r.files_placed(), 0, "{r:?}");
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums v2"));
+
+        // With every signed backup gone, the Mac's folder holds only fakes:
+        // left alone, and the line says so.
+        for s in backup::stamps(&dir.join("MacBook")) {
+            let _ = std::fs::remove_file(dir.join("MacBook/Backups").join(format!("{s}.sig")));
+        }
+        let r = take(&mut store, &mut state, Some(&rig), 9);
+        assert_eq!(r.files_placed(), 0, "{r:?}");
+        assert!(r.sources[0].unsigned);
+        assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums v2"));
+    }
+
+    #[test]
     fn places_new_and_changed_files_and_asks_about_edits_on_both() {
         let tmp = tempfile::tempdir().unwrap();
         let mac = tmp.path().join("Mac REAPER");
@@ -1177,20 +1284,20 @@ mod tests {
         // Track templates off on the PC: only the FX chain comes.
         let mut prefs = SyncPrefs::default();
         prefs.set("reaper/track-templates", false);
-        let r = sync_in_with(&mut store, &blobs, "pc", &dir, &mut state, &prefs, 2).unwrap();
+        let r = sync_in_with(&mut store, &blobs, "pc", &dir, &mut state, &prefs, None, 2).unwrap();
         assert_eq!(r.files_placed(), 1, "{r:?}");
         assert_eq!(read(&pc, DRUMS), None);
         assert_eq!(read(&pc, VOCAL).as_deref(), Some("vocal"));
 
         // On again here, but the Mac keeps its track templates to itself.
         let off = vec!["reaper/track-templates".to_owned()];
-        backup::back_up_with(&store, "mac", None, &dir, &off, 2_000).unwrap();
+        backup::back_up_with(&store, "mac", None, &dir, &off, None, 2_000).unwrap();
         let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 3).unwrap();
         assert_eq!(r.files_placed(), 0, "{r:?}");
         assert_eq!(read(&pc, DRUMS), None);
 
         // On for both: it comes.
-        backup::back_up_with(&store, "mac", None, &dir, &[], 3_000).unwrap();
+        backup::back_up_with(&store, "mac", None, &dir, &[], None, 3_000).unwrap();
         let r = sync_in(&mut store, &blobs, "pc", &dir, &mut state, 4).unwrap();
         assert_eq!(r.files_placed(), 1, "{r:?}");
         assert_eq!(read(&pc, DRUMS).as_deref(), Some("drums"));

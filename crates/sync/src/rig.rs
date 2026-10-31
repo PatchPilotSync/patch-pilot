@@ -18,7 +18,9 @@ const TOKEN_CONTEXT: &str = "Patch Pilot 2026-10-24 relay token v1";
 const ENCRYPT_CONTEXT: &str = "Patch Pilot 2026-10-24 rig encryption v1";
 const FILE_CONTEXT: &str = "Patch Pilot 2026-10-24 file name v1";
 const LAN_CONTEXT: &str = "Patch Pilot 2026-10-27 home network v1";
+const BACKUP_CONTEXT: &str = "Patch Pilot 2026-10-31 backup signature v1";
 const STORED_PREFIX: &str = "pprig1:";
+const BACKUP_SIG_PREFIX: &str = "ppsig1:";
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 /// Unpacked size cap, so a corrupt object can't fill memory.
 const MAX_BUNDLE_JSON: u64 = 256 * 1024 * 1024;
@@ -146,6 +148,27 @@ impl RigKey {
         envelope::open(&self.lan_key(), &self.aad(label), sealed)
     }
 
+    /// Sign a backup's index (decision #118): the exact bytes of its
+    /// `Backups/<stamp>.json`, which lists every file with its hash. Only
+    /// machines holding the rig key can make it, so a backup dropped into a
+    /// shared cloud folder or the GitHub repo by anyone else doesn't check.
+    pub fn sign_backup(&self, index: &[u8]) -> String {
+        format!("{BACKUP_SIG_PREFIX}{}", self.backup_mac(index).to_hex())
+    }
+
+    /// True when `signature` is [`Self::sign_backup`] of `index` for this rig.
+    /// Compared in constant time.
+    pub fn check_backup(&self, index: &[u8], signature: &str) -> bool {
+        let Some(h) = signature.trim().strip_prefix(BACKUP_SIG_PREFIX) else {
+            return false;
+        };
+        blake3::Hash::from_hex(h).is_ok_and(|theirs| theirs == self.backup_mac(index))
+    }
+
+    fn backup_mac(&self, index: &[u8]) -> blake3::Hash {
+        blake3::keyed_hash(&blake3::derive_key(BACKUP_CONTEXT, &self.0), index)
+    }
+
     fn lan_key(&self) -> [u8; 32] {
         blake3::derive_key(LAN_CONTEXT, &self.0)
     }
@@ -219,6 +242,23 @@ mod tests {
             profile_id: None,
         });
         b
+    }
+
+    #[test]
+    fn backup_signatures_check_only_for_the_same_rig_and_bytes() {
+        let rig = RigKey::generate();
+        let index = br#"{"machine_id":"pc","files":[]}"#;
+        let sig = rig.sign_backup(index);
+        assert!(sig.starts_with("ppsig1:"));
+        assert!(rig.check_backup(index, &sig));
+        assert!(rig.check_backup(index, &format!("{sig}\n")));
+        assert!(!rig.check_backup(br#"{"machine_id":"pc","files":[1]}"#, &sig));
+        assert!(!RigKey::generate().check_backup(index, &sig));
+        assert!(!rig.check_backup(index, ""));
+        assert!(!rig.check_backup(index, &sig["ppsig1:".len()..]));
+        assert!(!rig.check_backup(index, "ppsig1:zz"));
+        // Not the relay token, the rig id or any other derived value.
+        assert!(!sig.contains(&rig.relay_token()));
     }
 
     #[test]
