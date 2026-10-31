@@ -4,6 +4,17 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.55 - 2026-10-31
+
+### Changed
+
+- Backups are now signed with your rig key, the secret only your linked machines share. A machine keeps files in sync only from a backup one of your linked machines signed, so anyone else who can get into your Dropbox, Drive or GitHub sync folder can't slip scripts or presets onto your machines. Update every machine: once one sends a signed backup, the others won't take unsigned ones from it.
+
+### Fixed
+
+- Removing an installer from the Installer Vault can only ever remove a file inside the vault, even if the vault's index file was edited.
+- On a Mac, the file holding your rig key can now be read by your user account only.
+
 ## 0.4.54 - 2026-10-30
 
 ### Fixed

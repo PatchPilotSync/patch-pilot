@@ -640,6 +640,8 @@ export interface SyncSource {
   downloading: number;
   /** False for a machine not linked to this one: its backup is left alone. */
   linked: boolean;
+  /** Its latest backup isn't signed with the rig key although it should be, so it was left alone (decision #118). */
+  unsigned?: boolean;
 }
 
 /** The last look that brought anything over. */

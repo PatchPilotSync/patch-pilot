@@ -55,6 +55,12 @@ move while both machines are on that network. The first time, macOS asks to
 let Patch Pilot find devices on the local network, and Windows may ask to
 allow it through the firewall on private networks: say yes to both.
 
+Every backup is signed with the rig key, which only linked machines hold
+(decision #118). A machine places files only from a linked machine's backup
+that checks, so someone else who can write to the cloud folder or the GitHub
+repo can't slip files onto your machines. Backups made before 0.4.55 aren't
+signed; they're still taken until that machine sends a signed one.
+
 ## Choosing what syncs
 
 Under Sync & backup, **Choose what syncs** lists each of the kinds above

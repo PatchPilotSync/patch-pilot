@@ -411,11 +411,14 @@ pub fn sync(
                 sends.push((path, id));
             }
         }
-        // A backup's list of files goes last, so another machine sees it
-        // only once the files it names are there.
+        // A backup's list of files goes last, after its signature, so
+        // another machine sees it only once the files it names are there.
         if let Some(m) = &mine {
             let lists = format!("{m}/Backups/");
-            sends.sort_by_key(|(p, _)| p.starts_with(&lists));
+            sends.sort_by_key(|(p, _)| {
+                let list = p.starts_with(&lists);
+                (list, list && p.ends_with(".json"))
+            });
         }
         if sends.is_empty() && removed == 0 {
             settings.head = Some(head);

@@ -213,7 +213,15 @@ function syncLine(sync: SyncView, where: string, github: string | null, lan: Lan
       return ["warn", `Changes from your other machine are waiting for you to close ${open.join(" and ")}.`];
     return ["warn", `Some changes are waiting: ${last.waiting.join("; ")}. Trying again shortly.`];
   }
-  const sources = (last?.sources ?? []).filter((s) => s.linked);
+  const unsigned = (last?.sources ?? []).filter((s) => s.linked && s.unsigned);
+  if (unsigned.length > 0) {
+    const who = unsigned.map((s) => s.machine_name).join(" and ");
+    return [
+      "warn",
+      `Nothing was taken from ${who}'s latest backup: it isn't signed by your linked machines. If you reinstalled an older Patch Pilot there, update it.`,
+    ];
+  }
+  const sources = (last?.sources ?? []).filter((s) => s.linked && !s.unsigned);
   if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
   if (sources.length === 0 && lan && !lan.peers.some((p) => p.here))
     return [
@@ -644,7 +652,9 @@ function SyncSummary({ sync }: { sync: SyncView }) {
       {sources.map((s) => (
         <p key={s.machine_id} className="truncate">
           <span className="font-medium text-fg">{s.machine_name}</span> ·{" "}
-          {s.linked
+          {s.linked && s.unsigned
+            ? "its latest backup isn't signed by your linked machines, so it was left alone"
+            : s.linked
             ? [
                 `backed up ${timeAgo(s.made_at)}, ${plural(s.files, "file")}`,
                 `${s.same.toLocaleString()} the same here`,
