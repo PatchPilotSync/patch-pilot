@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# The built-in token only reads; jobs that need more say so.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
