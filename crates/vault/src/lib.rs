@@ -165,9 +165,16 @@ impl Vault {
             .ok_or_else(|| VaultError::NoEntry(id.to_owned()))
     }
 
-    /// Where an entry's file is on this machine.
+    /// Where an entry's file is on this machine: always inside the vault.
+    /// The index is a plain file on the user's storage (and comes back with
+    /// a restore), so a `file` that tries to leave the vault (`..`, a drive,
+    /// a backslash) loses those parts. Run, Show and Remove then find no
+    /// file, or one whose hash doesn't match, instead of one elsewhere.
     pub fn path_of(&self, e: &Entry) -> PathBuf {
-        e.file.split('/').fold(self.root.clone(), |p, c| p.join(c))
+        e.file
+            .split('/')
+            .filter(|c| !c.is_empty() && *c != "." && *c != ".." && !c.contains(['\\', ':']))
+            .fold(self.root.clone(), |p, c| p.join(c))
     }
 
     /// Copy `src` into the vault. The original is left where it is. The copy

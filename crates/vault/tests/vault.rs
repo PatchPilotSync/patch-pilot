@@ -220,3 +220,31 @@ fn adds_at_the_same_time_all_land() {
         assert!(vault.verify(e).unwrap());
     }
 }
+
+#[test]
+fn an_index_entry_can_never_point_outside_the_vault() {
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim.txt");
+    fs::write(&victim, b"keep me").unwrap();
+    let src = dir.path().join("Pro-Q 3 Installer.exe");
+    fs::write(&src, b"installer bytes").unwrap();
+    let vault = Vault::new(dir.path().join("Vault"));
+    let added = vault.add(&src, meta("3.21", None), None, 0).unwrap();
+
+    // Someone edits vault.json (or a restore brings an edited one back).
+    let index_path = vault.root.join(INDEX_FILE);
+    let mut index: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&index_path).unwrap()).unwrap();
+    for bad in ["../victim.txt", "a/../../victim.txt", "C:\\victim.txt"] {
+        index["entries"][0]["file"] = bad.into();
+        fs::write(&index_path, serde_json::to_string(&index).unwrap()).unwrap();
+        let entry = vault.entry(&added.entry().id).unwrap();
+        assert!(vault.path_of(&entry).starts_with(&vault.root), "{bad}");
+        assert!(vault.verify(&entry).is_err() || !vault.verify(&entry).unwrap());
+        let _ = vault.remove(&entry.id);
+        assert_eq!(fs::read(&victim).unwrap(), b"keep me", "{bad}");
+        // Put the entry back for the next try.
+        vault.add(&src, meta("3.21", None), None, 0).unwrap();
+        index = serde_json::from_str(&fs::read_to_string(&index_path).unwrap()).unwrap();
+    }
+}

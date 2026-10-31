@@ -15,22 +15,46 @@ const RIG_KEY_FILE: &str = "rig-key";
 pub fn load_rig(app_dir: &Path) -> Result<Option<RigKey>, String> {
     let path = rig_key_path(app_dir);
     match std::fs::read_to_string(&path) {
-        Ok(s) => RigKey::from_stored(&s)
-            .map(Some)
-            .map_err(|e| format!("{}: {e}", path.display())),
+        Ok(s) => {
+            // Keys saved before 0.4.54 kept the default file permissions.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+            RigKey::from_stored(&s)
+        }
+        .map(Some)
+        .map_err(|e| format!("{}: {e}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("{}: {e}", path.display())),
     }
 }
 
-/// Keep the rig key in app-data, written to a temp name and renamed.
+/// Keep the rig key in app-data, written to a temp name and renamed. On a
+/// Mac it is readable by this user only, like the GitHub sign-in token
+/// (Windows already keeps `%LOCALAPPDATA%` to its user).
 pub fn save_rig(app_dir: &Path, rig: &RigKey) -> Result<(), String> {
     let path = rig_key_path(app_dir);
     let tmp = app_dir.join(format!("{RIG_KEY_FILE}.tmp"));
     std::fs::create_dir_all(app_dir)
-        .and_then(|()| std::fs::write(&tmp, rig.to_stored() + "\n"))
+        .and_then(|()| write_private(&tmp, (rig.to_stored() + "\n").as_bytes()))
         .and_then(|()| std::fs::rename(&tmp, &path))
         .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Create (or replace) `path` with `bytes`, owner read/write only on Unix.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let _ = std::fs::remove_file(path);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
 }
 
 /// Unlink this machine: forget the rig key. Scans already received stay.
@@ -123,6 +147,16 @@ mod tests {
         save_rig(&app, &rig).unwrap();
         assert_eq!(load_rig(&app).unwrap(), Some(rig));
         assert!(!app.join("rig-key.tmp").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            let path = rig_key_path(&app);
+            assert_eq!(mode(&path), 0o600, "only this user can read the key");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            load_rig(&app).unwrap();
+            assert_eq!(mode(&path), 0o600, "an older key file is tightened");
+        }
         forget_rig(&app).unwrap();
         forget_rig(&app).unwrap();
         assert_eq!(load_rig(&app).unwrap(), None);
