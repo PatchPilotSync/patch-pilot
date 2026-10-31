@@ -146,20 +146,24 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 
     if let Some(popover) = app.get_webview_window(POPOVER) {
         let handle = app.clone();
-        popover.on_window_event(move |event| {
-            if let WindowEvent::Focused(false) = event {
-                hide_popover(&handle);
-            }
+        let window = popover.clone();
+        popover.on_window_event(move |event| match event {
+            WindowEvent::Focused(false) => hide_popover(&handle),
+            WindowEvent::ScaleFactorChanged { .. } => realign_soon(&window),
+            _ => {}
         });
     }
     if let Some(main) = app.get_webview_window(MAIN) {
         let window = main.clone();
-        main.on_window_event(move |event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        main.on_window_event(move |event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
                 set_dock_icon(window.app_handle(), false);
             }
+            // Dragged to a screen with another scale.
+            WindowEvent::ScaleFactorChanged { .. } => realign_soon(&window),
+            _ => {}
         });
     }
     Ok(())
@@ -210,6 +214,7 @@ fn toggle_popover(app: &AppHandle, icon: Rect) {
     if let Some(at) = popover_position(app, &popover, icon) {
         let _ = popover.set_position(at);
     }
+    realign_soon(&popover);
     let _ = popover.show();
     let _ = popover.set_focus();
     // The popover refreshes itself when it appears; no polling while hidden.
@@ -266,9 +271,24 @@ pub fn show_main(app: &AppHandle) {
     if let Some(main) = app.get_webview_window(MAIN) {
         set_dock_icon(app, true);
         let _ = main.unminimize();
+        realign_soon(&main);
         let _ = main.show();
         let _ = main.set_focus();
     }
+}
+
+/// Keep WebView2's drawing in place (decision #116): now, before the window
+/// shows, and once more after, in case WebView2 rebuilt it meanwhile.
+fn realign_soon(window: &tauri::WebviewWindow) {
+    if !cfg!(windows) {
+        return;
+    }
+    crate::realign::realign(window);
+    let window = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        crate::realign::realign(&window);
+    });
 }
 
 /// macOS: Patch Pilot is a menu bar app with a Dock icon only while its main

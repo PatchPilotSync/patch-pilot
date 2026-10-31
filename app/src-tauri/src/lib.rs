@@ -14,6 +14,7 @@ mod github;
 mod history;
 mod lan;
 mod mac_keys;
+mod realign;
 mod reaper;
 mod report;
 mod rig;
