@@ -47,6 +47,18 @@ touches a DAW's settings while the DAW is open, never handles license
 credentials and never runs an installer without the user. Details and the rest
 of the list are in [CLAUDE.md](CLAUDE.md#non-negotiable-rules).
 
+## Outside contributions
+
+Patch Pilot isn't open for outside pull requests yet. Bug reports and ideas are
+welcome as [issues](https://github.com/PatchPilotSync/patch-pilot/issues).
+When contributions open up:
+
+- Open an issue to discuss anything bigger than a bug fix before writing code.
+- Keep each pull request to one change you can explain line by line.
+- Large unrequested refactors, including AI-generated ones, are closed without
+  review. The founders build with Claude too, but every change is reviewed
+  against the rules above and its decision is written down.
+
 ## Security
 
 Found a security problem? Please don't open a public issue; see

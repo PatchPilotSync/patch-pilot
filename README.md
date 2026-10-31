@@ -1,5 +1,10 @@
 # Patch Pilot
 
+[![Latest release](https://img.shields.io/github/v/release/PatchPilotSync/patch-pilot-releases?label=download&color=2f7cf6)](https://github.com/PatchPilotSync/patch-pilot-releases/releases/latest)
+[![CI](https://github.com/PatchPilotSync/patch-pilot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PatchPilotSync/patch-pilot/actions/workflows/ci.yml)
+![Windows and macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555)
+![License: proprietary](https://img.shields.io/badge/license-proprietary-555)
+
 **Every rig, ready.** Patch Pilot keeps all your music machines set up the same way, so a session that opens on your studio PC also opens on your laptop, with every plug-in in place.
 
 For producers, mixers and engineers who work on more than one computer, on Windows and macOS, with Reaper or Ableton Live.
@@ -90,6 +95,17 @@ Early preview, with new versions often. Reaper and Ableton Live are supported to
 ## For developers
 
 Patch Pilot is a Tauri 2 desktop app (React + TypeScript UI in `app/`) on top of a Rust workspace in `crates/`, with a small Cloudflare Worker relay for live linking in `relay/`.
+
+### How it's built
+
+- **Scanning reads metadata, never code.** Plug-ins are identified from VST3 `moduleinfo.json`, AU `Info.plist`, Windows version resources and bundle plists. Patch Pilot never loads a plug-in binary, so a broken plug-in can't crash it and a scan of 500 plug-ins stays under a minute (CI checks this budget).
+- **Each scan is a manifest.** A machine's plug-ins, vendor apps and DAW files become a JSON manifest of metadata (no files), with paths stored as logical roots plus a per-machine path map so a Windows and a Mac scan compare cleanly ([format](docs/manifest.md)).
+- **Comparing is a diff plus a score.** A catalog resolves the same product across formats and OSes; the parity engine diffs a machine against the Primary Rig minus that machine's exclusions, and scores it with the points each difference costs.
+- **History is content-addressed.** Scans and snapshots live in SQLite on each machine, with files kept in a BLAKE3-hashed blob store. Every change Patch Pilot makes to a file is staged, renamed into place atomically and preceded by a restore point.
+- **Sync is end-to-end encrypted.** Linked machines share manifests through a relay that only ever sees ciphertext; user files go through a cloud folder, the home network or a private GitHub repo the user picks. Plug-ins and installers never leave the machine.
+- **Idle means idle.** Filesystem watchers, not polling, and background work runs at background priority.
+
+Every product and architecture choice is a numbered row in [docs/decisions.md](docs/decisions.md), and the reasons behind the design are in [docs/strategy.md](docs/strategy.md).
 
 ```sh
 cargo test --workspace          # core crates
