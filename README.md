@@ -6,6 +6,8 @@ For producers, mixers and engineers who work on more than one computer, on Windo
 
 <img src="docs/screenshots/tray.png" width="340" alt="The tray popover: every machine's score against the Primary Rig and what the Travel Laptop needs">
 
+**[Download](#download)** · [Why it helps](#why-it-helps) · [How it works](#how-it-works) · [Syncing](#how-syncing-works) · [Features](#features) · [Status](#status) · [For developers](#for-developers)
+
 ## Download
 
 Get the latest version for Windows or macOS from the **[releases page](https://github.com/PatchPilotSync/patch-pilot-releases/releases/latest)**:
@@ -94,17 +96,15 @@ cargo test --workspace          # core crates
 cd app && npm ci && npm run tauri dev   # the desktop app
 ```
 
-- [CLAUDE.md](CLAUDE.md) — project rules, layout and build commands
-- [app/CHANGELOG.md](app/CHANGELOG.md) — what changed in each version
-- [docs/what-syncs.md](docs/what-syncs.md) — exactly what keeps in sync between machines
-- [docs/cli.md](docs/cli.md) — the `patchpilot` command-line tool for alpha testers
-- [docs/strategy.md](docs/strategy.md) — product strategy, architecture and roadmap
-- [docs/decisions.md](docs/decisions.md) — decisions log (authoritative)
-- [docs/handoff.md](docs/handoff.md) — what's built and what's next
-- [docs/releasing.md](docs/releasing.md) — how to publish a release
-- [docs/founders-agreement-checklist.md](docs/founders-agreement-checklist.md) — things to agree in writing
+| Folder | What's there |
+| --- | --- |
+| [`crates/`](crates/README.md) | The Rust core: scanning, comparing, storing, syncing |
+| [`app/`](app/README.md) | The desktop app (Tauri + React) and its [changelog](app/CHANGELOG.md) |
+| [`relay/`](relay/README.md) | The sync relay (Cloudflare Worker) |
+| [`fixtures/`](fixtures/README.md) | Test inputs that stand in for real machines |
+| [`docs/`](docs/README.md) | Strategy, decisions log, formats, release steps |
 
-One issue, one branch, one PR, reviewed by the other founder. See CLAUDE.md.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for how to build and send a change, and [docs/README.md](docs/README.md) for every other doc. [CLAUDE.md](CLAUDE.md) holds the project rules that every change, by a person or by Claude, follows. Security problems go to [SECURITY.md](SECURITY.md).
 
 ## License
 
