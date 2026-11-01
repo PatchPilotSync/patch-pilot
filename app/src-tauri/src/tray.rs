@@ -18,8 +18,11 @@ pub const POPOVER: &str = "tray";
 /// The tray icon's ID.
 pub const ID: &str = "patchpilot";
 
-/// Gap between the tray icon and the popover, in logical pixels.
+/// Gap between the menu bar and the popover (macOS), in logical pixels.
 const GAP: f64 = 6.0;
+/// Gap between the popover and the taskbar and screen edge (Windows), in
+/// logical pixels: what Windows 11's own flyouts leave.
+const MARGIN: f64 = 12.0;
 
 /// When the popover last hid. Clicking the icon while the popover is open
 /// first blurs (hides) it; without this the same click would open it again.
@@ -232,38 +235,108 @@ fn hide_popover(app: &AppHandle) {
     }
 }
 
-/// Centred on the icon, below it when the icon is in the top half of its
-/// screen (macOS menu bar) and above it otherwise (Windows taskbar), kept
-/// inside the screen.
+/// Where the popover goes, as its outer (window) position.
 fn popover_position(
     app: &AppHandle,
     popover: &tauri::WebviewWindow,
     icon: Rect,
 ) -> Option<PhysicalPosition<i32>> {
-    let scale = popover.scale_factor().ok()?;
-    let at = icon.position.to_physical::<f64>(scale);
-    let size = icon.size.to_physical::<f64>(scale);
-    let win = popover.outer_size().ok()?;
-    let (w, h) = (f64::from(win.width), f64::from(win.height));
-    let gap = GAP * scale;
+    let icon_at = icon.position.to_physical::<f64>(1.0);
+    let monitor = app
+        .monitor_from_point(icon_at.x, icon_at.y)
+        .ok()
+        .flatten()?;
+    let scale = monitor.scale_factor();
+    let icon_size = icon.size.to_physical::<f64>(scale);
 
-    let monitor = app.monitor_from_point(at.x, at.y).ok().flatten()?;
-    let (mx, my) = (
-        f64::from(monitor.position().x),
-        f64::from(monitor.position().y),
+    // Sizes at the scale of the screen it's going to, which may not be the
+    // one it was last on.
+    let rescale = scale / popover.scale_factor().ok()?;
+    let inner = popover.inner_size().ok()?;
+    let (w, h) = (
+        f64::from(inner.width) * rescale,
+        f64::from(inner.height) * rescale,
     );
-    let (mw, mh) = (
-        f64::from(monitor.size().width),
-        f64::from(monitor.size().height),
+    // Windows counts invisible resize borders in the window's position.
+    let (outer_at, inner_at) = (
+        popover.outer_position().ok()?,
+        popover.inner_position().ok()?,
+    );
+    let border = (
+        f64::from(inner_at.x - outer_at.x) * rescale,
+        f64::from(inner_at.y - outer_at.y) * rescale,
     );
 
-    let x = (at.x + size.width / 2.0 - w / 2.0).clamp(mx + gap, (mx + mw - w - gap).max(mx));
-    let y = if at.y + size.height / 2.0 < my + mh / 2.0 {
-        at.y + size.height + gap
-    } else {
-        at.y - h - gap
-    };
-    Some(PhysicalPosition::new(x.round() as i32, y.round() as i32))
+    let screen = Area::new(monitor.position(), monitor.size());
+    let work = Area::new(&monitor.work_area().position, &monitor.work_area().size);
+    let icon_mid = (
+        icon_at.x + icon_size.width / 2.0,
+        icon_at.y + icon_size.height / 2.0,
+    );
+    let (x, y) = place(screen, work, icon_mid, (w, h), scale);
+    Some(PhysicalPosition::new(
+        (x - border.0).round() as i32,
+        (y - border.1).round() as i32,
+    ))
+}
+
+/// A screen rectangle in physical pixels.
+#[derive(Clone, Copy, Debug)]
+struct Area {
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+}
+
+impl Area {
+    fn new(at: &PhysicalPosition<i32>, size: &tauri::PhysicalSize<u32>) -> Self {
+        let (left, top) = (f64::from(at.x), f64::from(at.y));
+        Self {
+            left,
+            top,
+            right: left + f64::from(size.width),
+            bottom: top + f64::from(size.height),
+        }
+    }
+}
+
+/// Top-left corner for a popover of `size` (decision #119). Windows: in the
+/// corner of the work area by the taskbar, like Windows' own flyouts,
+/// wherever the icon is (the hidden-icons overflow puts it mid-screen).
+/// macOS: under the menu bar icon, centred on it. Kept on the screen.
+fn place(
+    screen: Area,
+    work: Area,
+    icon_mid: (f64, f64),
+    (w, h): (f64, f64),
+    scale: f64,
+) -> (f64, f64) {
+    let margin = if cfg!(windows) { MARGIN } else { GAP } * scale;
+    let right = work.right - w - margin;
+    let bottom = work.bottom - h - margin;
+    if !cfg!(windows) {
+        let x = (icon_mid.0 - w / 2.0).clamp(work.left + margin, right.max(work.left));
+        return (x, work.top + margin);
+    }
+    // The taskbar is the side where the work area stops short of the screen;
+    // an auto-hidden one leaves no gap, so then go by the icon.
+    let gaps = [
+        work.top - screen.top,
+        screen.bottom - work.bottom,
+        work.left - screen.left,
+        screen.right - work.right,
+    ];
+    let biggest = gaps.iter().copied().fold(0.0, f64::max);
+    if biggest <= 0.0 {
+        let near_top = icon_mid.1 < (screen.top + screen.bottom) / 2.0;
+        return (right, if near_top { work.top + margin } else { bottom });
+    }
+    match gaps.iter().position(|g| *g == biggest) {
+        Some(0) => (right, work.top + margin),
+        Some(2) => (work.left + margin, bottom),
+        _ => (right, bottom),
+    }
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -312,4 +385,71 @@ pub fn open_main_window(app: AppHandle, machine: Option<String>, plan: bool) {
 struct ShowMachine {
     id: String,
     plan: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn area(left: f64, top: f64, right: f64, bottom: f64) -> Area {
+        Area {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    const SIZE: (f64, f64) = (340.0, 460.0);
+
+    #[cfg(windows)]
+    #[test]
+    fn sits_above_a_bottom_taskbar_at_the_right_whatever_the_icon() {
+        // Joshua's main screen: 2560 x 1440 at 100%, 48 px taskbar.
+        let screen = area(0.0, 0.0, 2560.0, 1440.0);
+        let work = area(0.0, 0.0, 2560.0, 1392.0);
+        let expected = (2560.0 - 340.0 - 12.0, 1392.0 - 460.0 - 12.0);
+        // On the taskbar, and in the hidden-icons overflow above it.
+        assert_eq!(place(screen, work, (2300.0, 1416.0), SIZE, 1.0), expected);
+        assert_eq!(place(screen, work, (2320.0, 1150.0), SIZE, 1.0), expected);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn follows_the_taskbar_to_other_edges_and_scales() {
+        let screen = area(-2560.0, 0.0, 0.0, 1440.0);
+        // Top taskbar at 150%.
+        let work = area(-2560.0, 72.0, 0.0, 1440.0);
+        assert_eq!(
+            place(screen, work, (-200.0, 30.0), (510.0, 690.0), 1.5),
+            (-510.0 - 18.0, 72.0 + 18.0)
+        );
+        // Left taskbar.
+        let work = area(-2488.0, 0.0, 0.0, 1440.0);
+        assert_eq!(
+            place(screen, work, (-2530.0, 1400.0), SIZE, 1.0),
+            (-2488.0 + 12.0, 1440.0 - 460.0 - 12.0)
+        );
+        // Auto-hidden taskbar: by the icon, at the bottom.
+        assert_eq!(
+            place(screen, screen, (-100.0, 1420.0), SIZE, 1.0),
+            (-340.0 - 12.0, 1440.0 - 460.0 - 12.0)
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn hangs_under_the_menu_bar_icon_inside_the_screen() {
+        let screen = area(0.0, 0.0, 1512.0, 982.0);
+        let work = area(0.0, 33.0, 1512.0, 982.0);
+        assert_eq!(
+            place(screen, work, (1200.0, 16.0), SIZE, 1.0),
+            (1030.0, 39.0)
+        );
+        // Near the right edge it stops at the edge.
+        assert_eq!(
+            place(screen, work, (1500.0, 16.0), SIZE, 1.0),
+            (1512.0 - 340.0 - 6.0, 39.0)
+        );
+    }
 }
