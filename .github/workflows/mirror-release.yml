@@ -1,0 +1,106 @@
+name: Show release on the main repo
+
+# Copies a published release from PatchPilotSync/patch-pilot-releases to this
+# repo, with the same tag, title and notes and the installers people download
+# (the .dmg files and the Windows -setup.exe), so releases show on the main
+# GitHub page (decision #120). The update packages and latest.json stay only
+# on the releases repo: installed apps update from there, and this copy is for
+# people browsing the repo.
+#
+# The Release workflow calls this once a release is out. To copy an older
+# release, run it from the Actions tab with that release's tag. Running it
+# again for the same tag updates the copy in place.
+#
+# It only uses the built-in token: the releases repo is public, so reading it
+# needs no secret.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag, like v0.4.56
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, like v0.4.56
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Copy ${{ inputs.tag }} to this repo
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      SOURCE: PatchPilotSync/patch-pilot-releases
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Copy the release
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' isn't a release tag like v0.4.56"
+            exit 1
+          fi
+          if ! gh api "repos/$REPO/git/ref/tags/$TAG" > /dev/null; then
+            echo "::error::$REPO has no tag $TAG"
+            exit 1
+          fi
+
+          # The source must be published (not a draft), so this never shows a
+          # release installed apps can't see yet.
+          gh api "repos/$SOURCE/releases/tags/$TAG" > source.json
+          if [ "$(jq -r .draft source.json)" = true ]; then
+            echo "::error::$TAG is still a draft on $SOURCE"
+            exit 1
+          fi
+          title=$(jq -r .name source.json)
+          jq -r .body source.json > notes.md
+
+          mkdir assets
+          gh release download "$TAG" --repo "$SOURCE" --dir assets \
+            --pattern '*.dmg' --pattern '*-setup.exe'
+          ls -l assets
+          for want in '*_aarch64.dmg' '*_x64.dmg' '*_x64-setup.exe'; do
+            if ! compgen -G "assets/$want" > /dev/null; then
+              echo "::error::$TAG on $SOURCE has no $want installer"
+              exit 1
+            fi
+          done
+
+          # "Latest" here follows the releases repo, so copying an older
+          # release never pushes the newest one off the main page.
+          newest=$(gh api "repos/$SOURCE/releases/latest" --jq .tag_name)
+          latest=false
+          if [ "$newest" = "$TAG" ]; then latest=true; fi
+
+          if gh api "repos/$REPO/releases/tags/$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --title "$title" \
+              --notes-file notes.md --latest="$latest"
+          else
+            # A draft left by an earlier failed run has no tag yet, so look
+            # for it by name and start again.
+            for old in $(gh api "repos/$REPO/releases" --paginate \
+                --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id"); do
+              gh api -X DELETE "repos/$REPO/releases/$old"
+            done
+            # Draft first, so the release only appears once every installer
+            # is attached.
+            gh release create "$TAG" assets/* --repo "$REPO" --verify-tag \
+              --draft --title "$title" --notes-file notes.md
+            gh release edit "$TAG" --repo "$REPO" --draft=false --latest="$latest"
+          fi
+          echo "Copied $TAG: https://github.com/$REPO/releases/tag/$TAG"

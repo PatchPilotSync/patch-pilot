@@ -249,7 +249,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | Up To Speed | Guided checklist: licensing tools first, then vendor apps, then the rest | Shipped (v0.1.0) |
 | App | Tauri desktop app, compact "Mica + Frost" look in light and dark, pixel-plane logo | Shipped (v0.1.0) |
 | App | Tray / menu bar popover that expands into the main window | Shipped (v0.1.0) |
-| App | Self-update with release notes; one-click release workflow to the public releases repo | Shipped (v0.1.0) |
+| App | Self-update with release notes; one-click release workflow to the public releases repo, copied to the main repo's Releases (decision #120) | Shipped (v0.1.0) |
 | App | First-run tour (5 steps, reopen from "How it works"); plain-language copy on every screen | Shipped (v0.2.0) |
 | Always on | Opens at login hidden in the tray; rescans by itself when plug-in folders change (OS watchers, no polling) | Shipped (v0.2.0) |
 | Live sync | Link machines with a short code; live view of every machine in Compare; end-to-end encrypted relay on Cloudflare (server can't read anything); no accounts | Shipped (v0.2.0) |

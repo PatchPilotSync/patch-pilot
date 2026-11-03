@@ -3,7 +3,9 @@ name: Release
 # Builds the desktop app for macOS (Apple silicon and Intel) and Windows,
 # signs the update packages and publishes them, with latest.json for the
 # in-app updater, to the public PatchPilotSync/patch-pilot-releases repo
-# (decision #32). Run it from the Actions tab ("Run workflow" on main), which
+# (decision #32), then copies the release with its installers to this repo
+# so it shows on the main GitHub page (mirror-release.yml, decision #120).
+# Run it from the Actions tab ("Run workflow" on main), which
 # releases the version in tauri.conf.json and tags it, or push a tag
 # `v<version>`; see docs/releasing.md.
 #
@@ -277,3 +279,16 @@ jobs:
         run: |
           gh api -X POST "repos/${{ github.repository }}/git/refs" \
             -f ref="refs/tags/${{ needs.prepare.outputs.tag }}" -f sha="$GITHUB_SHA"
+
+  # Releases also show on this repo's page, with the installers (decision
+  # #120). Installed apps keep updating from the releases repo, so a failure
+  # here doesn't hold anyone back: re-run this job, or run "Show release on
+  # the main repo" from the Actions tab with the tag.
+  show-on-main-repo:
+    name: Show release on the main repo
+    needs: [prepare, publish]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/mirror-release.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}

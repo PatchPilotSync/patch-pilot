@@ -1,6 +1,6 @@
 # Patch Pilot
 
-[![Latest release](https://img.shields.io/github/v/release/PatchPilotSync/patch-pilot-releases?label=download&color=2f7cf6)](https://github.com/PatchPilotSync/patch-pilot-releases/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/PatchPilotSync/patch-pilot?label=download&color=2f7cf6)](https://github.com/PatchPilotSync/patch-pilot/releases/latest)
 [![CI](https://github.com/PatchPilotSync/patch-pilot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PatchPilotSync/patch-pilot/actions/workflows/ci.yml)
 ![Windows and macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555)
 ![License: proprietary](https://img.shields.io/badge/license-proprietary-555)
@@ -15,7 +15,7 @@ For producers, mixers and engineers who work on more than one computer, on Windo
 
 ## Download
 
-Get the latest version for Windows or macOS from the **[releases page](https://github.com/PatchPilotSync/patch-pilot-releases/releases/latest)**:
+Get the latest version for Windows or macOS from the **[releases page](https://github.com/PatchPilotSync/patch-pilot/releases/latest)**:
 
 - **Windows:** the file ending in `_x64-setup.exe`.
 - **Mac with Apple silicon (M1 to M5):** the file ending in `_aarch64.dmg`. Intel Macs take the `_x64.dmg`.
