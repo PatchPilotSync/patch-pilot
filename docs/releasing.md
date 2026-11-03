@@ -74,9 +74,21 @@ When one exists they show what changed and install it only if the user clicks
 4. The **Release** workflow checks the versions match the tag, builds macOS
    (Apple silicon and Intel) and Windows, and publishes the release with
    `latest.json`. Apps pick it up at their next launch.
+5. Its last job, **Show release on the main repo** (`mirror-release.yml`,
+   decision #120), copies the release's title, notes and installers (the two
+   `.dmg` files and the `-setup.exe`) to a release with the same tag on
+   `PatchPilotSync/patch-pilot`, so it shows on the repo's main page, which
+   the README's download link points to. The update packages and
+   `latest.json` stay only on the releases repo, which installed apps read.
 
 If a build job fails, re-run it, then re-run **Publish release**. The release
 stays a draft (invisible to the updater) until every platform is in.
+
+If only **Show release on the main repo** fails, the update is already out;
+re-run that job. To copy an older release to the main repo, open **Actions**,
+choose **Show release on the main repo**, click **Run workflow** and enter its
+tag (like `v0.4.56`). Running it again for a tag updates that copy, and it
+only marks a copy *Latest* when it's the newest release on the releases repo.
 
 ## Not done yet
 
