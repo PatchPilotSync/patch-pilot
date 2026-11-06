@@ -22,10 +22,13 @@ export function GitHubSetup({
   onUsed,
   onCancel,
   onError,
+  bare = false,
 }: {
   onUsed: () => void;
   onCancel: () => void;
   onError: (e: string) => void;
+  /** Leave out the line on what GitHub sync is, where the choice above already says it. */
+  bare?: boolean;
 }) {
   const [view, setView] = useState<GitHubView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,10 +69,12 @@ export function GitHubSetup({
 
   return (
     <div className="flex flex-col gap-1.5 text-xs">
-      <p className="text-dim">
-        Sync through a private GitHub repo instead of a cloud folder. Every change stays in the repo&apos;s history. Big
-        files still need a cloud folder.
-      </p>
+      {!bare && (
+        <p className="text-dim">
+          Sync through a private GitHub repo instead of a cloud folder. Every change stays in the repo&apos;s history.
+          Big files still need a cloud folder.
+        </p>
+      )}
       {!view.login ? (
         view.device ? (
           <span className="flex flex-wrap items-center gap-1.5">
