@@ -327,9 +327,9 @@ function lanCauseText(c: LanCause): string {
   }
 }
 
-/** A guess on this machine: a VPN carrying only internet traffic, or another rig nearby. */
+/** A guess on this machine: a VPN that may block local traffic, or another rig nearby. */
 function isGuess(c: LanCause | undefined): boolean {
-  return c?.kind === "vpn_on" || c?.kind === "other_rig";
+  return c?.kind === "vpn_on" || c?.kind === "vpn_blocks" || c?.kind === "other_rig";
 }
 
 /** Reasons that hold whatever this machine's own network does. */
