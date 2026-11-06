@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.58 - 2026-11-06
+
+### New
+
+- Get Up To Speed, Set up, This machine and Settings now say how your scripts, templates and presets get to your other machines. One line shows the next thing to do (link your machines, then turn on Keep Files in Sync) with a button for it, and turns green once both are done. "How it works" walks through the steps in order, ticks the ones already done, and says what's never copied: plug-ins, Reaper extensions like SWS and ReaPack, and sample libraries, which need their own installers.
+
 ## 0.4.57 - 2026-11-06
 
 ### New
