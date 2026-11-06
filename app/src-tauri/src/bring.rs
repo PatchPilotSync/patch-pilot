@@ -33,6 +33,15 @@ pub struct BringView {
     pub ignored: Vec<FileToBring>,
     /// The ignores that hide `ignored`, to take back.
     pub ignores: Vec<IgnoreView>,
+    /// This machine is the Primary Rig's (its latest version was made from
+    /// it), and nothing was asked `from` another machine.
+    pub primary_here: bool,
+    /// On the Primary machine: files changed here after the Primary Rig
+    /// saved them. Not brought over (that would undo the change); "Update
+    /// Primary Rig" adds them to it instead (decision #123).
+    pub changed_here: Vec<FileToBring>,
+    /// The latest Primary Rig version, to name it.
+    pub golden_version: Option<u32>,
 }
 
 /// Mirrored in `src/api.ts`.
@@ -72,10 +81,19 @@ pub async fn files_to_bring(from: Option<String>) -> Result<BringView, String> {
             cloud: None,
             ignored: Vec::new(),
             ignores: Vec::new(),
+            primary_here: false,
+            changed_here: Vec::new(),
+            golden_version: None,
         });
     }
     let this = this_machine()?;
-    let (source, files) = list(&this, from.as_deref())?;
+    let Listed {
+        source,
+        files,
+        changed_here,
+        primary_here,
+        golden_version,
+    } = list(&this, from.as_deref())?;
     let (ignored, ignores) = match &source {
         Some(source) => {
             let store = open(&db)?;
@@ -89,10 +107,13 @@ pub async fn files_to_bring(from: Option<String>) -> Result<BringView, String> {
                 &target,
                 scan.as_ref(),
             )?;
-            (
-                bring::drop_same_here(source, scan.as_ref(), ignored),
-                ignores,
-            )
+            let ignored = bring::drop_same_here(source, scan.as_ref(), ignored);
+            let ignored = if primary_here {
+                bring::split_changed_here(ignored).0
+            } else {
+                ignored
+            };
+            (ignored, ignores)
         }
         None => Default::default(),
     };
@@ -103,7 +124,39 @@ pub async fn files_to_bring(from: Option<String>) -> Result<BringView, String> {
         cloud: crate::transfer::cloud_name(),
         ignored,
         ignores,
+        primary_here,
+        changed_here,
+        golden_version,
     })
+}
+
+/// "Update Primary Rig" on the Primary machine: a new Primary Rig version
+/// with this machine's copies of the changed files (`root/rel` keys, as
+/// listed in `changed_here`). Returns the new version.
+#[tauri::command]
+pub async fn keep_changes_in_golden(app: AppHandle, keys: Vec<String>) -> Result<u32, String> {
+    let this = this_machine()?;
+    let listed = list(&this, None)?;
+    let mut products: Vec<String> = listed
+        .changed_here
+        .iter()
+        .filter(|f| keys.contains(&f.key()))
+        .filter_map(|f| f.product_id.as_ref().map(|p| p.0.clone()))
+        .collect();
+    products.sort();
+    products.dedup();
+    if products.is_empty() {
+        return Err("Those files already match the Primary Rig.".to_owned());
+    }
+    let mut store = open(&db_path()?)?;
+    let v = patchpilot_local::golden::add_to_golden(
+        &mut store,
+        &this,
+        &products,
+        patchpilot_local::now(),
+    )?;
+    crate::compare::changed_here(&app, &store);
+    Ok(v.version)
 }
 
 /// Bring over the chosen files (`root/rel` keys as listed) and every file
@@ -118,7 +171,11 @@ pub async fn bring_files(
     let rig = load_rig()?.ok_or("Link this machine first, so it can fetch the files.")?;
     let this = this_machine()?;
     let machine = open(&db_path()?)?.latest_manifest(&this).map_err(err)?;
-    let (source, list) = list(&this, from.as_deref())?;
+    let Listed {
+        source,
+        files: list,
+        ..
+    } = list(&this, from.as_deref())?;
     let source = source.ok_or("Nothing to bring over from: make a Primary Rig first.")?;
     let chosen = bring::with_needs(&list, &keys);
 
@@ -245,22 +302,51 @@ pub async fn bring_files(
     Ok(result)
 }
 
+/// What [`list`] found.
+#[derive(Default)]
+struct Listed {
+    /// The manifest files come from.
+    source: Option<Manifest>,
+    /// What it has that this machine lacks or holds an older copy of.
+    files: Vec<FileToBring>,
+    /// On the Primary machine, what changed here after the Primary Rig.
+    changed_here: Vec<FileToBring>,
+    primary_here: bool,
+    golden_version: Option<u32>,
+}
+
 /// The manifest files come from (the Primary Rig through this machine's
 /// profile, or `from`'s latest scan) and what it has that this machine lacks.
-fn list(this: &str, from: Option<&str>) -> Result<(Option<Manifest>, Vec<FileToBring>), String> {
+/// On the Primary Rig's own machine, files changed here since are set apart:
+/// they are newer than the Primary Rig's copies, not behind them.
+fn list(this: &str, from: Option<&str>) -> Result<Listed, String> {
     let store = open(&db_path()?)?;
     let machine = store.latest_manifest(this).map_err(err)?;
+    let golden = store.golden(None).map_err(err)?;
+    let golden_version = golden.as_ref().map(|g| g.info.version);
+    let primary_here = from.is_none()
+        && golden
+            .as_ref()
+            .is_some_and(|g| g.info.source_machine_id.as_deref() == Some(this));
     let source = match from {
         Some(id) if id == this => return Err("That's this machine.".to_owned()),
         Some(id) => store.latest_manifest(id).map_err(err)?,
-        None => store.golden(None).map_err(err)?.map(|g| g.manifest),
+        None => golden.map(|g| g.manifest),
     };
     let Some(source) = source else {
-        return Ok((None, Vec::new()));
+        return Ok(Listed {
+            golden_version,
+            ..Listed::default()
+        });
     };
     let (_, profile) = profiles(&store, this, from)?;
     let files = bring::files_to_bring(&source, &profile, machine.as_ref());
-    let mut files = bring::drop_same_here(&source, machine.as_ref(), files);
+    let files = bring::drop_same_here(&source, machine.as_ref(), files);
+    let (mut files, changed_here) = if primary_here {
+        bring::split_changed_here(files)
+    } else {
+        (files, Vec::new())
+    };
     if crate::transfer::cloud_name().is_some() {
         // Big files come through the cloud folder; only those too big even
         // for that can't arrive.
@@ -274,7 +360,13 @@ fn list(this: &str, from: Option<&str>) -> Result<(Option<Manifest>, Vec<FileToB
             f.incomplete = bad.contains(&f.key()) || blocked.contains(&f.key());
         }
     }
-    Ok((Some(source), files))
+    Ok(Listed {
+        source: Some(source),
+        files,
+        changed_here,
+        primary_here,
+        golden_version,
+    })
 }
 
 /// What files come through, without and with what the user ignored here:

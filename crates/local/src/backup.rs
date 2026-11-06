@@ -880,6 +880,7 @@ pub fn restore_list(
             hash: v.hash.clone(),
             size: Some(v.size),
             replaces: false,
+            newer_here: false,
             too_large: false,
             product_id: None,
             needs: Vec::new(),

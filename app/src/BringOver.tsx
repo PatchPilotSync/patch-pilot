@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { bringFiles, fileKey, filesToBring, ignoreItems, type BringResult, type BringView, type FileToBring } from "./api";
+import {
+  bringFiles,
+  fileKey,
+  filesToBring,
+  ignoreItems,
+  keepChangesInGolden,
+  type BringResult,
+  type BringView,
+  type FileToBring,
+} from "./api";
 import { bringSummary, isReaperScript, isTemplate, Needs } from "./bring";
 import { IgnoreButton, IgnoredToggle, pathRules } from "./Ignore";
 import { useShell } from "./shell";
@@ -12,6 +21,11 @@ import { Badge, Button, buildTree, Card, Folder, FolderTree, isConflictCopy, Til
  * #62); anything replaced is backed up first. Anything can be ignored here
  * (decision #65), and then stops being listed or counted. Loads its own list,
  * so any screen about this machine can show it.
+ *
+ * On the Primary Rig's own machine, files changed here after the Primary Rig
+ * saved them aren't offered: bringing the older copy over would undo the
+ * change. They get their own card, which updates the Primary Rig instead
+ * (decision #123).
  */
 export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [view, setView] = useState<BringView | null>(null);
@@ -44,7 +58,12 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   const folders = useFolders("bring-over", (id) => !id.includes("/") && groups.length === 1);
 
   if (!view || !view.has_source) return null;
-  if (files.length === 0 && !result && !view.linked) return null;
+  const changed = view.changed_here;
+  const changedCard = changed.length > 0 && (
+    <ChangedHere files={changed} version={view.golden_version} onDone={load} onError={onError} />
+  );
+  // On the Primary machine with only its own changes, that card says it all.
+  if (files.length === 0 && !result && (changed.length > 0 || !view.linked)) return changedCard || null;
 
   // The catch-all: every Reaper script here, whatever is ticked.
   const scripts = files.filter(isReaperScript);
@@ -101,173 +120,251 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
 
   const summaryLine = groups.map(([app, fs]) => `${app}: ${summaryOf(fs)}`).join(" · ");
   return (
+    <>
+      <Card
+        icon={<Tile name={upToDate ? "check" : "copies"} tone={upToDate ? "ok" : "accent"} className="" />}
+        title={
+          upToDate ? <span className="text-ok">Up to date with the Primary Rig</span> : "Bring over from the Primary Rig"
+        }
+        sub={
+          <span title={upToDate ? undefined : summaryLine}>
+            {upToDate
+              ? view.ignored.length
+                ? "Everything from the Primary Rig you haven't ignored is on this machine."
+                : "Every template, script and theme from the Primary Rig is on this machine."
+              : summaryLine}
+          </span>
+        }
+        actions={
+          <>
+            {!upToDate && (
+              <Button variant="quiet" onClick={() => setOpen((o) => !o)} className="shrink-0">
+                {open ? "Hide files" : "Show files"}
+              </Button>
+            )}
+            {view.linked && allScripts.length > 0 && allScripts.length < files.length && (
+              <Button
+                variant="link"
+                onClick={() => bring(allScripts, scripts.filter((f) => f.incomplete).length)}
+                disabled={busy}
+                className="shrink-0 whitespace-nowrap"
+                title="Every Reaper script, ReaPack package and the files they need, whatever is ticked"
+              >
+                All {allScripts.length} scripts
+              </Button>
+            )}
+            {view.linked && allTemplates.length > 0 && allTemplates.length < files.length && (
+              <Button
+                variant="link"
+                onClick={() => bring(allTemplates, templates.filter((f) => f.incomplete).length)}
+                disabled={busy}
+                className="shrink-0 whitespace-nowrap"
+                title="Every Reaper track and project template and Ableton template, whatever is ticked"
+              >
+                All {allTemplates.length} templates
+              </Button>
+            )}
+            {view.linked && allPresets.length > 0 && allPresets.length < files.length && (
+              <Button
+                variant="link"
+                onClick={() => bring(allPresets, presets.filter((f) => f.incomplete).length)}
+                disabled={busy}
+                className="shrink-0 whitespace-nowrap"
+                title="Every plug-in preset, whatever is ticked"
+              >
+                All {allPresets.length} presets
+              </Button>
+            )}
+            {view.linked && chosen.length > 0 && (
+              <Button onClick={() => bring()} disabled={busy} className="shrink-0 whitespace-nowrap">
+                {busy ? "Bringing over…" : `Bring over ${chosen.length}`}
+              </Button>
+            )}
+          </>
+        }
+      >
+        {!view.linked && files.length > 0 && (
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-1 text-[11px] text-dim">
+            Link this machine with the Primary one to bring these over.
+            {shell && (
+              <Button variant="link" className="h-5 px-1 text-[11px]" onClick={shell.link}>
+                Link a machine…
+              </Button>
+            )}
+          </p>
+        )}
+
+        {view.ignores.length > 0 && (
+          <div className="mt-1">
+            <IgnoredToggle
+              ignores={view.ignores}
+              machine={null}
+              onError={onError}
+              what={(v) => `${v.files} file${v.files === 1 ? "" : "s"}`}
+            />
+          </div>
+        )}
+
+        {summary && (
+          <p className="mt-1.5 text-[11px] text-ok">
+            {summary.text}
+            {summary.warn && <span className="text-warn"> {summary.warn}</span>}
+          </p>
+        )}
+
+        {open && !upToDate && (
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="-mx-1">
+              {groups.map(([app, fs]) => (
+                <Folder
+                  key={app}
+                  title={app}
+                  count={fs.length}
+                  className="px-1 text-xs"
+                  open={folders.isOpen(app)}
+                  onToggle={() => folders.toggle(app)}
+                  actions={
+                    <>
+                      {ignoreAction(`All ${app} files`, fs, true)}
+                      {view.linked && <FolderTick files={fs} isChosen={isChosen} onChange={setChosen} />}
+                    </>
+                  }
+                >
+                  {groupByKind(fs).map(([kind, ks]) => {
+                    const id = `${app}/${kind}`;
+                    const ticked = ks.filter(isChosen).length;
+                    return (
+                      <Folder
+                        key={id}
+                        title={isPreset(ks[0]) ? kind : plural(kind)}
+                        count={ks.length}
+                        className="pl-5 pr-1 text-xs"
+                        open={folders.isOpen(id)}
+                        onToggle={() => folders.toggle(id)}
+                        badges={view.linked && ticked < ks.length && <Badge>{ticked} ticked</Badge>}
+                        actions={
+                          <>
+                            {ignoreAction(`${app} ${plural(lower(kind))}`, ks)}
+                            {view.linked && <FolderTick files={ks} isChosen={isChosen} onChange={setChosen} />}
+                          </>
+                        }
+                      >
+                        <FolderTree
+                          node={buildTree(ks, dirsOf, id)}
+                          folders={folders}
+                          indent={36}
+                          actions={(node) => (
+                            <>
+                              {ignoreAction(node.name, treeItems(node))}
+                              {view.linked && (
+                                <FolderTick files={treeItems(node)} isChosen={isChosen} onChange={setChosen} />
+                              )}
+                            </>
+                          )}
+                          renderItems={(items, indent) => (
+                            <ul className="flex flex-col" style={{ paddingLeft: indent }}>
+                              {items.map((f) => (
+                                <FileLine
+                                  key={fileKey(f)}
+                                  f={f}
+                                  linked={view.linked}
+                                  cloud={view.cloud}
+                                  checked={isChosen(f)}
+                                  companions={needs.withNeeds([fileKey(f)]).size - 1}
+                                  onToggle={() => setChosen([f], !isChosen(f))}
+                                  ignore={ignoreAction(fileName(f.rel), [f])}
+                                />
+                              ))}
+                            </ul>
+                          )}
+                        />
+                      </Folder>
+                    );
+                  })}
+                </Folder>
+              ))}
+            </div>
+            <p className="text-[11px] text-dim">
+              Files that work together are ticked together, so they arrive whole. Anything replaced is saved first.
+            </p>
+          </div>
+        )}
+      </Card>
+      {changedCard}
+    </>
+  );
+}
+
+/**
+ * On the Primary machine: files changed here after Primary Rig v<n> was
+ * saved. They're newer than the Primary Rig's copies, so the way back to
+ * parity is to update the Primary Rig with them, not to bring the old ones
+ * over (decision #123).
+ */
+function ChangedHere({
+  files,
+  version,
+  onDone,
+  onError,
+}: {
+  files: FileToBring[];
+  version: number | null;
+  onDone: () => void;
+  onError: (e: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<number | null>(null);
+  const summaryLine = groupByApp(files)
+    .map(([app, fs]) => `${app}: ${summaryOf(fs)}`)
+    .join(" · ");
+  const keep = () => {
+    setBusy(true);
+    keepChangesInGolden(files.map(fileKey))
+      .then((v) => {
+        setSaved(v);
+        onDone();
+      })
+      .catch((e) => onError(String(e)))
+      .finally(() => setBusy(false));
+  };
+  return (
     <Card
-      icon={<Tile name={upToDate ? "check" : "copies"} tone={upToDate ? "ok" : "accent"} className="" />}
-      title={
-        upToDate ? <span className="text-ok">Up to date with the Primary Rig</span> : "Bring over from the Primary Rig"
-      }
-      sub={
-        <span title={upToDate ? undefined : summaryLine}>
-          {upToDate
-            ? view.ignored.length
-              ? "Everything from the Primary Rig you haven't ignored is on this machine."
-              : "Every template, script and theme from the Primary Rig is on this machine."
-            : summaryLine}
-        </span>
-      }
+      icon={<Tile name="star" tone="accent" className="" />}
+      title={`Changed here since Primary Rig${version ? ` v${version}` : ""}`}
+      sub={<span title={summaryLine}>{summaryLine} · newer than the Primary Rig's copies</span>}
       actions={
         <>
-          {!upToDate && (
-            <Button variant="quiet" onClick={() => setOpen((o) => !o)} className="shrink-0">
-              {open ? "Hide files" : "Show files"}
-            </Button>
-          )}
-          {view.linked && allScripts.length > 0 && allScripts.length < files.length && (
+          <Button variant="quiet" onClick={() => setOpen((o) => !o)} className="shrink-0">
+            {open ? "Hide files" : "Show files"}
+          </Button>
+          {files.some((f) => f.product_id) && (
             <Button
-              variant="link"
-              onClick={() => bring(allScripts, scripts.filter((f) => f.incomplete).length)}
+              onClick={keep}
               disabled={busy}
               className="shrink-0 whitespace-nowrap"
-              title="Every Reaper script, ReaPack package and the files they need, whatever is ticked"
+              title="This is the Primary machine: save a new Primary Rig version with this machine's copies. Your other machines then bring them over."
             >
-              All {allScripts.length} scripts
-            </Button>
-          )}
-          {view.linked && allTemplates.length > 0 && allTemplates.length < files.length && (
-            <Button
-              variant="link"
-              onClick={() => bring(allTemplates, templates.filter((f) => f.incomplete).length)}
-              disabled={busy}
-              className="shrink-0 whitespace-nowrap"
-              title="Every Reaper track and project template and Ableton template, whatever is ticked"
-            >
-              All {allTemplates.length} templates
-            </Button>
-          )}
-          {view.linked && allPresets.length > 0 && allPresets.length < files.length && (
-            <Button
-              variant="link"
-              onClick={() => bring(allPresets, presets.filter((f) => f.incomplete).length)}
-              disabled={busy}
-              className="shrink-0 whitespace-nowrap"
-              title="Every plug-in preset, whatever is ticked"
-            >
-              All {allPresets.length} presets
-            </Button>
-          )}
-          {view.linked && chosen.length > 0 && (
-            <Button onClick={() => bring()} disabled={busy} className="shrink-0 whitespace-nowrap">
-              {busy ? "Bringing over…" : `Bring over ${chosen.length}`}
+              {busy ? "Updating…" : "Update Primary Rig"}
             </Button>
           )}
         </>
       }
     >
-      {!view.linked && files.length > 0 && (
-        <p className="mt-1.5 flex flex-wrap items-center gap-x-1 text-[11px] text-dim">
-          Link this machine with the Primary one to bring these over.
-          {shell && (
-            <Button variant="link" className="h-5 px-1 text-[11px]" onClick={shell.link}>
-              Link a machine…
-            </Button>
-          )}
-        </p>
-      )}
-
-      {view.ignores.length > 0 && (
-        <div className="mt-1">
-          <IgnoredToggle
-            ignores={view.ignores}
-            machine={null}
-            onError={onError}
-            what={(v) => `${v.files} file${v.files === 1 ? "" : "s"}`}
-          />
-        </div>
-      )}
-
-      {summary && (
-        <p className="mt-1.5 text-[11px] text-ok">
-          {summary.text}
-          {summary.warn && <span className="text-warn"> {summary.warn}</span>}
-        </p>
-      )}
-
-      {open && !upToDate && (
-        <div className="mt-2 flex flex-col gap-2">
-          <div className="-mx-1">
-            {groups.map(([app, fs]) => (
-              <Folder
-                key={app}
-                title={app}
-                count={fs.length}
-                className="px-1 text-xs"
-                open={folders.isOpen(app)}
-                onToggle={() => folders.toggle(app)}
-                actions={
-                  <>
-                    {ignoreAction(`All ${app} files`, fs, true)}
-                    {view.linked && <FolderTick files={fs} isChosen={isChosen} onChange={setChosen} />}
-                  </>
-                }
-              >
-                {groupByKind(fs).map(([kind, ks]) => {
-                  const id = `${app}/${kind}`;
-                  const ticked = ks.filter(isChosen).length;
-                  return (
-                    <Folder
-                      key={id}
-                      title={isPreset(ks[0]) ? kind : plural(kind)}
-                      count={ks.length}
-                      className="pl-5 pr-1 text-xs"
-                      open={folders.isOpen(id)}
-                      onToggle={() => folders.toggle(id)}
-                      badges={view.linked && ticked < ks.length && <Badge>{ticked} ticked</Badge>}
-                      actions={
-                        <>
-                          {ignoreAction(`${app} ${plural(lower(kind))}`, ks)}
-                          {view.linked && <FolderTick files={ks} isChosen={isChosen} onChange={setChosen} />}
-                        </>
-                      }
-                    >
-                      <FolderTree
-                        node={buildTree(ks, dirsOf, id)}
-                        folders={folders}
-                        indent={36}
-                        actions={(node) => (
-                          <>
-                            {ignoreAction(node.name, treeItems(node))}
-                            {view.linked && (
-                              <FolderTick files={treeItems(node)} isChosen={isChosen} onChange={setChosen} />
-                            )}
-                          </>
-                        )}
-                        renderItems={(items, indent) => (
-                          <ul className="flex flex-col" style={{ paddingLeft: indent }}>
-                            {items.map((f) => (
-                              <FileLine
-                                key={fileKey(f)}
-                                f={f}
-                                linked={view.linked}
-                                cloud={view.cloud}
-                                checked={isChosen(f)}
-                                companions={needs.withNeeds([fileKey(f)]).size - 1}
-                                onToggle={() => setChosen([f], !isChosen(f))}
-                                ignore={ignoreAction(fileName(f.rel), [f])}
-                              />
-                            ))}
-                          </ul>
-                        )}
-                      />
-                    </Folder>
-                  );
-                })}
-              </Folder>
-            ))}
-          </div>
-          <p className="text-[11px] text-dim">
-            Files that work together are ticked together, so they arrive whole. Anything replaced is saved first.
-          </p>
-        </div>
+      {saved !== null && <p className="mt-1.5 text-[11px] text-ok">Primary Rig v{saved} has this machine's copies now.</p>}
+      {open && (
+        <ul className="mt-2 flex flex-col">
+          {files.map((f) => (
+            <li key={fileKey(f)} className="flex items-center gap-2 rounded-[5px] px-1 py-1 text-xs hover:bg-sel/50">
+              <span className="min-w-0 flex-1 truncate" title={f.rel}>
+                {fileName(f.rel)}
+              </span>
+              <span className="shrink-0 text-[11px] text-dim">
+                {f.app} {lower(f.kind)}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </Card>
   );
