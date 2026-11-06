@@ -364,6 +364,53 @@ fn golden_versions_are_kept_and_chained() {
 }
 
 #[test]
+fn adding_from_another_machine_keeps_the_primary_machine() {
+    // Before 0.4.59 an "Added ... from <machine>" version saved the adding
+    // machine as its source, which made it the Primary one (decision #123).
+    let studio = fixture_manifest();
+    let mut store = Store::open_in_memory().unwrap();
+    store.save_golden(&studio, Some("pc"), None, 100).unwrap();
+    let mut added = studio.clone();
+    added.items[0].version = Some("9.9.9".into());
+    store
+        .save_golden(&added, Some("mac"), Some("Added Acme Delay from Mac"), 200)
+        .unwrap();
+    let mut imported = added.clone();
+    imported.items[0].version = Some("9.9.10".into());
+    store
+        .save_golden(
+            &imported,
+            Some("mac"),
+            Some("Added MS-20 V from Mac (imported: v3 from Mac)"),
+            300,
+        )
+        .unwrap();
+
+    let latest = store.golden(None).unwrap().unwrap();
+    assert_eq!(latest.info.version, 3);
+    assert_eq!(latest.info.source_machine_id.as_deref(), Some("pc"));
+    let sources: Vec<_> = store
+        .golden_history()
+        .unwrap()
+        .into_iter()
+        .map(|v| v.source_machine_id)
+        .collect();
+    assert_eq!(
+        sources,
+        [Some("pc".into()), Some("pc".into()), Some("pc".into())]
+    );
+
+    // Updating from the Mac's whole scan does make it the Primary machine.
+    let mut whole = imported.clone();
+    whole.items[0].version = Some("10.0.0".into());
+    store
+        .save_golden(&whole, Some("mac"), Some("Updated from Mac"), 400)
+        .unwrap();
+    let latest = store.golden(None).unwrap().unwrap();
+    assert_eq!(latest.info.source_machine_id.as_deref(), Some("mac"));
+}
+
+#[test]
 fn migrates_a_v1_database_to_latest() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("patchpilot.db");

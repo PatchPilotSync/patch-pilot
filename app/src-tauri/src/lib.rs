@@ -156,6 +156,7 @@ pub fn run() {
             reaper::reaper_startup,
             bring::files_to_bring,
             bring::bring_files,
+            bring::keep_changes_in_golden,
             transfer::transfer_view,
             transfer::set_transfer_folder,
             transfer::send_big_files,

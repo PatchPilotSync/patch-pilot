@@ -206,6 +206,10 @@ pub struct FileToBring {
     /// True when this machine has a different file at that path (it is backed
     /// up before being replaced).
     pub replaces: bool,
+    /// This machine's different copy was saved after the one listed here (or
+    /// either time is unknown). On the Primary Rig's own machine such a file
+    /// is a change to keep, not one to overwrite: see [`split_changed_here`].
+    pub newer_here: bool,
     /// Over [`MAX_FILE_BYTES`], so it can't travel over the link.
     pub too_large: bool,
     /// Its product, to find it from the comparison's rows.
@@ -323,12 +327,12 @@ pub fn files_to_bring(
             wanted.insert(k, (item.platform, item));
         }
     }
-    let here: BTreeMap<(String, String), ContentHash> = machine
+    let here: BTreeMap<(String, String), (ContentHash, Option<i64>)> = machine
         .into_iter()
         .flat_map(|m| &m.items)
         .filter_map(|i| {
             let (_, root, rel, _) = classify(&i.path)?;
-            Some((key(root, rel), copy_hash(i)?))
+            Some((key(root, rel), (copy_hash(i)?, i.mtime)))
         })
         .collect();
 
@@ -336,10 +340,13 @@ pub fn files_to_bring(
         .into_iter()
         .filter_map(|(k, (_, item))| {
             let hash = copy_hash(item)?;
-            let replaces = match here.get(&k) {
-                Some(h) if *h == hash => return None,
-                Some(_) => true,
-                None => false,
+            let (replaces, newer_here) = match here.get(&k) {
+                Some((h, _)) if *h == hash => return None,
+                Some((_, mtime)) => (
+                    true,
+                    !matches!((mtime, item.mtime), (Some(here), Some(there)) if *here <= there),
+                ),
+                None => (false, false),
             };
             let (shared, root, rel, kind) = classify(&item.path)?;
             // Presets group by their folder: "FabFilter presets".
@@ -353,6 +360,7 @@ pub fn files_to_bring(
                 size: item.size,
                 hash,
                 replaces,
+                newer_here,
                 product_id: item.product_id.clone(),
                 // Every file it needs, listed or not; narrowed below.
                 needs: item
@@ -366,6 +374,17 @@ pub fn files_to_bring(
         .collect();
     out.sort_by(|a, b| (&a.app, &a.rel).cmp(&(&b.app, &b.rel)));
     link(out)
+}
+
+/// On the machine the Primary Rig is made from, `files` (from the Primary
+/// Rig) split into what to bring over and what this machine changed after
+/// the Primary Rig saved it. Those changes are newer than the Primary Rig's
+/// copies: bringing the Primary Rig's over would undo them, so they go to
+/// the Primary Rig instead ("Update Primary Rig").
+pub fn split_changed_here(files: Vec<FileToBring>) -> (Vec<FileToBring>, Vec<FileToBring>) {
+    let (changed, bring): (Vec<_>, Vec<_>) =
+        files.into_iter().partition(|f| f.replaces && f.newer_here);
+    (link(bring), changed)
 }
 
 /// Narrow each file's `needs` to files in the list (the rest are here
@@ -830,6 +849,45 @@ mod tests {
         assert_eq!(
             files_to_bring(&golden, &TargetProfile::default(), None).len(),
             4
+        );
+    }
+
+    #[test]
+    fn the_primary_machine_keeps_what_it_changed_since() {
+        let dated = |rel: &str, body: &str, mtime: Option<i64>| Item {
+            mtime,
+            ..template(Os::Windows, rel, body)
+        };
+        let dir = r"C:\Users\a\AppData\Roaming\REAPER";
+        let golden = manifest(
+            Os::Windows,
+            dir,
+            vec![
+                dated("reaper-kb.ini", "keys v1", Some(100)),
+                dated("reaper-menu.ini", "menus v1", None),
+                dated("FXChains/Bus.RfxChain", "bus from the Mac", Some(300)),
+                dated("FXChains/New.RfxChain", "added from the Mac", Some(300)),
+            ],
+        );
+        let pc = manifest(
+            Os::Windows,
+            dir,
+            vec![
+                dated("reaper-kb.ini", "keys v2", Some(200)),
+                dated("reaper-menu.ini", "menus v2", Some(200)),
+                dated("FXChains/Bus.RfxChain", "bus", Some(100)),
+            ],
+        );
+        let list = files_to_bring(&golden, &TargetProfile::default(), Some(&pc));
+        let (bring, changed) = split_changed_here(list);
+        let rels = |fs: &[FileToBring]| fs.iter().map(|f| f.rel.clone()).collect::<Vec<_>>();
+        // Edited here after the Primary Rig saved them (or when is unknown):
+        // the Primary Rig's copy is older, so it isn't offered.
+        assert_eq!(rels(&changed), ["reaper-kb.ini", "reaper-menu.ini"]);
+        // Newer in the Primary Rig (added from another machine), or missing here.
+        assert_eq!(
+            rels(&bring),
+            ["FXChains/Bus.RfxChain", "FXChains/New.RfxChain"]
         );
     }
 
