@@ -50,6 +50,7 @@ import { TemplateLine } from "../Templates";
 import { DiskList, DiskSummary, LowDiskNotice } from "../Disks";
 import { ReaperExtensionsNotice } from "../ReaperExtensions";
 import { ReaperStartupNotice } from "../ReaperStartup";
+import { FilesGuide } from "../FilesGuide";
 import {
   Badge,
   Button,
@@ -1802,6 +1803,7 @@ function PlanView({
         )}
         {progress && <OtherFormatsNote items={progress.other_formats} />}
         <IgnoredNotice ignores={ignores} machine={here ? null : id} name={name} onError={onError} />
+        {here && <FilesGuide where="plan" />}
       </Panel>
       <StepList steps={steps} scope={`plan.${id}`} onTick={tick} actions={actions} className="mx-3 mt-3" />
       {here && progress && <StepExtras steps={steps} onError={onError} className="mx-3 mt-3" />}

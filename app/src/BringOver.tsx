@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { bringFiles, fileKey, filesToBring, ignoreItems, type BringResult, type BringView, type FileToBring } from "./api";
 import { bringSummary, isReaperScript, isTemplate, Needs } from "./bring";
 import { IgnoreButton, IgnoredToggle, pathRules } from "./Ignore";
+import { useShell } from "./shell";
 import { Badge, Button, buildTree, Card, Folder, FolderTree, isConflictCopy, Tile, treeItems, useFolders } from "./ui";
 
 /**
@@ -19,6 +20,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BringResult | null>(null);
   const [leftOut, setLeftOut] = useState(0);
+  const shell = useShell();
 
   const files = useMemo(() => view?.files ?? [], [view]);
   const needs = useMemo(() => new Needs(files), [files]);
@@ -162,8 +164,13 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
       }
     >
       {!view.linked && files.length > 0 && (
-        <p className="mt-1.5 text-[11px] text-dim">
-          Link this machine with the Primary one (Link a machine, top bar) to bring these over.
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-1 text-[11px] text-dim">
+          Link this machine with the Primary one to bring these over.
+          {shell && (
+            <Button variant="link" className="h-5 px-1 text-[11px]" onClick={shell.link}>
+              Link a machine…
+            </Button>
+          )}
         </p>
       )}
 
