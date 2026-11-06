@@ -30,7 +30,7 @@ import { Vault } from "./screens/Vault";
 import { Scanning } from "./screens/Scanning";
 import { Settings } from "./screens/Settings";
 import { Setup, SetupOffer } from "./screens/Setup";
-import { Welcome } from "./screens/Welcome";
+import { applyFirstRun, FirstRun, finishLanIfPending, type FirstRunAnswers } from "./FirstRun";
 import { resetTour, Tour, tourPending } from "./Tour";
 import { Banner, Button, Loading, Mark, NavTab } from "./ui";
 import { UpdateBar } from "./Update";
@@ -52,13 +52,15 @@ export default function App() {
   const [notice, setNotice] = useState<string[] | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   const [compareId, setCompareId] = useState<string | null>(null);
-  const [tour, setTour] = useState(tourPending);
+  // On a first run the questions stand in for the tour (decision #121); a
+  // machine scanned before it existed still gets it once.
+  const [tour, setTour] = useState(false);
   // "Replay First Run" in the tray menu (temporary, for testing onboarding):
   // the welcome screen and tour as a new user sees them. Saved data is untouched;
   // scanning from there just rescans this machine.
   const [replay, setReplay] = useState(false);
   const [sync, setSync] = useState<SyncStatus | null>(null);
-  const [linking, setLinking] = useState(false);
+  const [linking, setLinking] = useState<false | "choose" | "enter">(false);
   const [setup, setSetup] = useState<SetupView | null>(null);
   // Bumped on every refresh so History reloads with the rest.
   const [dataVersion, setDataVersion] = useState(0);
@@ -129,7 +131,7 @@ export default function App() {
     const unlistenReplay = listen("replay-first-run", () => {
       resetTour();
       setReplay(true);
-      setTour(true);
+      setTour(false);
       setError(null);
       setNotice(null);
     });
@@ -147,6 +149,39 @@ export default function App() {
     };
   }, [refresh]);
 
+  // A machine scanned before the first-run questions existed sees the tour once.
+  const hasMachine = !!overview?.machine;
+  useEffect(() => {
+    if (hasMachine && !replay && tourPending()) setTour(true);
+  }, [hasMachine, replay]);
+
+  // The first-run "home network" answer goes on once this machine is linked.
+  const linked = !!sync?.linked;
+  useEffect(() => {
+    if (!linked) return;
+    finishLanIfPending().then(
+      (line) => line && setNotice([line]),
+      (e) => setError(String(e)),
+    );
+  }, [linked]);
+
+  async function firstRun(answers: FirstRunAnswers) {
+    const report = await scan(answers.name);
+    if (!report) return;
+    try {
+      const { lines, link } = await applyFirstRun(answers, report.overview);
+      if (lines.length) setNotice(lines);
+      if (link) setLinking(link === "enter" && !sync?.linked ? "enter" : "choose");
+      if (sync?.linked) {
+        const line = await finishLanIfPending();
+        if (line) setNotice([...lines, line]);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+    refresh();
+  }
+
   async function scan(name: string | null) {
     setError(null);
     setProgress(null);
@@ -159,8 +194,10 @@ export default function App() {
       setDataVersion((v) => v + 1);
       loadMachines().then(setView, (e) => setError(String(e)));
       loadSetupView().then(setSetup, (e) => setError(String(e)));
+      return report;
     } catch (e) {
       setError(String(e));
+      return null;
     } finally {
       setScanning(false);
     }
@@ -212,7 +249,7 @@ export default function App() {
             </NavTab>
           ))}
           <span className="flex-1" />
-          <SyncBadge status={sync} onClick={() => setLinking(true)} />
+          <SyncBadge status={sync} onClick={() => setLinking("choose")} />
           <NavTab onClick={() => setTour(true)}>How it works</NavTab>
           <NavTab active={tab === "settings"} onClick={() => setTab("settings")}>
             Settings
@@ -268,13 +305,13 @@ export default function App() {
         ) : scanning || updateScan ? (
           <Scanning progress={progress} updated={updateScan && !scanning} />
         ) : !overview.machine || replay ? (
-          <Welcome onScan={(name) => scan(name)} onTour={() => setTour(true)} />
+          <FirstRun onScan={firstRun} onTour={() => setTour(true)} onError={onError} />
         ) : tab === "settings" ? (
           <Settings
             machines={view?.machines ?? []}
             link={sync}
             refreshKey={dataVersion}
-            onLink={() => setLinking(true)}
+            onLink={() => setLinking("choose")}
             onError={onError}
           />
         ) : tab === "setup" ? (
@@ -307,7 +344,7 @@ export default function App() {
         )}
       </div>
       {tour && overview !== null && !scanning && !updateScan && <Tour onClose={() => setTour(false)} />}
-      {linking && <LinkDialog status={sync} onClose={() => setLinking(false)} />}
+      {linking && <LinkDialog status={sync} start={linking} onClose={() => setLinking(false)} />}
       {reporting && overview?.machine && (
         <ReportDialog
           machineName={overview.machine.name}

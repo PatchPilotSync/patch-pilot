@@ -251,6 +251,7 @@ Status: **Shipped** = in a published release. **On main** = merged, goes out in 
 | App | Tray / menu bar popover that expands into the main window | Shipped (v0.1.0) |
 | App | Self-update with release notes; one-click release workflow to the public releases repo, copied to the main repo's Releases (decision #120) | Shipped (v0.1.0) |
 | App | First-run tour (5 steps, reopen from "How it works"); plain-language copy on every screen | Shipped (v0.2.0) |
+| App | First-run setup questions: main machine, DAWs, how files sync (cloud folder / home network / GitHub, with benefits and limits), what stays the same; answers set the Primary Rig, DAWs, sync and linking (#121) | On main |
 | Always on | Opens at login hidden in the tray; rescans by itself when plug-in folders change (OS watchers, no polling) | Shipped (v0.2.0) |
 | Live sync | Link machines with a short code; live view of every machine in Compare; end-to-end encrypted relay on Cloudflare (server can't read anything); no accounts | Shipped (v0.2.0) |
 | Docs | README in plain language, refreshed for v0.4.30 (download, Mac fix, how syncing works) | Shipped |

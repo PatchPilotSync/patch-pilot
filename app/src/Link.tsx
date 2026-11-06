@@ -23,8 +23,17 @@ export function SyncBadge({ status, onClick }: { status: SyncStatus | null; onCl
   );
 }
 
-export function LinkDialog({ status, onClose }: { status: SyncStatus | null; onClose: () => void }) {
-  const [mode, setMode] = useState<Mode>({ kind: "choose" });
+export function LinkDialog({
+  status,
+  onClose,
+  start = "choose",
+}: {
+  status: SyncStatus | null;
+  onClose: () => void;
+  /** "enter" opens on typing a code (a new machine joining its main one, from the first-run questions). */
+  start?: "choose" | "enter";
+}) {
+  const [mode, setMode] = useState<Mode>(start === "enter" ? { kind: "enter" } : { kind: "choose" });
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

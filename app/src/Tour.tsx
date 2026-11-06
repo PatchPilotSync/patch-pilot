@@ -28,6 +28,11 @@ export function resetTour() {
   }
 }
 
+/** Count the tutorial as seen: the first-run questions stand in for it (decision #121). */
+export function markTourSeen() {
+  markSeen();
+}
+
 function markSeen() {
   try {
     localStorage.setItem(SEEN_KEY, "seen");
