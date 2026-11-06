@@ -10,6 +10,12 @@ becomes its release notes, which the app shows when it offers that update
 
 - When you sync over your home network and Patch Pilot can't find one of your linked machines, it now says which one and, when it can tell, why: a VPN or virtual network adapter is carrying its messages, Windows has the network set to Public, your Mac isn't letting it use the local network, this machine isn't on a network, or the other machine runs a different Patch Pilot version. Open Sync & backup to see each machine and a short list of what to check. It no longer says "In sync" while none of your other machines are on the network.
 
+## 0.4.58 - 2026-11-06
+
+### New
+
+- Get Up To Speed, Set up, This machine and Settings now say how your scripts, templates and presets get to your other machines. One line shows the next thing to do (link your machines, then turn on Keep Files in Sync) with a button for it, and turns green once both are done. "How it works" walks through the steps in order, ticks the ones already done, and says what's never copied: plug-ins, Reaper extensions like SWS and ReaPack, and sample libraries, which need their own installers.
+
 ## 0.4.57 - 2026-11-06
 
 ### New
