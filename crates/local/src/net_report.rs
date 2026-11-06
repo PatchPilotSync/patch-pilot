@@ -8,7 +8,7 @@
 //! missing or can't hear this one, every [`HEARTBEAT`] so the others know
 //! this machine is still running. Nothing goes out while everything works.
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -23,18 +23,29 @@ pub const HEARTBEAT: Duration = Duration::from_secs(5 * 60);
 pub const MIN_GAP: Duration = Duration::from_secs(30);
 /// A report older than this says nothing about now: the machine is asleep,
 /// Patch Pilot is closed, or it's offline. Seconds; over two heartbeats.
+/// Measured on this machine's clock from when the report reached the relay,
+/// so the other machine's clock never matters.
 pub const FRESH_SECS: i64 = 12 * 60;
+/// A subnet wider than this says nothing about which network it is.
+const MIN_PREFIX: u8 = 8;
 /// Biggest object this reads; a report is a few hundred bytes.
 const MAX_BYTES: usize = 16 * 1024;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetReport {
     #[serde(default)]
     pub version: u32,
     /// Unix seconds UTC, on the sending machine's clock.
     pub at: i64,
-    /// Home network sync is picked there and listening.
+    /// Home network sync is picked there.
     pub on: bool,
+    /// It could open its network port. Only meaningful while `on`.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub listening: bool,
+    /// Since when it has listened (Unix seconds, its own clock): a machine
+    /// that only just started can't have heard anyone yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listening_since: Option<i64>,
     /// Its home-network subnets (Wi-Fi, Ethernet): network address and
     /// prefix only. Empty when it hasn't looked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -43,9 +54,43 @@ pub struct NetReport {
     /// hasn't looked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vpn: Option<bool>,
+    /// Its internet traffic leaves through a VPN, so `public` is the VPN's,
+    /// not its home router's. None when it hasn't looked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub internet_vpn: Option<bool>,
     /// Linked machines it hears on its network now, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hears: Vec<String>,
+    /// Its public address as the relay saw it ([`public_tag`]): two
+    /// machines with the same home subnet are on the same network only if
+    /// this matches too, since most routers hand out the same few ranges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<String>,
+}
+
+impl Default for NetReport {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            at: 0,
+            on: false,
+            listening: true,
+            listening_since: None,
+            subnets: Vec::new(),
+            vpn: None,
+            internet_vpn: None,
+            hears: Vec::new(),
+            public: None,
+        }
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 impl NetReport {
@@ -69,10 +114,11 @@ impl NetReport {
         }
     }
 
-    /// Made recently enough to say something about now. A clock a little
-    /// ahead counts as now.
-    pub fn is_fresh(&self, now: i64) -> bool {
-        now - self.at.min(now) <= FRESH_SECS
+    /// It had listened for `secs` when it made this report, by its own
+    /// clock. False when it doesn't say.
+    pub fn listened_for(&self, secs: i64) -> bool {
+        self.listening_since
+            .is_some_and(|since| self.at - since >= secs)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -88,6 +134,48 @@ impl NetReport {
     }
 }
 
+/// Another machine's report, with when it reached the relay on this
+/// machine's clock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Received {
+    pub report: NetReport,
+    pub at: i64,
+}
+
+impl Received {
+    /// Recent enough to say something about now.
+    pub fn is_fresh(&self, now: i64) -> bool {
+        now - self.at.min(now) <= FRESH_SECS
+    }
+}
+
+/// When a report reached the relay, on this machine's clock: now, less how
+/// long the relay says it has held it. Without that, now.
+pub fn received_at(now: i64, held_ms: Option<i64>) -> i64 {
+    now - held_ms.map_or(0, |ms| ms.max(0) / 1000)
+}
+
+/// How a public address is compared: an IPv4 address whole (one per home
+/// router), an IPv6 one by its /64 (one per home network).
+pub fn public_tag(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => format!("v4:{v4}"),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => format!("v4:{v4}"),
+            None => {
+                let s = v6.segments();
+                format!("v6:{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+        },
+    }
+}
+
+/// Whether two [`public_tag`]s are the same place. None when they can't be
+/// compared: one machine reached the relay over IPv4, the other over IPv6.
+pub fn same_public(a: &str, b: &str) -> Option<bool> {
+    (a.get(..3)? == b.get(..3)?).then(|| a == b)
+}
+
 /// An IPv4 network: its address with the host bits cleared, and the prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Subnet {
@@ -96,9 +184,10 @@ pub struct Subnet {
 }
 
 impl Subnet {
-    /// The network `ip` is on. None for a prefix over 32.
+    /// The network `ip` is on. None for a prefix over 32, or one so wide
+    /// (under /8) it would match nearly anything.
     pub fn of(ip: Ipv4Addr, prefix: u8) -> Option<Self> {
-        (prefix <= 32).then(|| Self {
+        (MIN_PREFIX..=32).contains(&prefix).then(|| Self {
             net: mask(ip, prefix),
             prefix,
         })
@@ -150,9 +239,13 @@ mod tests {
             version: REPORT_VERSION,
             at: 1_000,
             on: true,
+            listening_since: Some(400),
             subnets: vec![net(192, 168, 1, 20, 24)],
             vpn: Some(false),
+            internet_vpn: Some(false),
             hears: vec!["desktop".into()],
+            public: Some("v4:203.0.113.5".into()),
+            ..NetReport::default()
         }
     }
 
@@ -162,7 +255,12 @@ mod tests {
         assert_eq!(s.net, Ipv4Addr::new(192, 168, 1, 0));
         assert_eq!(net(10, 1, 2, 3, 8).net, Ipv4Addr::new(10, 0, 0, 0));
         assert_eq!(net(10, 1, 2, 3, 32).net, Ipv4Addr::new(10, 1, 2, 3));
-        assert_eq!(net(10, 1, 2, 3, 0).net, Ipv4Addr::UNSPECIFIED);
+        assert_eq!(
+            Subnet::of(Ipv4Addr::new(10, 1, 2, 3), 0),
+            None,
+            "matches anything"
+        );
+        assert_eq!(Subnet::of(Ipv4Addr::new(10, 1, 2, 3), 7), None);
         assert_eq!(Subnet::of(Ipv4Addr::LOCALHOST, 33), None);
     }
 
@@ -184,11 +282,41 @@ mod tests {
     }
 
     #[test]
+    fn public_addresses_compare_within_one_family() {
+        let a = public_tag("203.0.113.5".parse().unwrap());
+        assert_eq!(a, "v4:203.0.113.5");
+        assert_eq!(public_tag("::ffff:203.0.113.5".parse().unwrap()), a);
+        let v6 = public_tag("2001:db8:1:2:aaaa::1".parse().unwrap());
+        assert_eq!(v6, "v6:2001:db8:1:2::/64");
+        assert_eq!(
+            public_tag("2001:db8:1:2:bbbb::9".parse().unwrap()),
+            v6,
+            "the same home network's /64"
+        );
+        assert_eq!(same_public(&a, "v4:203.0.113.5"), Some(true));
+        assert_eq!(same_public(&a, "v4:198.51.100.7"), Some(false));
+        assert_eq!(same_public(&a, &v6), None, "IPv4 here, IPv6 there");
+        assert_eq!(same_public("", &a), None);
+    }
+
+    #[test]
     fn a_report_round_trips_and_reads_older_and_newer_ones() {
         let r = on();
-        assert_eq!(NetReport::from_bytes(&r.to_bytes()), Some(r));
-        let json = String::from_utf8(on().to_bytes()).unwrap();
+        assert_eq!(NetReport::from_bytes(&r.to_bytes()), Some(r.clone()));
+        let json = String::from_utf8(r.to_bytes()).unwrap();
         assert!(json.contains(r#""net":"192.168.1.0""#), "{json}");
+        assert!(
+            !json.contains("listening\""),
+            "listening is the default: {json}"
+        );
+        let deaf_port = NetReport {
+            listening: false,
+            ..on()
+        };
+        assert_eq!(
+            NetReport::from_bytes(&deaf_port.to_bytes()).map(|r| r.listening),
+            Some(false)
+        );
         // A newer build's extra field, and a bare one.
         let newer = br#"{"version":2,"at":5,"on":true,"wifi":"Home"}"#;
         assert_eq!(NetReport::from_bytes(newer).map(|r| r.on), Some(true));
@@ -200,6 +328,7 @@ mod tests {
                 ..NetReport::default()
             }
         );
+        assert!(bare.listening);
         assert_eq!(NetReport::from_bytes(b"not json"), None);
         assert_eq!(NetReport::from_bytes(&vec![b' '; MAX_BYTES + 1]), None);
         // Off says nothing else.
@@ -208,12 +337,32 @@ mod tests {
     }
 
     #[test]
-    fn fresh_means_recent_on_the_senders_clock() {
+    fn fresh_means_recently_on_the_relay_by_this_machines_clock() {
+        let r = Received {
+            report: on(),
+            at: 10_000,
+        };
+        assert!(r.is_fresh(10_000));
+        assert!(r.is_fresh(10_000 + FRESH_SECS));
+        assert!(!r.is_fresh(10_000 + FRESH_SECS + 1));
+        assert!(r.is_fresh(10_000 - 60));
+        assert_eq!(received_at(10_000, Some(90_500)), 10_000 - 90);
+        assert_eq!(received_at(10_000, Some(-5)), 10_000);
+        assert_eq!(received_at(10_000, None), 10_000);
+    }
+
+    #[test]
+    fn listened_for_counts_on_the_senders_own_clock() {
         let r = on();
-        assert!(r.is_fresh(r.at));
-        assert!(r.is_fresh(r.at + FRESH_SECS));
-        assert!(!r.is_fresh(r.at + FRESH_SECS + 1));
-        assert!(r.is_fresh(r.at - 60), "a clock a little ahead");
+        assert!(r.listened_for(600));
+        assert!(!r.listened_for(601));
+        assert!(
+            !NetReport {
+                listening_since: None,
+                ..on()
+            }
+            .listened_for(0)
+        );
     }
 
     #[test]

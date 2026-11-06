@@ -12,6 +12,12 @@
 //
 // Rig requests carry `Authorization: Bearer <relay token>`. The first PUT to a
 // rig claims it; the relay keeps only a SHA-256 of the token.
+//
+// A PUT answers with the address it came from (`ip`) and a GET says how long
+// the relay has held the object (`x-age`, ms): a machine compares its public
+// address with its linked machines' and judges how old their reports are on
+// its own clock (decision #124). The relay sees the address anyway; it keeps
+// nothing more.
 
 import { DurableObject } from "cloudflare:workers";
 
@@ -156,7 +162,8 @@ export class Rig extends DurableObject<Env> {
           updated,
         );
         this.broadcast({ type: "changed", name, updated });
-        return Response.json({ name, updated });
+        const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
+        return Response.json({ name, updated, ip });
       }
       case "GET": {
         if (auth !== "ok") return text(401, "unauthorized");
@@ -171,6 +178,7 @@ export class Rig extends DurableObject<Env> {
           headers: {
             "content-type": "application/octet-stream",
             "x-updated": String(row.updated),
+            "x-age": String(Math.max(0, Date.now() - row.updated)),
           },
         });
       }

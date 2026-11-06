@@ -587,6 +587,7 @@ export type LanCause =
 /** Why one machine can't be found, from its own report over the relay; mirrors patchpilot_local::lan_diagnosis::Why. */
 export type LanWhy =
   | { kind: "off" }
+  | { kind: "cant_listen" }
   | { kind: "quiet"; since: number }
   | { kind: "their_vpn" }
   | { kind: "one_way" }

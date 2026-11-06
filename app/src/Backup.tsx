@@ -244,9 +244,13 @@ function syncLine(sync: SyncView, where: string, github: string | null, lan: Lan
       return d.here.length > 0
         ? withNote(filesLine(sync, where, github, lan), `looking for ${who}…`)
         : ["accent", `Looking for ${who} on this network…`];
-    if (d.cause) return ["warn", `Can't find ${who} on this network: ${lanCauseText(d.cause)}`];
-    if (d.here.length > 0) return withNote(filesLine(sync, where, github, lan), `${who} ${isnt} on this network now.`);
     const only = d.missing.length === 1 ? d.missing[0] : null;
+    // A guess here (a VPN for the internet, another rig nearby) gives way to
+    // what the missing machine itself says.
+    const guess = d.cause?.kind === "vpn_on" || d.cause?.kind === "other_rig";
+    if (d.cause && !(guess && only?.why))
+      return ["warn", `Can't find ${who} on this network: ${lanCauseText(d.cause)}`];
+    if (d.here.length > 0) return withNote(filesLine(sync, where, github, lan), `${who} ${isnt} on this network now.`);
     if (only?.why)
       return [
         only.why.kind === "quiet" ? "accent" : "warn",
@@ -320,6 +324,8 @@ function lanWhyText(w: LanWhy, name: string): string {
   switch (w.kind) {
     case "off":
       return `Home network sync isn't on there. On ${name}, pick Home network… under Sync & backup.`;
+    case "cant_listen":
+      return `Patch Pilot there can't open its network port. Open Sync & backup on ${name} to see why.`;
     case "quiet":
       return `it last checked in ${timeAgo(w.since)}. Make sure it's awake, with Patch Pilot open and online.`;
     case "their_vpn":
@@ -338,6 +344,8 @@ function lanWhyShort(w: LanWhy): string {
   switch (w.kind) {
     case "off":
       return "Home network isn't on there";
+    case "cant_listen":
+      return "can't open its network port";
     case "quiet":
       return `last checked in ${timeAgo(w.since)}`;
     case "their_vpn":

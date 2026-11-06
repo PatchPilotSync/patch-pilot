@@ -52,13 +52,17 @@ const MAX_CONNECTIONS: usize = 8;
 const NET_EVERY: Duration = Duration::from_secs(30);
 /// Ask Windows about an adapter (PowerShell, about a second) this often.
 const ADAPTER_EVERY: Duration = Duration::from_secs(600);
+/// A report's network facts older than this are left out: they were last
+/// looked at during an earlier problem and may no longer hold.
+const NET_FACTS_FOR: Duration = Duration::from_secs(90);
 /// Emitted with a [`Progress`] while a pull runs, then with null.
 pub const LAN_PROGRESS: &str = "lan-progress";
 
 struct Peer {
     name: String,
     addr: SocketAddr,
-    seen: Instant,
+    /// When last heard (Unix seconds). The wall clock, not an `Instant`: a
+    /// Mac's stops while it sleeps.
     seen_at: i64,
     /// When this stretch of hearing it began (Unix seconds).
     since: i64,
@@ -100,8 +104,9 @@ struct LanState {
     net: Mutex<NetCache>,
     /// The diagnosis last told to the UI.
     diagnosis: Mutex<Option<Diagnosis>>,
-    /// The report last given to `sync` to send, and when.
-    sent: Mutex<Option<(NetReport, Instant)>>,
+    /// When `sync` was last asked to send this machine's report: a put
+    /// that keeps failing is tried again, but not every beacon.
+    asked: Mutex<Option<Instant>>,
 }
 
 /// This machine's network as last looked at, while a machine was missing.
@@ -354,13 +359,10 @@ fn heard(app: &AppHandle, beacon: Beacon, ip: IpAddr) {
     let (new, wanted) = {
         let mut peers = state.peers.lock().unwrap();
         let addr = SocketAddr::new(ip, beacon.port);
-        let new = peers
-            .get(&beacon.machine_id)
-            .is_none_or(|p| p.seen.elapsed() > GONE);
+        let new = peers.get(&beacon.machine_id).is_none_or(|p| !is_here(p));
         let peer = peers.entry(beacon.machine_id.clone()).or_insert(Peer {
             name: String::new(),
             addr,
-            seen: Instant::now(),
             seen_at: 0,
             since: 0,
             state: String::new(),
@@ -369,7 +371,6 @@ fn heard(app: &AppHandle, beacon: Beacon, ip: IpAddr) {
         });
         peer.name = beacon.machine_name;
         peer.addr = addr;
-        peer.seen = Instant::now();
         peer.seen_at = patchpilot_local::now();
         if new {
             peer.since = peer.seen_at;
@@ -412,7 +413,7 @@ pub fn sync_now(app: &AppHandle) -> Result<(), String> {
         .lock()
         .unwrap()
         .iter()
-        .filter(|(_, p)| p.seen.elapsed() < GONE)
+        .filter(|(_, p)| is_here(p))
         .map(|(id, _)| id.clone())
         .collect();
     for id in ids {
@@ -573,7 +574,7 @@ fn clear_stale_error(state: &LanState) -> bool {
             .lock()
             .unwrap()
             .get(id)
-            .is_none_or(|p| p.seen.elapsed() >= GONE)
+            .is_none_or(|p| !is_here(p))
     });
     if gone {
         *from = None;
@@ -660,7 +661,7 @@ fn facts(app: &AppHandle) -> Facts {
         .map(|(id, p)| Seen {
             id: id.clone(),
             name: p.name.clone(),
-            here: p.seen.elapsed() < GONE,
+            here: is_here(p),
             seen_at: p.seen_at,
             since: p.since,
         })
@@ -686,40 +687,77 @@ fn facts(app: &AppHandle) -> Facts {
         now: patchpilot_local::now(),
         relay_online: crate::sync::online(app),
         subnets: net.subnets,
+        public: crate::sync::public(app),
         reports: crate::sync::reports(app),
     }
+}
+
+/// Heard from in the last 45 s.
+fn is_here(p: &Peer) -> bool {
+    patchpilot_local::now() - p.seen_at < GONE.as_secs() as i64
 }
 
 /// What this machine tells the others about its home network: on and
 /// listening, its subnets and whether its broadcasts go astray as last
 /// looked at, and who it hears now. Quick: no store, no command.
 pub(crate) fn own_report(app: &AppHandle) -> NetReport {
-    let state = app.state::<LanState>();
     let now = patchpilot_local::now();
-    if !in_use() || state.udp.lock().unwrap().is_none() {
+    // Sync can start before the home network is set up.
+    let Some(state) = app.try_state::<LanState>() else {
+        return NetReport::off(now);
+    };
+    if !in_use() {
         return NetReport::off(now);
     }
+    if state.udp.lock().unwrap().is_none() {
+        // Picked, but the port wouldn't open: this machine says why itself.
+        return NetReport {
+            on: true,
+            listening: false,
+            ..NetReport::off(now)
+        };
+    }
     let net = state.net.lock().unwrap().clone();
+    // Facts from an earlier problem may no longer hold: say nothing then.
+    let recent = net.checked.is_some_and(|t| t.elapsed() < NET_FACTS_FOR);
+    let through_vpn = |e: &Option<Egress>| match e {
+        Some(Egress::Lan) => Some(false),
+        Some(Egress::Vpn { .. } | Egress::Virtual { .. }) => Some(true),
+        Some(Egress::Unknown) | None => None,
+    };
     let mut hears: Vec<String> = state
         .peers
         .lock()
         .unwrap()
         .iter()
-        .filter(|(_, p)| p.seen.elapsed() < GONE)
+        .filter(|(_, p)| is_here(p))
         .map(|(id, _)| id.clone())
         .collect();
     hears.sort();
+    let listening_since = state
+        .listening_since
+        .lock()
+        .unwrap()
+        .map(|t| now - t.elapsed().as_secs() as i64);
     NetReport {
         version: net_report::REPORT_VERSION,
         at: now,
         on: true,
-        subnets: net.subnets,
-        vpn: match net.broadcast_egress {
-            Some(Egress::Lan) => Some(false),
-            Some(Egress::Vpn { .. } | Egress::Virtual { .. }) => Some(true),
-            Some(Egress::Unknown) | None => None,
+        listening: true,
+        listening_since,
+        subnets: if recent { net.subnets } else { Vec::new() },
+        vpn: if recent {
+            through_vpn(&net.broadcast_egress)
+        } else {
+            None
+        },
+        internet_vpn: if recent {
+            through_vpn(&net.route_egress)
+        } else {
+            None
         },
         hears,
+        public: crate::sync::public(app),
     }
 }
 
@@ -737,10 +775,14 @@ fn share(app: &AppHandle) {
             .unwrap()
             .as_ref()
             .is_some_and(|d| !d.missing.is_empty() || !d.deaf.is_empty());
-    let mut sent = state.sent.lock().unwrap();
-    let last = sent.as_ref().map(|(r, at)| (r, at.elapsed()));
-    if net_report::should_send(&report, last, heartbeat) {
-        *sent = Some((report, Instant::now()));
+    // Against what actually reached the relay, so a failed put is retried.
+    let last = crate::sync::last_report(app);
+    if !net_report::should_send(&report, last.as_ref().map(|(r, ago)| (r, *ago)), heartbeat) {
+        return;
+    }
+    let mut asked = state.asked.lock().unwrap();
+    if asked.is_none_or(|t| t.elapsed() >= net_report::MIN_GAP) {
+        *asked = Some(Instant::now());
         crate::sync::share_report(app);
     }
 }
@@ -785,7 +827,7 @@ pub fn view(app: &AppHandle) -> Option<LanView> {
         .map(|p| LanPeer {
             machine_name: p.name.clone(),
             seen_at: p.seen_at,
-            here: p.seen.elapsed() < GONE,
+            here: is_here(p),
         })
         .collect();
     peers.sort_by_key(|p| std::cmp::Reverse(p.seen_at));

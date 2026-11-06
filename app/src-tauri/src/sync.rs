@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use patchpilot_local::net_report::NetReport;
+use patchpilot_local::net_report::{NetReport, Received};
 use patchpilot_sync::{LinkCode, RigKey, link};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Listener, Manager, State};
@@ -58,9 +58,15 @@ pub struct Sync {
     /// unlike machines added from an export file. None until listed.
     linked: Mutex<Option<std::collections::BTreeSet<String>>>,
     /// The other machines' home-network reports, by id.
-    reports: Mutex<BTreeMap<String, NetReport>>,
+    reports: Mutex<BTreeMap<String, Received>>,
     /// Send this machine's report (`share_report`).
     report_nudge: Notify,
+    /// This machine's report as last put on the relay, and when. Only puts
+    /// that went through, so one that failed is tried again.
+    report_put: Mutex<Option<(NetReport, std::time::Instant)>>,
+    /// This machine's public address as the relay last saw it
+    /// (`net_report::public_tag`), from its answer to an upload.
+    public: Mutex<Option<String>>,
     running: AtomicBool,
     nudge: Notify,
     stop: Notify,
@@ -242,7 +248,8 @@ async fn upload(relay: &Relay, state: &Sync, this: &str, rig: &RigKey) -> Result
     let Some((object, sealed)) = out else {
         return Ok(());
     };
-    relay.put(&object, sealed).await?;
+    let ip = relay.put(&object, sealed).await?;
+    remember_public(state, ip);
     upload_files(relay, rig, &files, &state.on_relay).await
 }
 
@@ -289,7 +296,7 @@ async fn upload_files(
         // it doesn't take live sync offline. A few in a row means the
         // connection is gone, and the next upload starts over.
         match relay.put(&name, sealed).await {
-            Ok(()) => remember(on_relay, [name]),
+            Ok(_) => remember(on_relay, [name]),
             Err(e) => {
                 eprintln!("sync: {} not shared: {e}", file.rel);
                 failed += 1;
@@ -326,22 +333,41 @@ pub(crate) async fn fetch_file(
 /// up waits for the next change or session; it never takes live sync
 /// offline.
 async fn send_report(app: &AppHandle, relay: &Relay, this: &str, rig: &RigKey) {
+    let state = app.state::<SyncState>();
     let report = crate::lan::own_report(app);
     let sent = match patchpilot_local::sync::outgoing_report(this, rig, &report) {
         Ok((object, sealed)) => relay.put(&object, sealed).await,
         Err(e) => Err(e),
     };
-    if let Err(e) = sent {
-        eprintln!("sync: home-network report not sent: {e}");
+    match sent {
+        Ok(ip) => {
+            remember_public(&state, ip);
+            *state.report_put.lock().expect("report lock") =
+                Some((report, std::time::Instant::now()));
+        }
+        Err(e) => eprintln!("sync: home-network report not sent: {e}"),
     }
 }
 
-/// Another machine's home-network report; None when it has none (an older
-/// Patch Pilot) or it won't open.
-async fn fetch_report(relay: &Relay, rig: &RigKey, id: &str) -> Option<NetReport> {
+/// Keep the public address the relay saw this machine at.
+fn remember_public(state: &Sync, ip: Option<std::net::IpAddr>) {
+    if let Some(ip) = ip {
+        *state.public.lock().expect("public lock") =
+            Some(patchpilot_local::net_report::public_tag(ip));
+    }
+}
+
+/// Another machine's home-network report, with when it reached the relay
+/// by this machine's clock; None when it has none (an older Patch Pilot) or
+/// it won't open.
+async fn fetch_report(relay: &Relay, rig: &RigKey, id: &str) -> Option<Received> {
     let object = patchpilot_sync::net_object(id).ok()?;
-    let sealed = relay.get(&object).await.ok()??;
-    patchpilot_local::sync::incoming_report(rig, &object, &sealed)
+    let (sealed, held_ms) = relay.get_aged(&object).await.ok()??;
+    let report = patchpilot_local::sync::incoming_report(rig, &object, &sealed)?;
+    Some(Received {
+        report,
+        at: patchpilot_local::net_report::received_at(patchpilot_local::now(), held_ms),
+    })
 }
 
 /// Fetch and merge another machine's object. True if anything changed.
@@ -370,11 +396,30 @@ pub fn share_report(app: &AppHandle) {
 }
 
 /// The other machines' home-network reports, by id, as last read.
-pub fn reports(app: &AppHandle) -> BTreeMap<String, NetReport> {
+pub fn reports(app: &AppHandle) -> BTreeMap<String, Received> {
     app.state::<SyncState>()
         .reports
         .lock()
         .expect("reports lock")
+        .clone()
+}
+
+/// This machine's report as last put on the relay, and how long ago.
+pub fn last_report(app: &AppHandle) -> Option<(NetReport, Duration)> {
+    app.state::<SyncState>()
+        .report_put
+        .lock()
+        .expect("report lock")
+        .as_ref()
+        .map(|(r, at)| (r.clone(), at.elapsed()))
+}
+
+/// This machine's public address as the relay last saw it.
+pub fn public(app: &AppHandle) -> Option<String> {
+    app.try_state::<SyncState>()?
+        .public
+        .lock()
+        .expect("public lock")
         .clone()
 }
 
@@ -459,6 +504,7 @@ pub fn unlink(state: State<'_, SyncState>) -> Result<(), String> {
     patchpilot_local::sync::forget_rig(&app_dir()?)?;
     *state.linked.lock().expect("linked lock") = None;
     state.reports.lock().expect("reports lock").clear();
+    *state.report_put.lock().expect("report lock") = None;
     state.stop.notify_waiters();
     Ok(())
 }
@@ -555,6 +601,12 @@ struct LiveEvent {
 }
 
 #[derive(Debug, Deserialize)]
+struct PutReply {
+    #[serde(default)]
+    ip: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ObjectInfo {
     name: String,
 }
@@ -586,12 +638,17 @@ impl Relay {
         }
     }
 
-    async fn put(&self, object: &str, sealed: Vec<u8>) -> Result<(), String> {
+    /// Store one object. Gives the public address the relay saw this
+    /// machine at, when it says (older relays don't).
+    async fn put(&self, object: &str, sealed: Vec<u8>) -> Result<Option<std::net::IpAddr>, String> {
         let url = format!("{}/objects/{object}", self.base);
         let res = self
             .send(|| self.http.put(&url).body(sealed.clone()))
             .await?;
-        check(res).await.map(|_| ())
+        let reply = check(res).await?.bytes().await.unwrap_or_default();
+        Ok(serde_json::from_slice::<PutReply>(&reply)
+            .ok()
+            .and_then(|r| r.ip?.parse().ok()))
     }
 
     /// Send with the token, again after a pause if the connection drops
@@ -614,13 +671,24 @@ impl Relay {
     }
 
     async fn get(&self, object: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.get_aged(object).await?.map(|(bytes, _)| bytes))
+    }
+
+    /// An object and how long the relay has held it (ms), when it says.
+    async fn get_aged(&self, object: &str) -> Result<Option<(Vec<u8>, Option<i64>)>, String> {
         let url = format!("{}/objects/{object}", self.base);
         let res = self.send(|| self.http.get(&url)).await?;
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
         let res = check(res).await?;
-        Ok(Some(res.bytes().await.map_err(|e| e.to_string())?.to_vec()))
+        let held = res
+            .headers()
+            .get("x-age")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok());
+        let bytes = res.bytes().await.map_err(|e| e.to_string())?.to_vec();
+        Ok(Some((bytes, held)))
     }
 
     /// The objects whose names start with `prefix`. A relay from before
@@ -811,6 +879,30 @@ mod tests {
             b"<FXCHAIN\n>\n"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a relay (PATCHPILOT_RELAY)"]
+    async fn home_network_reports_travel_with_their_age() {
+        let rig = RigKey::generate();
+        let relay = Relay::new(&rig);
+        // The first put claims the rig; the relay says where it came from.
+        let ip = relay.put("machine/pc", b"sealed".to_vec()).await.unwrap();
+        assert!(ip.is_some(), "the relay answers with this machine's address");
+        let report = NetReport {
+            on: true,
+            hears: vec!["mac".into()],
+            ..NetReport::off(patchpilot_local::now())
+        };
+        let (object, sealed) =
+            patchpilot_local::sync::outgoing_report("pc", &rig, &report).unwrap();
+        relay.put(&object, sealed).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        let got = fetch_report(&relay, &rig, "pc").await.unwrap();
+        assert_eq!(got.report, report);
+        assert!(got.at < patchpilot_local::now(), "held about a second: {}", got.at);
+        assert!(got.at >= patchpilot_local::now() - 5);
+        assert!(fetch_report(&relay, &rig, "nobody").await.is_none());
     }
 
     #[tokio::test]
