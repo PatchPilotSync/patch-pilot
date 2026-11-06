@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
@@ -30,6 +30,7 @@ import { Vault } from "./screens/Vault";
 import { Scanning } from "./screens/Scanning";
 import { Settings } from "./screens/Settings";
 import { Setup, SetupOffer } from "./screens/Setup";
+import { ShellContext, type Shell } from "./shell";
 import { Welcome } from "./screens/Welcome";
 import { resetTour, Tour, tourPending } from "./Tour";
 import { Banner, Button, Loading, Mark, NavTab } from "./ui";
@@ -181,7 +182,36 @@ export default function App() {
 
   const canCompare = !!view && view.golden_version !== null && view.machines.length > 0;
 
+  // For parts deep in a screen (the files guide): the Link dialog, tabs, and
+  // whether this is the Primary Rig's machine.
+  const isPrimary = !!view?.machines.some((m) => m.golden_source && m.is_this_machine);
+  const linked = !!sync?.linked;
+  const thisId = overview?.machine?.id ?? null;
+  const ownPlan = canCompare && !!thisId && !isPrimary;
+  const shell = useMemo<Shell>(
+    () => ({
+      linked,
+      isPrimary,
+      link: () => setLinking(true),
+      setUpSync: () => {
+        setTab("rig");
+        setSyncSetupAt(Date.now());
+      },
+      settings: () => setTab("settings"),
+      upToSpeed:
+        ownPlan && thisId
+          ? () => {
+              setFocus({ id: thisId, plan: true, at: Date.now() });
+              setCompareId(thisId);
+              setTab("compare");
+            }
+          : null,
+    }),
+    [linked, isPrimary, ownPlan, thisId],
+  );
+
   return (
+    <ShellContext.Provider value={shell}>
     <main className="flex h-full flex-col bg-canvas text-fg antialiased">
       {overview?.machine && !scanning && !updateScan && !replay && (
         <nav className="flex h-10 shrink-0 items-center gap-0.5 border-b border-line bg-panel px-2">
@@ -316,5 +346,6 @@ export default function App() {
         />
       )}
     </main>
+    </ShellContext.Provider>
   );
 }

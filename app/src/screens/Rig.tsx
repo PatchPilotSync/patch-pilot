@@ -1,4 +1,5 @@
 import { BackupLine } from "../Backup";
+import { FilesGuide } from "../FilesGuide";
 import { BigFiles } from "../BigFiles";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -138,6 +139,7 @@ export function Rig({
       <Panel className="mx-3 mt-3 p-1">
         <GoldenLine golden={golden} busy={busy} onMakeGolden={onMakeGolden} />
         <BackupLine onError={onError} fresh={!golden} openAt={syncSetupAt} />
+        <FilesGuide where="rig" />
         {setupOffer}
         {/* Errors here surface where the files are listed, on Up To Speed. */}
         <BigFiles onError={() => {}} compact />

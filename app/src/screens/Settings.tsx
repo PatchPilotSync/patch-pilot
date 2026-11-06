@@ -27,6 +27,7 @@ import {
   type Theme,
 } from "../api";
 import { BackupLine, SyncChoices } from "../Backup";
+import { FilesGuide } from "../FilesGuide";
 import { IgnoredToggle, useIgnores } from "../Ignore";
 import { Button, Glyph, Label, Loading, Panel, type GlyphName } from "../ui";
 
@@ -100,6 +101,7 @@ export function Settings({
 
       <Section title="Sync" icon="sync" flush>
         <BackupLine onError={onError} fresh={false} choices={false} />
+        <FilesGuide where="settings" />
       </Section>
 
       <Section title="What syncs" icon="copies">

@@ -1,5 +1,22 @@
 # What keeps in sync between machines
 
+## Getting it working
+
+1. **Link your machines** (Link a machine, top bar). Files only move between
+   linked machines.
+2. **Bring over what's missing.** On a machine that's behind, Get Up To Speed's
+   Bring over step copies the Primary Rig's templates, scripts, themes and
+   presets it lacks, each with the files it needs.
+3. **Turn on Keep Files in Sync on every machine** (Sync & backup on This
+   machine, or Settings): pick the same cloud folder, GitHub repo or home
+   network on each. From then on the files below follow on their own.
+4. **Choose what syncs** per machine in Settings, if a machine should keep some
+   kind of file its own.
+
+The "Scripts, templates and presets" line in Get Up To Speed, Set up, This
+machine and Settings walks through the same steps and shows which are done
+(decision #122).
+
 With **Keep Files in Sync** on, each machine backs up after every change and
 places what's new, changed or renamed on its linked machines (decisions #70,
 #74, #77). Every placement is a restore point that History can undo.
