@@ -23,6 +23,7 @@ import {
 import { RestoreFromBackup } from "../Backup";
 import { BigFiles } from "../BigFiles";
 import { BringOver } from "../BringOver";
+import { FilesGuide } from "../FilesGuide";
 import { ReaperExtras } from "../ReaperExtras";
 import { IgnoreButton, IgnoredNotice, productRules, useIgnores } from "../Ignore";
 import { AppButton } from "./Compare";
@@ -137,8 +138,9 @@ function Start({
           <h1 className="text-base font-semibold">Set up this machine</h1>
           <p className="mt-1 text-xs leading-relaxed text-dim">
             Patch Pilot lists what this machine needs from your Primary Rig, in the order to do it: licences and
-            vendor apps first, then plug-ins, then your DAW files. It never installs or copies plug-ins for you. As
-            you install things, it ticks them off after each rescan, and you get a report at the end.
+            vendor apps first, then plug-ins, then your DAW files. It never installs or copies plug-ins for you, but
+            once your machines are linked it can bring over your templates, scripts and presets. As you install things,
+            it ticks them off after each rescan, and you get a report at the end.
           </p>
         </div>
       </div>
@@ -300,6 +302,7 @@ function Progress({
         )}
         <OtherFormatsNote items={p.other_formats} />
         <IgnoredNotice ignores={ignores} machine={null} onError={onError} />
+        <FilesGuide where="setup" />
       </Panel>
 
       <StepList

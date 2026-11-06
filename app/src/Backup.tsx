@@ -741,8 +741,8 @@ export function SyncHint() {
   return (
     <>
       Which cloud service do you use? Pick the same one on each machine. New and changed templates, scripts and presets
-      go through a <span className="font-medium">Patch Pilot Backup</span> folder there and land on your other machines
-      on their own.
+      go through a <span className="font-medium">Patch Pilot Backup</span> folder there and land on your linked
+      machines on their own.
     </>
   );
 }
@@ -1097,7 +1097,7 @@ function restoreSummary(r: RestoreReport): string {
 }
 
 /** "Dropbox", or the folder's name. */
-function placeName(view: BackupView): string {
+export function placeName(view: BackupView): string {
   if (view.github) return "GitHub";
   if (view.lan) return "your home network";
   const cloud = view.clouds.find((c) => c.path === view.settings.folder);

@@ -185,7 +185,7 @@ function SyncStep() {
   }
 
   const intro =
-    "Templates, scripts, presets and DAW settings reach your other machines on their own. Choose what syncs on each machine; Reaper shortcuts move between PC and Mac keys.";
+    "Link your machines, then pick the same cloud folder on each. Templates, scripts, presets and DAW settings then reach the others on their own; Get Up To Speed brings over what a machine still lacks. Choose what syncs per machine; Reaper shortcuts move between PC and Mac keys.";
   if (view?.github && view.settings.keep_in_sync) {
     return (
       <>
@@ -216,7 +216,7 @@ function SyncStep() {
             missing={false}
             preferred={view.settings.folder ?? view.transfer_folder}
             onChoose={choose}
-            hint="Which cloud service do you use? Pick the same one on each machine, or GitHub later on This machine."
+            hint="Which cloud service do you use? Pick the same one on each machine, or GitHub or your home network later on This machine."
           />
         </span>
       )}

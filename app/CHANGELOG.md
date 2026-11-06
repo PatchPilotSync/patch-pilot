@@ -10,6 +10,12 @@ becomes its release notes, which the app shows when it offers that update
 
 - When you sync over your home network and Patch Pilot can't find one of your linked machines, it now says which one and, when it can tell, why: a VPN or virtual network adapter is carrying its messages, Windows has the network set to Public, your Mac isn't letting it use the local network, this machine isn't on a network, or the other machine runs a different Patch Pilot version. Open Sync & backup to see each machine and a short list of what to check. It no longer says "In sync" while none of your other machines are on the network.
 
+## 0.4.57 - 2026-11-06
+
+### New
+
+- Setting up Patch Pilot on a new machine now asks a few quick questions first: is this your main machine, which DAWs you use (Reaper, Ableton Live), how your machines should share files (a cloud folder like Dropbox, your home network, or a private GitHub repo, each with what it's good at and its limits), and what should stay the same on every machine. Your answers set things up for you: your main machine becomes the Primary Rig, the sync folder or GitHub repo is picked right there, a second machine goes straight to linking, and DAWs you don't use are left out. Everything can still be changed in Settings.
+
 ## 0.4.56 - 2026-11-01
 
 ### Fixed
