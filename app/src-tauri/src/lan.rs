@@ -52,6 +52,8 @@ const MAX_CONNECTIONS: usize = 8;
 const NET_EVERY: Duration = Duration::from_secs(30);
 /// Ask Windows about an adapter (PowerShell, about a second) this often.
 const ADAPTER_EVERY: Duration = Duration::from_secs(600);
+/// …or this often while it couldn't say (WMI timed out, PowerShell blocked).
+const ADAPTER_RETRY: Duration = Duration::from_secs(60);
 /// A report's network facts older than this are left out: they were last
 /// looked at during an earlier problem and may no longer hold.
 const NET_FACTS_FOR: Duration = Duration::from_secs(90);
@@ -349,7 +351,8 @@ fn announce(app: &AppHandle, to: Option<IpAddr>) {
         // Only the broadcast says something about this machine's network: a
         // machine heard before that left answers "unreachable" too.
         if ip == broadcast {
-            *state.broadcast_error.lock().unwrap() = sent.err().and_then(|e| e.raw_os_error());
+            *state.broadcast_error.lock().unwrap() =
+                sent.err().map(|e| e.raw_os_error().unwrap_or(-1));
         }
     }
 }
@@ -552,7 +555,7 @@ fn check(app: &AppHandle) {
         .lock()
         .unwrap()
         .checked_at
-        .is_none_or(|t| patchpilot_local::now() - t >= NET_EVERY.as_secs() as i64);
+        .is_none_or(|t| !net_age_within(t, NET_EVERY));
     // Only while something is wrong: a machine that might still turn up is
     // missing (not one that said it doesn't use the home network), or one
     // here can't hear this one.
@@ -609,6 +612,7 @@ fn look_at_network(app: &AppHandle) {
     // What Windows says about the adapters the packets leave on, since many
     // VPNs call theirs "Ethernet 4" and say what they are only there.
     let mut broadcast_info = None;
+    let mut undescribed: Vec<String> = Vec::new();
     for (src, is_broadcast) in [(broadcast, true), (route, false)] {
         let Some(name) = src
             .and_then(|ip| netinfo::interface_of(ip, &ifaces))
@@ -619,7 +623,14 @@ fn look_at_network(app: &AppHandle) {
         let fresh = net
             .adapters
             .get(&name)
-            .filter(|(at, _)| at.elapsed() < ADAPTER_EVERY)
+            .filter(|(at, info)| {
+                at.elapsed()
+                    < if info.is_some() {
+                        ADAPTER_EVERY
+                    } else {
+                        ADAPTER_RETRY
+                    }
+            })
             .map(|(_, info)| info.clone());
         // Without it a VPN called "Ethernet 4" passes for the home network,
         // so ask even while another machine is here.
@@ -632,12 +643,25 @@ fn look_at_network(app: &AppHandle) {
         if let Some(i) = ifaces.iter_mut().find(|i| i.name == name) {
             i.description = info.as_ref().and_then(|a| a.description.clone());
         }
+        if info.is_none() {
+            undescribed.push(name.clone());
+        }
         if is_broadcast {
             broadcast_info = info;
         }
     }
-    net.broadcast_egress = broadcast.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
-    net.route_egress = route.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
+    // On Windows a VPN often calls its adapter "Ethernet 4" and says what it
+    // is only in the description: without one, the name alone can't tell.
+    let egress = |ip: IpAddr| {
+        let kind = lan_diagnosis::egress_kind(ip, &ifaces, route);
+        let unsure = cfg!(windows)
+            && kind == Egress::Lan
+            && netinfo::interface_of(ip, &ifaces)
+                .is_some_and(|n| undescribed.iter().any(|u| u == n));
+        if unsure { Egress::Unknown } else { kind }
+    };
+    net.broadcast_egress = broadcast.map(egress);
+    net.route_egress = route.map(egress);
     let subnets = lan_diagnosis::subnets(&ifaces, route);
     if !net.subnets.is_empty() && subnets != net.subnets {
         // Another network: the public address the relay saw belongs to the
@@ -682,7 +706,14 @@ fn facts(app: &AppHandle) -> Facts {
             since: p.since,
         })
         .collect();
-    let net = state.net.lock().unwrap().clone();
+    let mut net = state.net.lock().unwrap().clone();
+    if !net
+        .checked_at
+        .is_some_and(|t| net_age_within(t, NET_FACTS_FOR))
+    {
+        // From an earlier look that may no longer hold: as if never looked.
+        net = NetCache::default();
+    }
     Facts {
         listening_for: state
             .listening_since
@@ -706,6 +737,14 @@ fn facts(app: &AppHandle) -> Facts {
         public: crate::sync::public(app),
         reports: crate::sync::reports(app),
     }
+}
+
+/// A wall-clock time at most `within` ago. A clock stepped back makes it
+/// "not within", so the network is looked at again and old facts aren't
+/// taken as fresh.
+fn net_age_within(t: i64, within: Duration) -> bool {
+    let age = patchpilot_local::now() - t;
+    (0..within.as_secs() as i64).contains(&age)
 }
 
 /// Heard from in the last 45 s.
@@ -737,7 +776,7 @@ pub(crate) fn own_report(app: &AppHandle) -> NetReport {
     // Facts from an earlier problem may no longer hold: say nothing then.
     let recent = net
         .checked_at
-        .is_some_and(|t| now - t < NET_FACTS_FOR.as_secs() as i64);
+        .is_some_and(|t| net_age_within(t, NET_FACTS_FOR));
     // A virtual adapter isn't a VPN: its own field, so the others can say so.
     let through_vpn = |e: &Option<Egress>| match e {
         Some(Egress::Lan | Egress::Virtual { .. }) => Some(false),

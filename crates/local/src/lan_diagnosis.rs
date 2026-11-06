@@ -51,10 +51,15 @@ const DEAF_AFTER_SECS: i64 = 90;
 /// machine that just restarted isn't taken as deaf.
 const LISTEN_FIRST_SECS: i64 = 30;
 /// A missing machine's report says how things are now only if it reached
-/// the relay at least this long after this machine last heard it (a beacon
-/// apart): an earlier one was made while it was still here, before it went
-/// to sleep, quit or moved.
-const AFTER_HEARD_SECS: i64 = 10;
+/// the relay at least this long after this machine last heard it (two
+/// beacons, for one lost and clocks in whole seconds): an earlier one was
+/// made while it was still here, before it went to sleep, quit or moved.
+const AFTER_HEARD_SECS: i64 = 20;
+/// How long a report's `hears` keeps a machine after last hearing it (the
+/// app's 45 s "gone"), plus a beacon: "it hears this machine" only means now
+/// in a report made at least this long after this machine last heard it, or
+/// after this machine started listening (it may have heard the run before).
+const HEARS_FOR_SECS: i64 = 55;
 
 /// A network interface: its name as the OS shows it ("Wi-Fi", "en0"), its
 /// addresses with their prefix lengths, and on Windows the adapter's
@@ -282,13 +287,14 @@ pub fn diagnose(f: &Facts) -> Diagnosis {
         .collect();
     deaf.sort();
     let looking = !missing.is_empty() && f.listening_for < GRACE;
-    let cause = if !missing.is_empty() && !looking {
+    let mut cause = if !missing.is_empty() && !looking {
         cause(f, !here.is_empty())
-    } else if !deaf.is_empty() {
-        deaf_cause(f)
     } else {
         None
     };
+    if cause.is_none() && !deaf.is_empty() {
+        cause = deaf_cause(f);
+    }
     Diagnosis {
         here,
         missing,
@@ -331,20 +337,26 @@ fn why(f: &Facts, id: &str, seen: Option<&Seen>) -> Option<Why> {
     if let Some(name) = &r.virtual_adapter {
         return Some(Why::TheirVirtual { name: name.clone() });
     }
-    // Its own sends go where they should, so what it hears or doesn't says
-    // something about this machine and the network between.
-    let sends_fine = r.vpn == Some(false) && !r.send_error;
-    // What it heard before this machine started listening was an earlier
-    // run of Patch Pilot here.
-    let since_listening = at >= f.now - f.listening_for.as_secs() as i64;
-    if r.hears.contains(&f.this_id) {
-        return (sends_fine && since_listening).then_some(Why::OneWay);
-    }
-    if r.subnets.is_empty() || f.subnets.is_empty() {
-        return None;
-    }
-    if !share_a_network(&r.subnets, &f.subnets) {
+    let both_looked = !r.subnets.is_empty() && !f.subnets.is_empty();
+    if both_looked && !share_a_network(&r.subnets, &f.subnets) {
         return Some(Why::OtherNetwork);
+    }
+    // Both sides' sends go where they should, so what it hears or doesn't
+    // says something about the firewalls and the network between.
+    let sends_fine = r.vpn == Some(false)
+        && !r.send_error
+        && matches!(f.broadcast_egress, Some(Egress::Lan))
+        && f.broadcast_error.is_none();
+    let listening_from = f.now - f.listening_for.as_secs() as i64;
+    if r.hears.contains(&f.this_id) {
+        // Its `hears` keeps a machine 45 s: it must postdate both this
+        // machine losing it and this run starting.
+        let current = at >= listening_from + HEARS_FOR_SECS
+            && seen.is_none_or(|s| at >= s.seen_at + HEARS_FOR_SECS);
+        return (sends_fine && current).then_some(Why::OneWay);
+    }
+    if !both_looked {
+        return None;
     }
     // The same range. Most routers hand out the same few, so it's the same
     // network only if the public address matches too, and that only says
@@ -357,9 +369,9 @@ fn why(f: &Facts, id: &str, seen: Option<&Seen>) -> Option<Why> {
     if !same {
         return Some(Why::OtherNetwork);
     }
-    // Same network: blocked only when neither side's packets go astray.
-    (matches!(f.broadcast_egress, Some(Egress::Lan)) && sends_fine && since_listening)
-        .then_some(Why::Blocked)
+    // Same network: blocked only when neither side's packets go astray, and
+    // it had time to hear this run's beacons.
+    (sends_fine && at >= listening_from + AFTER_HEARD_SECS).then_some(Why::Blocked)
 }
 
 impl Diagnosis {
@@ -1375,6 +1387,59 @@ mod tests {
                 name: "vEthernet (WSL)".into()
             })
         );
+    }
+
+    #[test]
+    fn hearing_this_machine_needs_a_report_well_after_it_was_last_heard() {
+        let hears_us = |at: i64| NetReport {
+            at,
+            hears: vec!["desk".into()],
+            ..report()
+        };
+        // A beacon was lost, then it sent a heartbeat and closed its lid:
+        // its "hears" still had this machine in it.
+        let lid = Facts {
+            seen: vec![left(NOW - 120)],
+            ..compared(hears_us(NOW - 107))
+        };
+        assert_eq!(why_of(&lid), None);
+        let later = Facts {
+            seen: vec![left(NOW - 120)],
+            ..compared(hears_us(NOW - 60))
+        };
+        assert_eq!(why_of(&later), Some(Why::OneWay));
+        // It moved to another network while it still listed this machine.
+        let moved = Facts {
+            seen: vec![left(NOW - 120)],
+            ..compared(NetReport {
+                subnets: vec![Subnet::of(Ipv4Addr::new(10, 0, 0, 7), 24).unwrap()],
+                ..hears_us(NOW - 100)
+            })
+        };
+        assert_eq!(why_of(&moved), Some(Why::OtherNetwork));
+        // It heard the run before this one, which quit moments ago.
+        let rerun = Facts {
+            listening_for: Duration::from_secs(90),
+            ..compared(hears_us(NOW - 60))
+        };
+        assert_eq!(why_of(&rerun), None);
+    }
+
+    #[test]
+    fn this_machines_own_failing_sends_rule_out_blocked_and_one_way() {
+        let failing = Facts {
+            broadcast_error: Some(10051),
+            ..compared(report())
+        };
+        assert_eq!(why_of(&failing), None);
+        let hears_us = Facts {
+            broadcast_error: Some(10051),
+            ..compared(NetReport {
+                hears: vec!["desk".into()],
+                ..report()
+            })
+        };
+        assert_eq!(why_of(&hears_us), None);
     }
 
     #[test]

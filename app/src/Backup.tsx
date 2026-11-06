@@ -245,10 +245,11 @@ function syncLine(sync: SyncView, where: string, github: string | null, lan: Lan
     if (cause) return ["warn", `Can't find ${who} on this network: ${lanCauseText(cause)}`];
     if (d.here.length > 0) {
       // Someone here can't hear this machine too: that's not "in sync".
-      if (deaf.length > 0) {
-        const [, text] = withNote(filesLine(sync, where, github, lan), `${who} ${isnt} on this network now`);
-        return ["warn", `${text}, and ${andList(deaf)} can't hear this machine.`];
-      }
+      if (deaf.length > 0)
+        return [
+          "warn",
+          `${who} ${isnt} on this network now, and ${andList(deaf)} can't hear this machine, so this machine's files aren't reaching ${deaf.length === 1 ? "it" : "them"}. Show what to check.`,
+        ];
       return withNote(filesLine(sync, where, github, lan), `${who} ${isnt} on this network now.`);
     }
     const allQuiet = d.missing.every((m) => m.why?.kind === "quiet");
@@ -323,16 +324,20 @@ function isGuess(c: LanCause | undefined): boolean {
   return c?.kind === "vpn_on" || c?.kind === "other_rig";
 }
 
+/** Reasons that hold whatever this machine's own network does. */
+const THEIR_SIDE = new Set<LanWhy["kind"]>(["off", "cant_listen", "quiet", "their_vpn", "their_virtual", "other_network"]);
+
 /**
  * Whether this machine's own cause gives way to what the missing machines
  * say: a guess gives way to any of their reasons, and any cause gives way
- * when every one of them is off the home network or asleep, which holds
- * whatever this machine's network does. The line and the details agree.
+ * when every one of them has a reason on its own side (off, asleep, its VPN,
+ * another network): a laptop at a café is told it's on another network, not
+ * to make the café's Wi-Fi Private. The line and the details agree.
  */
 function causeGivesWay(d: LanDiagnosis): boolean {
   if (!d.cause || d.missing.length === 0) return false;
   if (isGuess(d.cause) && d.missing.some((m) => m.why)) return true;
-  return d.missing.every((m) => m.why?.kind === "off" || m.why?.kind === "quiet");
+  return d.missing.every((m) => m.why && THEIR_SIDE.has(m.why.kind));
 }
 
 /** What a missing machine's own report says, after "Can't find X on this network: ". */
@@ -375,7 +380,7 @@ function lanWhyShort(w: LanWhy): string {
     case "other_network":
       return "on a different network";
     case "blocked":
-      return "same network, but neither hears the other";
+      return "its report says the same network, but neither hears the other";
   }
 }
 
@@ -392,7 +397,8 @@ function LanMachines({ lan }: { lan: LanView }) {
   // sure cause that gave way is still worth fixing, so it stays, as "also".
   const givesWay = causeGivesWay(d);
   const shown = givesWay && isGuess(d.cause) ? undefined : d.cause;
-  const cause = shown?.kind;
+  // Only the reason shown as the reason marks the checklist.
+  const cause = givesWay ? undefined : shown?.kind;
   const deaf = d.deaf ?? [];
   const whys = new Set(d.missing.map((m) => m.why?.kind));
   const items: [string, boolean][] = [
@@ -434,7 +440,7 @@ function LanMachines({ lan }: { lan: LanView }) {
           {/* The line above is cut to one line; the reason is here in full. */}
           {shown && (
             <p className="mt-1 text-warn">
-              {givesWay ? "Also on this machine" : "Likely reason"}: {lanCauseText(shown)}
+              {givesWay ? "Also worth checking" : "Likely reason"}: {lanCauseText(shown)}
             </p>
           )}
           {!d.looking &&

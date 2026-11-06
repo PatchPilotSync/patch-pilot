@@ -159,6 +159,10 @@ async fn run(app: &AppHandle, state: &Sync) {
 async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), String> {
     let relay = Relay::new(rig);
     let this = this_machine()?;
+    // A new session often means a new network (waking somewhere else): the
+    // address the relay saw before may not be this one. The first upload
+    // says again.
+    *state.public.lock().expect("public lock") = None;
     // Upload first: the first upload claims a new rig, and live needs a claimed one.
     upload(&relay, state, &this, rig).await?;
     let mut ws = relay.live().await?;
@@ -200,9 +204,17 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     });
 
     let mut ping = tokio::time::interval(PING_EVERY);
+    // When a ping went out that nothing has answered yet. A connection that
+    // died silently (sleep, a dropped Wi-Fi) is noticed from that, so this
+    // machine doesn't keep trusting reports it can no longer see change.
+    let mut unanswered: Option<std::time::Instant> = None;
     loop {
         tokio::select! {
+            // Messages first, so an answer that came in during a long pull
+            // is seen before the next ping is judged.
+            biased;
             msg = ws.next() => {
+                unanswered = None;
                 let text = match msg {
                     Some(Ok(Message::Text(t))) => t,
                     Some(Ok(Message::Close(_))) | None => return Ok(()),
@@ -229,8 +241,23 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
                 }
             }
             () = state.nudge.notified() => upload(&relay, state, &this, rig).await?,
-            () = state.report_nudge.notified() => send_report(app, &relay, &this, rig).await,
-            _ = ping.tick() => ws.send(Message::text("ping")).await.map_err(|e| e.to_string())?,
+            () = state.report_nudge.notified() => {
+                // A nudge left from before this session or a failed one: the
+                // session start just sent the same.
+                let current = crate::lan::own_report(app);
+                let just_sent = last_report(app)
+                    .is_some_and(|(r, ago)| ago < patchpilot_local::net_report::MIN_GAP && r.same_news(&current));
+                if !just_sent {
+                    send_report(app, &relay, &this, rig).await;
+                }
+            }
+            _ = ping.tick() => {
+                if unanswered.is_some_and(|t| t.elapsed() >= PING_EVERY) {
+                    return Err("the relay stopped answering".into());
+                }
+                ws.send(Message::text("ping")).await.map_err(|e| e.to_string())?;
+                unanswered.get_or_insert_with(std::time::Instant::now);
+            }
         }
     }
 }
@@ -899,6 +926,24 @@ mod tests {
             b"<FXCHAIN\n>\n"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a relay (PATCHPILOT_RELAY)"]
+    async fn the_live_connection_answers_pings() {
+        // A session counts as offline when a ping goes unanswered.
+        let rig = RigKey::generate();
+        let relay = Relay::new(&rig);
+        relay.put("machine/pc", b"sealed".to_vec()).await.unwrap();
+        let mut ws = relay.live().await.unwrap();
+        ws.send(Message::text("ping")).await.unwrap();
+        let answer = tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("an answer");
+        let Some(Ok(Message::Text(t))) = answer else {
+            panic!("no pong: {answer:?}")
+        };
+        assert_eq!(t.as_str(), "pong");
     }
 
     #[tokio::test]
