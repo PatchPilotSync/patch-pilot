@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## 0.4.57 - 2026-11-06
+
+### New
+
+- Setting up Patch Pilot on a new machine now asks a few quick questions first: is this your main machine, which DAWs you use (Reaper, Ableton Live), how your machines should share files (a cloud folder like Dropbox, your home network, or a private GitHub repo, each with what it's good at and its limits), and what should stay the same on every machine. Your answers set things up for you: your main machine becomes the Primary Rig, the sync folder or GitHub repo is picked right there, a second machine goes straight to linking, and DAWs you don't use are left out. Everything can still be changed in Settings.
+
 ## 0.4.56 - 2026-11-01
 
 ### Fixed
