@@ -15,6 +15,11 @@
 //! gathered here, and `patchpilot_local::netinfo` looks at the network only
 //! while a machine is missing, so an idle machine with everyone found does
 //! no extra work.
+//!
+//! The same loop keeps this machine's home-network report on the relay
+//! (decision #124): sent when it changes and, while a machine is missing or
+//! can't hear this one, every few minutes. The other machines' reports come
+//! back through `sync` and name what only they can see.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -26,6 +31,7 @@ use patchpilot_local::backup::{self, BackupSettings};
 use patchpilot_local::github::FileIndex;
 use patchpilot_local::lan::{self, Beacon, Connection, Heard, Progress, PullReport};
 use patchpilot_local::lan_diagnosis::{self, Diagnosis, Egress, Expected, Facts, Profile, Seen};
+use patchpilot_local::net_report::{self, NetReport, Subnet};
 use patchpilot_local::netinfo::{self, AdapterInfo};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
@@ -54,6 +60,8 @@ struct Peer {
     addr: SocketAddr,
     seen: Instant,
     seen_at: i64,
+    /// When this stretch of hearing it began (Unix seconds).
+    since: i64,
     /// Its copy's state when last heard.
     state: String,
     /// The state last pulled in full.
@@ -92,6 +100,8 @@ struct LanState {
     net: Mutex<NetCache>,
     /// The diagnosis last told to the UI.
     diagnosis: Mutex<Option<Diagnosis>>,
+    /// The report last given to `sync` to send, and when.
+    sent: Mutex<Option<(NetReport, Instant)>>,
 }
 
 /// This machine's network as last looked at, while a machine was missing.
@@ -102,6 +112,8 @@ struct NetCache {
     route_egress: Option<Egress>,
     has_lan: Option<bool>,
     profile: Option<Profile>,
+    /// The Wi-Fi and Ethernet subnets, for this machine's report.
+    subnets: Vec<Subnet>,
     /// What Windows said about each adapter, by name, and when.
     adapters: HashMap<String, (Instant, Option<AdapterInfo>)>,
 }
@@ -155,6 +167,7 @@ pub fn setup(app: &AppHandle) {
                 announce(&handle, None);
                 check(&handle);
             }
+            share(&handle);
             std::thread::sleep(BEACON_EVERY);
         }
     });
@@ -349,6 +362,7 @@ fn heard(app: &AppHandle, beacon: Beacon, ip: IpAddr) {
             addr,
             seen: Instant::now(),
             seen_at: 0,
+            since: 0,
             state: String::new(),
             pulled: None,
             failed: None,
@@ -357,6 +371,9 @@ fn heard(app: &AppHandle, beacon: Beacon, ip: IpAddr) {
         peer.addr = addr;
         peer.seen = Instant::now();
         peer.seen_at = patchpilot_local::now();
+        if new {
+            peer.since = peer.seen_at;
+        }
         peer.state = beacon.state;
         let wanted = peer.pulled.as_ref() != Some(&peer.state)
             && peer.failed.is_none_or(|f| f.elapsed() > RETRY);
@@ -524,10 +541,12 @@ fn check(app: &AppHandle) {
         .unwrap()
         .checked
         .is_none_or(|t| t.elapsed() >= NET_EVERY);
-    // Only while nobody is here: otherwise this machine's network works,
-    // and diagnose doesn't look at it.
-    if !d.missing.is_empty() && d.here.is_empty() && !d.looking && net_due {
-        look_at_network(&state);
+    // Only while something is wrong. With nobody here, ask Windows about
+    // the adapters too; with someone here this machine's network works,
+    // and only its subnets and which way it sends matter.
+    let wrong = (!d.missing.is_empty() && !d.looking) || !d.deaf.is_empty();
+    if wrong && net_due {
+        look_at_network(&state, d.here.is_empty());
         d = lan_diagnosis::diagnose(&facts(app));
     }
     let changed = {
@@ -565,9 +584,10 @@ fn clear_stale_error(state: &LanState) -> bool {
     gone
 }
 
-/// Which way this machine's packets leave, and what Windows calls the
-/// network. At background priority: it can run PowerShell.
-fn look_at_network(state: &LanState) {
+/// Which way this machine's packets leave, its subnets, and what Windows
+/// calls the network. At background priority: with `deep` it can run
+/// PowerShell; without, it goes on what Windows said before.
+fn look_at_network(state: &LanState, deep: bool) {
     let _quiet = patchpilot_local::quiet::background();
     let mut net = state.net.lock().unwrap().clone();
     let mut ifaces = netinfo::interfaces();
@@ -586,14 +606,18 @@ fn look_at_network(state: &LanState) {
         let fresh = net
             .adapters
             .get(&name)
-            .filter(|(at, _)| at.elapsed() < ADAPTER_EVERY)
+            .filter(|(at, _)| !deep || at.elapsed() < ADAPTER_EVERY)
             .map(|(_, info)| info.clone());
-        let info = fresh.unwrap_or_else(|| {
-            let info = netinfo::adapter_info(&name);
-            net.adapters
-                .insert(name.clone(), (Instant::now(), info.clone()));
-            info
-        });
+        let info = if !deep {
+            fresh.flatten()
+        } else {
+            fresh.unwrap_or_else(|| {
+                let info = netinfo::adapter_info(&name);
+                net.adapters
+                    .insert(name.clone(), (Instant::now(), info.clone()));
+                info
+            })
+        };
         if let Some(i) = ifaces.iter_mut().find(|i| i.name == name) {
             i.description = info.as_ref().and_then(|a| a.description.clone());
         }
@@ -603,6 +627,7 @@ fn look_at_network(state: &LanState) {
     }
     net.broadcast_egress = broadcast.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
     net.route_egress = route.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
+    net.subnets = lan_diagnosis::subnets(&ifaces, route);
     // Windows lists no adapter at all when none is connected; with no route
     // anywhere either, this machine isn't on a network.
     net.has_lan = if !ifaces.is_empty() {
@@ -637,6 +662,7 @@ fn facts(app: &AppHandle) -> Facts {
             name: p.name.clone(),
             here: p.seen.elapsed() < GONE,
             seen_at: p.seen_at,
+            since: p.since,
         })
         .collect();
     let net = state.net.lock().unwrap().clone();
@@ -656,6 +682,66 @@ fn facts(app: &AppHandle) -> Facts {
         has_lan: net.has_lan,
         profile: net.profile,
         macos: cfg!(target_os = "macos"),
+        this_id: this_machine().unwrap_or_default(),
+        now: patchpilot_local::now(),
+        relay_online: crate::sync::online(app),
+        subnets: net.subnets,
+        reports: crate::sync::reports(app),
+    }
+}
+
+/// What this machine tells the others about its home network: on and
+/// listening, its subnets and whether its broadcasts go astray as last
+/// looked at, and who it hears now. Quick: no store, no command.
+pub(crate) fn own_report(app: &AppHandle) -> NetReport {
+    let state = app.state::<LanState>();
+    let now = patchpilot_local::now();
+    if !in_use() || state.udp.lock().unwrap().is_none() {
+        return NetReport::off(now);
+    }
+    let net = state.net.lock().unwrap().clone();
+    let mut hears: Vec<String> = state
+        .peers
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, p)| p.seen.elapsed() < GONE)
+        .map(|(id, _)| id.clone())
+        .collect();
+    hears.sort();
+    NetReport {
+        version: net_report::REPORT_VERSION,
+        at: now,
+        on: true,
+        subnets: net.subnets,
+        vpn: match net.broadcast_egress {
+            Some(Egress::Lan) => Some(false),
+            Some(Egress::Vpn { .. } | Egress::Virtual { .. }) => Some(true),
+            Some(Egress::Unknown) | None => None,
+        },
+        hears,
+    }
+}
+
+/// Every beacon: have `sync` send this machine's report when it says
+/// something new, or, while a machine is missing or can't hear this one,
+/// when the others should hear it's still running. Not linked, `sync`
+/// isn't running and nothing goes out.
+fn share(app: &AppHandle) {
+    let state = app.state::<LanState>();
+    let report = own_report(app);
+    let heartbeat = report.on
+        && state
+            .diagnosis
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|d| !d.missing.is_empty() || !d.deaf.is_empty());
+    let mut sent = state.sent.lock().unwrap();
+    let last = sent.as_ref().map(|(r, at)| (r, at.elapsed()));
+    if net_report::should_send(&report, last, heartbeat) {
+        *sent = Some((report, Instant::now()));
+        crate::sync::share_report(app);
     }
 }
 

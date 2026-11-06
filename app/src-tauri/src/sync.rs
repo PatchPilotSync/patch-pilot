@@ -5,16 +5,22 @@
 //! Idle cost: one hibernating WebSocket and a ping every 50 s. Uploads happen
 //! after a changed scan (`rig::RIG_CHANGED`), on start, and after making Primary Rig.
 //!
+//! Each machine also keeps a small `net/<id>` report there about its home
+//! network (decision #124), sent by `lan` when it changes or while a machine
+//! is missing; the others read it to say why they can't find that machine.
+//!
 //! The relay's Durable Objects bill by rows read (5 million a day free), and a
 //! rig holds one row per shared file, often tens of thousands. So nothing here
 //! lists every object: the start lists `machine/` only, and uploads ask about
 //! files this run hasn't already seen on the relay.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use patchpilot_local::net_report::NetReport;
 use patchpilot_sync::{LinkCode, RigKey, link};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Listener, Manager, State};
@@ -51,6 +57,10 @@ pub struct Sync {
     /// Ids of the other machines on the relay: the ones actually linked,
     /// unlike machines added from an export file. None until listed.
     linked: Mutex<Option<std::collections::BTreeSet<String>>>,
+    /// The other machines' home-network reports, by id.
+    reports: Mutex<BTreeMap<String, NetReport>>,
+    /// Send this machine's report (`share_report`).
+    report_nudge: Notify,
     running: AtomicBool,
     nudge: Notify,
     stop: Notify,
@@ -166,6 +176,15 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     for name in &others {
         changed |= pull(&relay, &this, rig, name).await?;
     }
+    send_report(app, &relay, &this, rig).await;
+    // Their home-network reports: one read each, only for linked machines.
+    let mut reports = BTreeMap::new();
+    for id in others.iter().filter_map(|n| n.strip_prefix("machine/")) {
+        if let Some(r) = fetch_report(&relay, rig, id).await {
+            reports.insert(id.to_owned(), r);
+        }
+    }
+    *state.reports.lock().expect("reports lock") = reports;
     if changed {
         let _ = app.emit("data-changed", ());
     }
@@ -195,9 +214,16 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
                     if pull(&relay, &this, rig, &event.name).await? {
                         let _ = app.emit("data-changed", ());
                     }
+                } else if event.kind == "changed"
+                    && let Some(id) = patchpilot_local::sync::other_report(&event.name, &this)
+                    && let Some(r) = fetch_report(&relay, rig, id).await
+                {
+                    // `lan` looks at it within one beacon.
+                    state.reports.lock().expect("reports lock").insert(id.to_owned(), r);
                 }
             }
             () = state.nudge.notified() => upload(&relay, state, &this, rig).await?,
+            () = state.report_nudge.notified() => send_report(app, &relay, &this, rig).await,
             _ = ping.tick() => ws.send(Message::text("ping")).await.map_err(|e| e.to_string())?,
         }
     }
@@ -295,6 +321,29 @@ pub(crate) async fn fetch_file(
     }
 }
 
+/// Put this machine's home-network report on the relay, made now: one kept
+/// from before going offline could say it hears nobody. One that doesn't go
+/// up waits for the next change or session; it never takes live sync
+/// offline.
+async fn send_report(app: &AppHandle, relay: &Relay, this: &str, rig: &RigKey) {
+    let report = crate::lan::own_report(app);
+    let sent = match patchpilot_local::sync::outgoing_report(this, rig, &report) {
+        Ok((object, sealed)) => relay.put(&object, sealed).await,
+        Err(e) => Err(e),
+    };
+    if let Err(e) = sent {
+        eprintln!("sync: home-network report not sent: {e}");
+    }
+}
+
+/// Another machine's home-network report; None when it has none (an older
+/// Patch Pilot) or it won't open.
+async fn fetch_report(relay: &Relay, rig: &RigKey, id: &str) -> Option<NetReport> {
+    let object = patchpilot_sync::net_object(id).ok()?;
+    let sealed = relay.get(&object).await.ok()??;
+    patchpilot_local::sync::incoming_report(rig, &object, &sealed)
+}
+
 /// Fetch and merge another machine's object. True if anything changed.
 async fn pull(relay: &Relay, this: &str, rig: &RigKey, object: &str) -> Result<bool, String> {
     let Some(sealed) = relay.get(object).await? else {
@@ -312,6 +361,30 @@ fn set(app: &AppHandle, state: &Sync, f: impl FnOnce(&mut SyncStatus)) {
         s.clone()
     };
     let _ = app.emit("sync-status", status);
+}
+
+/// Send this machine's home-network report now. Offline, the next session
+/// sends one at its start anyway.
+pub fn share_report(app: &AppHandle) {
+    app.state::<SyncState>().report_nudge.notify_one();
+}
+
+/// The other machines' home-network reports, by id, as last read.
+pub fn reports(app: &AppHandle) -> BTreeMap<String, NetReport> {
+    app.state::<SyncState>()
+        .reports
+        .lock()
+        .expect("reports lock")
+        .clone()
+}
+
+/// Connected to the relay now.
+pub fn online(app: &AppHandle) -> bool {
+    app.state::<SyncState>()
+        .status
+        .lock()
+        .expect("sync status lock")
+        .online
 }
 
 /// The ids of the other machines linked to this one, as the relay last
@@ -385,6 +458,7 @@ pub async fn link_join(
 pub fn unlink(state: State<'_, SyncState>) -> Result<(), String> {
     patchpilot_local::sync::forget_rig(&app_dir()?)?;
     *state.linked.lock().expect("linked lock") = None;
+    state.reports.lock().expect("reports lock").clear();
     state.stop.notify_waiters();
     Ok(())
 }
