@@ -231,7 +231,7 @@ function syncLine(sync: SyncView, where: string, github: string | null, lan: Lan
   const deaf = d?.deaf ?? [];
   if (d && d.missing.length === 0 && deaf.length > 0) {
     const what = `${andList(deaf)} can't hear this machine, so this machine's files aren't reaching ${deaf.length === 1 ? "it" : "them"}`;
-    return ["warn", d.cause ? `${what}: ${lanCauseText(d.cause)}` : `${what}. Show what to check.`];
+    return ["warn", d.deaf_cause ? `${what}: ${lanCauseText(d.deaf_cause)}` : `${what}. Show what to check.`];
   }
   if (d && d.missing.length > 0) {
     const who = andList(d.missing.map((m) => m.name));
@@ -248,9 +248,12 @@ function syncLine(sync: SyncView, where: string, github: string | null, lan: Lan
       if (deaf.length > 0)
         return [
           "warn",
-          `${who} ${isnt} on this network now, and ${andList(deaf)} can't hear this machine, so this machine's files aren't reaching ${deaf.length === 1 ? "it" : "them"}. Show what to check.`,
+          `${who} ${isnt} on this network now, and ${andList(deaf)} can't hear this machine, so this machine's files aren't reaching ${deaf.length === 1 ? "it" : "them"}${d.deaf_cause ? `: ${lanCauseText(d.deaf_cause)}` : ". Show what to check."}`,
         ];
-      return withNote(filesLine(sync, where, github, lan), `${who} ${isnt} on this network now.`);
+      const note = d.missing.every((m) => m.why)
+        ? d.missing.map((m) => `${m.name}: ${m.why ? lanWhyShort(m.why) : ""}`).join("; ") + "."
+        : `${who} ${isnt} on this network now.`;
+      return withNote(filesLine(sync, where, github, lan), note);
     }
     const allQuiet = d.missing.every((m) => m.why?.kind === "quiet");
     if (only?.why)
@@ -274,7 +277,10 @@ function withNote([tone, text]: [Tone, string], note: string): [Tone, string] {
 /** What the other machines' backups brought, or why nothing came yet. */
 function filesLine(sync: SyncView, where: string, github: string | null, lan: LanView | null): [Tone, string] {
   const last = sync.last;
-  const sources = (last?.sources ?? []).filter((s) => s.linked && !s.unsigned);
+  // A machine whose report says it doesn't use the home network isn't in
+  // sync through it, whatever it left in the copy here.
+  const off = new Set((lan?.diagnosis.missing ?? []).filter((m) => m.why?.kind === "off").map((m) => m.name));
+  const sources = (last?.sources ?? []).filter((s) => s.linked && !s.unsigned && !off.has(s.machine_name));
   if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
   if (sources.length === 0 && lan && !lan.peers.some((p) => p.here))
     return [
@@ -325,7 +331,15 @@ function isGuess(c: LanCause | undefined): boolean {
 }
 
 /** Reasons that hold whatever this machine's own network does. */
-const THEIR_SIDE = new Set<LanWhy["kind"]>(["off", "cant_listen", "quiet", "their_vpn", "their_virtual", "other_network"]);
+const THEIR_SIDE = new Set<LanWhy["kind"]>([
+  "off",
+  "cant_listen",
+  "quiet",
+  "their_vpn",
+  "their_virtual",
+  "their_vpn_on",
+  "other_network",
+]);
 
 /**
  * Whether this machine's own cause gives way to what the missing machines
@@ -353,6 +367,8 @@ function lanWhyText(w: LanWhy, name: string): string {
       return "a VPN is on there, so its messages go through it instead of your home network. Turn it off there, or let it allow local network access.";
     case "their_virtual":
       return `its messages go to a virtual network on it (${w.name}) instead of your home network.`;
+    case "their_vpn_on":
+      return "a VPN is on there. If it blocks local network traffic, turn it off there or let it allow local network access.";
     case "one_way":
       return "it hears this machine, but nothing it sends gets here. Allow Patch Pilot through the firewall on this machine.";
     case "other_network":
@@ -375,6 +391,8 @@ function lanWhyShort(w: LanWhy): string {
       return "a VPN is on there";
     case "their_virtual":
       return `its messages go to ${w.name}`;
+    case "their_vpn_on":
+      return "a VPN is on there";
     case "one_way":
       return "hears this machine, but nothing from it gets here";
     case "other_network":
@@ -403,7 +421,10 @@ function LanMachines({ lan }: { lan: LanView }) {
   const whys = new Set(d.missing.map((m) => m.why?.kind));
   const items: [string, boolean][] = [
     ["Both machines are on the same Wi-Fi or wired network.", whys.has("other_network")],
-    ["No VPN is on, or it allows local network access.", cause === "vpn" || cause === "vpn_on" || whys.has("their_vpn")],
+    [
+      "No VPN is on, or it allows local network access.",
+      cause === "vpn" || cause === "vpn_on" || whys.has("their_vpn") || whys.has("their_vpn_on"),
+    ],
     ["On Windows, the network is set to Private (Settings › Network & internet).", cause === "public_network"],
     [
       "On Windows, Patch Pilot is allowed through Windows Firewall on private networks.",
@@ -441,6 +462,11 @@ function LanMachines({ lan }: { lan: LanView }) {
           {shown && (
             <p className="mt-1 text-warn">
               {givesWay ? "Also worth checking" : "Likely reason"}: {lanCauseText(shown)}
+            </p>
+          )}
+          {d.deaf_cause && (
+            <p className="mt-1 text-warn">
+              Why {andList(deaf)} can't hear this machine: {lanCauseText(d.deaf_cause)}
             </p>
           )}
           {!d.looking &&

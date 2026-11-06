@@ -18,6 +18,10 @@ use serde::{Deserialize, Serialize};
 pub const REPORT_VERSION: u32 = 1;
 /// While something is wrong, a report goes out at least this often.
 pub const HEARTBEAT: Duration = Duration::from_secs(5 * 60);
+/// …and this often while a machine here can't hear this one, so the other
+/// side gets a report late enough to tell (a firewall here, say) in about
+/// a minute rather than five.
+pub const HEARTBEAT_SOON: Duration = Duration::from_secs(60);
 /// A changed report waits this long after the last one, so a flapping
 /// network doesn't keep writing to the relay.
 pub const MIN_GAP: Duration = Duration::from_secs(30);
@@ -234,13 +238,18 @@ pub fn share_a_network(a: &[Subnet], b: &[Subnet]) -> bool {
 }
 
 /// Whether to send `new` now. `last`: the report last sent and how long ago.
-/// `heartbeat`: a linked machine is missing or can't hear this one, so the
-/// others should know this machine is still running.
-pub fn should_send(new: &NetReport, last: Option<(&NetReport, Duration)>, heartbeat: bool) -> bool {
+/// `heartbeat`: how often the others should hear this machine is still
+/// running, while something is wrong ([`HEARTBEAT`], [`HEARTBEAT_SOON`]).
+pub fn should_send(
+    new: &NetReport,
+    last: Option<(&NetReport, Duration)>,
+    heartbeat: Option<Duration>,
+) -> bool {
     match last {
         None => true,
         Some((sent, ago)) => {
-            (!new.same_news(sent) && ago >= MIN_GAP) || (heartbeat && new.on && ago >= HEARTBEAT)
+            (!new.same_news(sent) && ago >= MIN_GAP)
+                || (new.on && heartbeat.is_some_and(|every| ago >= every))
         }
     }
 }
@@ -395,9 +404,9 @@ mod tests {
     fn sends_on_change_with_a_gap_and_heartbeats_only_while_something_is_wrong() {
         let sent = on();
         let later = NetReport { at: 2_000, ..on() };
-        assert!(should_send(&later, None, false), "the first one");
+        assert!(should_send(&later, None, None), "the first one");
         assert!(
-            !should_send(&later, Some((&sent, Duration::from_secs(3600))), false),
+            !should_send(&later, Some((&sent, Duration::from_secs(3600))), None),
             "nothing new, nothing wrong"
         );
         let moved = NetReport {
@@ -405,16 +414,35 @@ mod tests {
             ..later.clone()
         };
         assert!(
-            !should_send(&moved, Some((&sent, MIN_GAP / 2)), false),
+            !should_send(&moved, Some((&sent, MIN_GAP / 2)), None),
             "too soon"
         );
-        assert!(should_send(&moved, Some((&sent, MIN_GAP)), false));
-        assert!(!should_send(&later, Some((&sent, HEARTBEAT / 2)), true));
-        assert!(should_send(&later, Some((&sent, HEARTBEAT)), true));
+        assert!(should_send(&moved, Some((&sent, MIN_GAP)), None));
+        assert!(!should_send(
+            &later,
+            Some((&sent, HEARTBEAT / 2)),
+            Some(HEARTBEAT)
+        ));
+        assert!(should_send(
+            &later,
+            Some((&sent, HEARTBEAT)),
+            Some(HEARTBEAT)
+        ));
         let off = NetReport::off(2_000);
         assert!(
-            !should_send(&off, Some((&NetReport::off(1), HEARTBEAT)), true),
+            !should_send(&off, Some((&NetReport::off(1), HEARTBEAT)), Some(HEARTBEAT)),
             "off needs no heartbeat"
         );
+        // While a machine here can't hear this one, sooner.
+        assert!(should_send(
+            &later,
+            Some((&sent, HEARTBEAT_SOON)),
+            Some(HEARTBEAT_SOON)
+        ));
+        assert!(!should_send(
+            &later,
+            Some((&sent, HEARTBEAT_SOON / 2)),
+            Some(HEARTBEAT_SOON)
+        ));
     }
 }

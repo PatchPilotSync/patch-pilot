@@ -591,6 +591,7 @@ export type LanWhy =
   | { kind: "quiet"; since: number }
   | { kind: "their_vpn" }
   | { kind: "their_virtual"; name: string }
+  | { kind: "their_vpn_on" }
   | { kind: "one_way" }
   | { kind: "other_network" }
   | { kind: "blocked" };
@@ -606,6 +607,8 @@ export interface LanDiagnosis {
   cause?: LanCause;
   /** Machines heard here that say they don't hear this one, by name. */
   deaf?: string[];
+  /** Why they can't hear this machine, when this machine can tell. */
+  deaf_cause?: LanCause;
 }
 
 export interface LanView {

@@ -61,6 +61,11 @@ pub struct Sync {
     reports: Mutex<BTreeMap<String, Received>>,
     /// Send this machine's report (`share_report`).
     report_nudge: Notify,
+    /// Start a new session: the machine woke from sleep (`woke`).
+    restart: Notify,
+    /// Woke from sleep and the reports haven't been read again yet: until
+    /// then nothing read from the relay counts as current.
+    woken: AtomicBool,
     /// This machine's report as last put on the relay, and when. Only puts
     /// that went through, so one that failed is tried again.
     report_put: Mutex<Option<(NetReport, std::time::Instant)>>,
@@ -163,6 +168,8 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     // address the relay saw before may not be this one. The first upload
     // says again.
     *state.public.lock().expect("public lock") = None;
+    // A wake signal meant for the session before this one is handled.
+    let _ = futures_util::FutureExt::now_or_never(state.restart.notified());
     // Upload first: the first upload claims a new rig, and live needs a claimed one.
     upload(&relay, state, &this, rig).await?;
     let mut ws = relay.live().await?;
@@ -195,6 +202,7 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
         }
     }
     *state.reports.lock().expect("reports lock") = reports;
+    state.woken.store(false, Ordering::SeqCst);
     if changed {
         let _ = app.emit("data-changed", ());
     }
@@ -207,7 +215,7 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     // When a ping went out that nothing has answered yet. A connection that
     // died silently (sleep, a dropped Wi-Fi) is noticed from that, so this
     // machine doesn't keep trusting reports it can no longer see change.
-    let mut unanswered: Option<std::time::Instant> = None;
+    let mut unanswered: Option<tokio::time::Instant> = None;
     loop {
         tokio::select! {
             // Messages first, so an answer that came in during a long pull
@@ -251,12 +259,15 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
                     send_report(app, &relay, &this, rig).await;
                 }
             }
-            _ = ping.tick() => {
-                if unanswered.is_some_and(|t| t.elapsed() >= PING_EVERY) {
+            () = state.restart.notified() => return Err("woke from sleep".into()),
+            tick = ping.tick() => {
+                // Timed by the ticks themselves, so one unanswered ping is
+                // enough, not two.
+                if unanswered.is_some_and(|t| tick - t >= PING_EVERY) {
                     return Err("the relay stopped answering".into());
                 }
                 ws.send(Message::text("ping")).await.map_err(|e| e.to_string())?;
-                unanswered.get_or_insert_with(std::time::Instant::now);
+                unanswered.get_or_insert(tick);
             }
         }
     }
@@ -388,6 +399,22 @@ async fn send_report(app: &AppHandle, relay: &Relay, this: &str, rig: &RigKey) {
     }
 }
 
+/// The machine woke from sleep: forget the reports read before (they may be
+/// hours old, and the connection may be dead without knowing it yet) and
+/// start a new session, which reads them again.
+pub fn woke(app: &AppHandle) {
+    let Some(state) = app.try_state::<SyncState>() else {
+        return;
+    };
+    state.reports.lock().expect("reports lock").clear();
+    state.woken.store(true, Ordering::SeqCst);
+    // A session that's running starts over (and reconnects at once); one
+    // that isn't reads everything again when it starts.
+    if state.status.lock().expect("sync status lock").online {
+        state.restart.notify_one();
+    }
+}
+
 /// This machine moved to another network: the public address the relay
 /// last saw is the old one's until the next upload says.
 pub fn forget_public(app: &AppHandle) {
@@ -470,13 +497,11 @@ pub fn public(app: &AppHandle) -> Option<String> {
         .clone()
 }
 
-/// Connected to the relay now.
+/// Connected to the relay now, with the other machines' reports read since
+/// waking.
 pub fn online(app: &AppHandle) -> bool {
-    app.state::<SyncState>()
-        .status
-        .lock()
-        .expect("sync status lock")
-        .online
+    let state = app.state::<SyncState>();
+    !state.woken.load(Ordering::SeqCst) && state.status.lock().expect("sync status lock").online
 }
 
 /// The ids of the other machines linked to this one, as the relay last

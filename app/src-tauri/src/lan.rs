@@ -174,7 +174,16 @@ pub fn setup(app: &AppHandle) {
     let handle = app.clone();
     std::thread::spawn(move || {
         refresh_names(&handle);
+        let mut last_round = patchpilot_local::now();
         loop {
+            // A round that came much later than it should: the machine slept.
+            // What the relay said before may be hours old, and the
+            // connection may be dead without knowing it yet.
+            let now = patchpilot_local::now();
+            if now - last_round > 3 * BEACON_EVERY.as_secs() as i64 {
+                crate::sync::woke(&handle);
+            }
+            last_round = now;
             if in_use() {
                 start(&handle);
                 announce(&handle, None);
@@ -559,7 +568,7 @@ fn check(app: &AppHandle) {
     // Only while something is wrong: a machine that might still turn up is
     // missing (not one that said it doesn't use the home network), or one
     // here can't hear this one.
-    let wrong = (d.awaiting() && !d.looking) || !d.deaf.is_empty();
+    let wrong = (d.awaiting() && !d.looking) || !d.deaf.is_empty() || d.maybe_deaf;
     if wrong && net_due {
         look_at_network(app);
         d = lan_diagnosis::diagnose(&facts(app));
@@ -643,7 +652,7 @@ fn look_at_network(app: &AppHandle) {
         if let Some(i) = ifaces.iter_mut().find(|i| i.name == name) {
             i.description = info.as_ref().and_then(|a| a.description.clone());
         }
-        if info.is_none() {
+        if info.as_ref().and_then(|a| a.description.as_ref()).is_none() {
             undescribed.push(name.clone());
         }
         if is_broadcast {
@@ -829,13 +838,17 @@ pub(crate) fn own_report(app: &AppHandle) -> NetReport {
 fn share(app: &AppHandle) {
     let state = app.state::<LanState>();
     let report = own_report(app);
-    let heartbeat = report.on
-        && state
-            .diagnosis
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_some_and(|d| d.awaiting() || !d.deaf.is_empty());
+    // While a machine here can't hear this one, sooner: the other side
+    // needs a report from late enough to tell.
+    let heartbeat = state.diagnosis.lock().unwrap().as_ref().and_then(|d| {
+        if !d.deaf.is_empty() {
+            Some(net_report::HEARTBEAT_SOON)
+        } else if d.awaiting() {
+            Some(net_report::HEARTBEAT)
+        } else {
+            None
+        }
+    });
     // Against what actually reached the relay, so a failed put is retried.
     let last = crate::sync::last_report(app);
     if !net_report::should_send(&report, last.as_ref().map(|(r, ago)| (r, *ago)), heartbeat) {
