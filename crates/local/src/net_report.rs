@@ -65,6 +65,11 @@ pub struct NetReport {
     /// nothing it sends reaches anyone, whatever this machine does.
     #[serde(default, skip_serializing_if = "is_false")]
     pub send_error: bool,
+    /// It also sends its beacons straight onto each home-network subnet
+    /// (decision #125), so a VPN or virtual adapter on its broadcast route
+    /// no longer takes them all.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub direct: bool,
     /// Its internet traffic leaves through a VPN, so `public` is the VPN's,
     /// not its home router's. None when it hasn't looked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,6 +96,7 @@ impl Default for NetReport {
             vpn: None,
             virtual_adapter: None,
             send_error: false,
+            direct: false,
             internet_vpn: None,
             hears: Vec::new(),
             public: None,
@@ -216,6 +222,15 @@ impl Subnet {
         })
     }
 
+    /// Its directed broadcast address (192.168.1.0/24 → 192.168.1.255): a
+    /// packet sent there leaves through the interface on this network, past
+    /// a VPN's default route. None for /31 and /32, which have none.
+    pub fn broadcast(&self) -> Option<Ipv4Addr> {
+        (self.prefix <= 30).then(|| {
+            Ipv4Addr::from(u32::from(self.net) | !(u32::MAX << (32 - u32::from(self.prefix))))
+        })
+    }
+
     /// One holds the other: the same network, even when two machines were
     /// given different prefixes for it.
     pub fn overlaps(&self, other: &Self) -> bool {
@@ -290,6 +305,28 @@ mod tests {
         );
         assert_eq!(Subnet::of(Ipv4Addr::new(10, 1, 2, 3), 7), None);
         assert_eq!(Subnet::of(Ipv4Addr::LOCALHOST, 33), None);
+    }
+
+    #[test]
+    fn a_subnet_knows_its_directed_broadcast_address() {
+        assert_eq!(
+            net(192, 168, 1, 20, 24).broadcast(),
+            Some(Ipv4Addr::new(192, 168, 1, 255))
+        );
+        assert_eq!(
+            net(10, 1, 2, 3, 8).broadcast(),
+            Some(Ipv4Addr::new(10, 255, 255, 255))
+        );
+        assert_eq!(
+            net(172, 21, 48, 1, 20).broadcast(),
+            Some(Ipv4Addr::new(172, 21, 63, 255))
+        );
+        assert_eq!(
+            net(10, 0, 0, 1, 30).broadcast(),
+            Some(Ipv4Addr::new(10, 0, 0, 3))
+        );
+        assert_eq!(net(10, 0, 0, 1, 31).broadcast(), None);
+        assert_eq!(net(10, 0, 0, 1, 32).broadcast(), None);
     }
 
     #[test]

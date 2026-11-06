@@ -314,6 +314,8 @@ function lanCauseText(c: LanCause): string {
       return `a VPN${c.adapter ? ` (${c.adapter})` : ""} is on, so Patch Pilot's messages go through it instead of your home network. Turn it off, or let it allow local network access.`;
     case "virtual_adapter":
       return `Patch Pilot's messages go to a virtual network on this machine (${c.name}) instead of your home network.`;
+    case "vpn_blocks":
+      return `a VPN${c.adapter ? ` (${c.adapter})` : ""} is on. Patch Pilot also sends straight onto your home network, so the VPN is most likely blocking local traffic. Turn it off, or let it allow local network access.`;
     case "local_network_denied":
       return "macOS isn't letting Patch Pilot use the local network. Turn it on in System Settings › Privacy & Security › Local Network.";
     case "public_network":
@@ -423,7 +425,11 @@ function LanMachines({ lan }: { lan: LanView }) {
     ["Both machines are on the same Wi-Fi or wired network.", whys.has("other_network")],
     [
       "No VPN is on, or it allows local network access.",
-      cause === "vpn" || cause === "vpn_on" || whys.has("their_vpn") || whys.has("their_vpn_on"),
+      cause === "vpn" ||
+        cause === "vpn_on" ||
+        cause === "vpn_blocks" ||
+        whys.has("their_vpn") ||
+        whys.has("their_vpn_on"),
     ],
     ["On Windows, the network is set to Private (Settings › Network & internet).", cause === "public_network"],
     [

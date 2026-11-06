@@ -154,6 +154,10 @@ pub struct Facts {
     pub public: Option<String>,
     /// The other machines' latest reports, by id (decision #124).
     pub reports: BTreeMap<String, Received>,
+    /// This machine also sends its beacons straight onto each home-network
+    /// subnet (decision #125): a VPN or virtual adapter on the broadcast
+    /// route no longer takes them all.
+    pub direct_sends: bool,
 }
 
 /// What the Sync & backup line says about the home network. Mirrored in
@@ -239,6 +243,12 @@ pub enum Cause {
     },
     /// Broadcasts leave into a virtual network inside this machine.
     VirtualAdapter { name: String },
+    /// A VPN is on and this machine also sent straight onto the home
+    /// network, yet nobody heard: the VPN most likely blocks local traffic.
+    VpnBlocks {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        adapter: Option<String>,
+    },
     /// macOS refused to send on the local network: almost surely Local
     /// Network access is off for Patch Pilot.
     LocalNetworkDenied,
@@ -382,10 +392,18 @@ fn why(f: &Facts, id: &str, seen: Option<&Seen>) -> Option<Why> {
     if !r.listening {
         return Some(Why::CantListen);
     }
+    // With direct sends there (decision #125) its VPN is only the likely
+    // reason (it may block local traffic), and a virtual adapter none.
     if r.vpn == Some(true) {
-        return Some(Why::TheirVpn);
+        return Some(if r.direct {
+            Why::TheirVpnOn
+        } else {
+            Why::TheirVpn
+        });
     }
-    if let Some(name) = &r.virtual_adapter {
+    if let Some(name) = &r.virtual_adapter
+        && !r.direct
+    {
         return Some(Why::TheirVirtual { name: name.clone() });
     }
     let both_looked = !r.subnets.is_empty() && !f.subnets.is_empty();
@@ -449,11 +467,25 @@ fn deaf_cause(f: &Facts) -> Option<Cause> {
     if f.other_version {
         return Some(Cause::OtherVersion);
     }
+    egress_cause(f)
+}
+
+/// What the broadcast route says. Without direct sends, a VPN or virtual
+/// adapter there takes every beacon. With them (decision #125) a virtual
+/// adapter takes nothing that matters, and a VPN is only the likely reason:
+/// the beacons went straight onto the home network too, so it most likely
+/// blocks local traffic.
+fn egress_cause(f: &Facts) -> Option<Cause> {
     match &f.broadcast_egress {
+        Some(Egress::Vpn { adapter }) if f.direct_sends => Some(Cause::VpnBlocks {
+            adapter: adapter.clone(),
+        }),
         Some(Egress::Vpn { adapter }) => Some(Cause::Vpn {
             adapter: adapter.clone(),
         }),
-        Some(Egress::Virtual { name }) => Some(Cause::VirtualAdapter { name: name.clone() }),
+        Some(Egress::Virtual { name }) if !f.direct_sends => {
+            Some(Cause::VirtualAdapter { name: name.clone() })
+        }
         _ => None,
     }
 }
@@ -471,16 +503,8 @@ fn cause(f: &Facts, someone_here: bool, elsewhere: bool) -> Option<Cause> {
         if f.has_lan == Some(false) {
             return Some(Cause::NoLan);
         }
-        match &f.broadcast_egress {
-            Some(Egress::Vpn { adapter }) => {
-                return Some(Cause::Vpn {
-                    adapter: adapter.clone(),
-                });
-            }
-            Some(Egress::Virtual { name }) => {
-                return Some(Cause::VirtualAdapter { name: name.clone() });
-            }
-            _ => {}
+        if let Some(c) = egress_cause(f) {
+            return Some(c);
         }
         // With no default route macOS refuses a broadcast with the same
         // error, so a working route to the internet is needed to tell.
@@ -597,6 +621,21 @@ pub fn subnets(ifaces: &[Iface], route: Option<IpAddr>) -> Vec<Subnet> {
             IpAddr::V4(v4) => Subnet::of(*v4, *prefix),
             IpAddr::V6(_) => None,
         })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Where this machine sends its beacons besides 255.255.255.255 (decision
+/// #125): the directed broadcast address of each Wi-Fi or Ethernet subnet.
+/// Each follows its subnet's own route out of that adapter, so a VPN or
+/// virtual adapter holding the broadcast route doesn't take them. VPN
+/// adapters are left out: their own subnet is the VPN's, not home.
+pub fn direct_broadcasts(ifaces: &[Iface], route: Option<IpAddr>) -> Vec<std::net::Ipv4Addr> {
+    let mut out: Vec<_> = subnets(ifaces, route)
+        .iter()
+        .filter_map(Subnet::broadcast)
         .collect();
     out.sort();
     out.dedup();
@@ -1622,6 +1661,92 @@ mod tests {
         assert!(!off.awaiting(), "it said it doesn't use the home network");
         assert!(diagnose(&compared(report())).awaiting());
         assert!(diagnose(&alone()).awaiting(), "no report: it might turn up");
+    }
+
+    #[test]
+    fn beacons_also_go_straight_onto_each_home_subnet() {
+        let ifaces = vec![
+            iface("Wi-Fi", ip(10, 0, 0, 35)),
+            Iface {
+                ips: vec![(ip(192, 168, 50, 2), 23)],
+                ..iface("Ethernet", ip(0, 0, 0, 0))
+            },
+            iface("NordLynx", ip(10, 5, 0, 2)),
+            Iface {
+                description: Some("PANGP Virtual Ethernet Adapter".into()),
+                ..iface("Ethernet 4", ip(10, 20, 0, 7))
+            },
+            Iface {
+                ips: vec![(ip(172, 21, 48, 1), 20)],
+                ..iface("vEthernet (WSL (Hyper-V firewall))", ip(0, 0, 0, 0))
+            },
+            Iface {
+                ips: vec![(ip(10, 9, 9, 9), 32)],
+                ..iface("Ethernet 7", ip(0, 0, 0, 0))
+            },
+        ];
+        assert_eq!(
+            direct_broadcasts(&ifaces, None),
+            vec![
+                std::net::Ipv4Addr::new(10, 0, 0, 255),
+                std::net::Ipv4Addr::new(192, 168, 51, 255)
+            ]
+        );
+        // A Hyper-V external switch carrying the internet is home.
+        let ext = vec![Iface {
+            description: Some("Hyper-V Virtual Ethernet Adapter".into()),
+            ..iface("vEthernet (External Switch)", ip(192, 168, 1, 20))
+        }];
+        assert_eq!(
+            direct_broadcasts(&ext, Some(ip(192, 168, 1, 20))),
+            vec![std::net::Ipv4Addr::new(192, 168, 1, 255)]
+        );
+        assert!(direct_broadcasts(&[], None).is_empty());
+    }
+
+    #[test]
+    fn with_direct_sends_a_vpn_is_a_likely_blocker_and_a_virtual_adapter_nothing() {
+        let vpn = Facts {
+            broadcast_egress: Some(Egress::Vpn {
+                adapter: Some("NordLynx".into()),
+            }),
+            direct_sends: true,
+            ..alone()
+        };
+        assert_eq!(
+            diagnose(&vpn).cause,
+            Some(Cause::VpnBlocks {
+                adapter: Some("NordLynx".into())
+            })
+        );
+        let wsl = Facts {
+            broadcast_egress: Some(Egress::Virtual {
+                name: "vEthernet (WSL)".into(),
+            }),
+            direct_sends: true,
+            ..alone()
+        };
+        assert_eq!(diagnose(&wsl).cause, None);
+        // The other side's report says the same of its own.
+        let theirs = compared(NetReport {
+            vpn: Some(true),
+            direct: true,
+            ..report()
+        });
+        assert_eq!(why_of(&theirs), Some(Why::TheirVpnOn));
+        let their_wsl = compared(NetReport {
+            virtual_adapter: Some("vEthernet (WSL)".into()),
+            direct: true,
+            ..report()
+        });
+        assert_ne!(
+            why_of(&their_wsl),
+            Some(Why::TheirVirtual {
+                name: "vEthernet (WSL)".into()
+            })
+        );
+        let c = serde_json::to_value(Cause::VpnBlocks { adapter: None }).unwrap();
+        assert_eq!(c, serde_json::json!({ "kind": "vpn_blocks" }));
     }
 
     #[test]

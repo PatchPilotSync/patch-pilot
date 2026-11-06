@@ -154,6 +154,29 @@ mod tests {
         }
     }
 
+    /// Sends packets onto this machine's real networks, so not in CI:
+    /// `cargo test -p patchpilot-local directed -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "sends broadcasts on the real network"]
+    fn directed_broadcasts_reach_a_listener_on_this_machine() {
+        let targets = crate::lan_diagnosis::direct_broadcasts(&interfaces(), route_source());
+        println!("direct targets: {targets:?}");
+        assert!(!targets.is_empty(), "no Wi-Fi or Ethernet subnet here");
+        let rx = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+        rx.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let port = rx.local_addr().unwrap().port();
+        let tx = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+        tx.set_broadcast(true).unwrap();
+        for t in &targets {
+            tx.send_to(b"pp-directed", (*t, port)).unwrap();
+            let mut buf = [0u8; 32];
+            let (n, from) = rx.recv_from(&mut buf).unwrap();
+            println!("{t} -> received from {from}");
+            assert_eq!(&buf[..n], b"pp-directed");
+        }
+    }
+
     #[test]
     fn adapter_info_reads_from_powershell_output() {
         assert_eq!(

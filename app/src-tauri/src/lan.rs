@@ -16,6 +16,13 @@
 //! while a machine is missing, so an idle machine with everyone found does
 //! no extra work.
 //!
+//! Each beacon goes to 255.255.255.255 and also straight onto every Wi-Fi
+//! and Ethernet subnet (192.168.1.255, decision #125): on Windows the first
+//! follows the lowest-metric route, often a VPN's, while each directed one
+//! follows its subnet's own route out of that adapter. So linked machines on
+//! the same Wi-Fi find each other with a VPN on, unless it blocks local
+//! traffic.
+//!
 //! The same loop keeps this machine's home-network report on the relay
 //! (decision #124): sent when it changes and, while a machine is missing or
 //! can't hear this one, every few minutes. The other machines' reports come
@@ -54,6 +61,9 @@ const NET_EVERY: Duration = Duration::from_secs(30);
 const ADAPTER_EVERY: Duration = Duration::from_secs(600);
 /// …or this often while it couldn't say (WMI timed out, PowerShell blocked).
 const ADAPTER_RETRY: Duration = Duration::from_secs(60);
+/// Look again at which subnets to send beacons straight onto this often:
+/// one interface list (no command), so a new Wi-Fi is used within a minute.
+const DIRECT_EVERY: Duration = Duration::from_secs(60);
 /// A report's network facts older than this are left out: they were last
 /// looked at during an earlier problem and may no longer hold.
 const NET_FACTS_FOR: Duration = Duration::from_secs(90);
@@ -109,6 +119,9 @@ struct LanState {
     net: Mutex<NetCache>,
     /// The diagnosis last told to the UI.
     diagnosis: Mutex<Option<Diagnosis>>,
+    /// The subnets' directed broadcast addresses beacons also go to, and
+    /// when they were worked out (Unix seconds).
+    direct: Mutex<Option<(i64, Vec<Ipv4Addr>)>>,
     /// When `sync` was last asked to send this machine's report: a put
     /// that keeps failing is tried again, but not every beacon.
     asked: Mutex<Option<Instant>>,
@@ -349,6 +362,8 @@ fn announce(app: &AppHandle, to: Option<IpAddr>) {
                 .map(|p| p.addr.ip())
                 .collect();
             t.push(IpAddr::V4(Ipv4Addr::BROADCAST));
+            // Straight onto each home subnet too, past a VPN's route.
+            t.extend(direct_targets(&state).into_iter().map(IpAddr::V4));
             t
         }
     };
@@ -364,6 +379,41 @@ fn announce(app: &AppHandle, to: Option<IpAddr>) {
                 sent.err().map(|e| e.raw_os_error().unwrap_or(-1));
         }
     }
+}
+
+/// The directed broadcast address of each Wi-Fi and Ethernet subnet, worked
+/// out at most every minute. What Windows said about each adapter (from
+/// looking at the network) keeps a VPN called "Ethernet 4" out.
+fn direct_targets(state: &LanState) -> Vec<Ipv4Addr> {
+    if let Some((at, list)) = state.direct.lock().unwrap().as_ref()
+        && net_age_within(*at, DIRECT_EVERY)
+    {
+        return list.clone();
+    }
+    let mut ifaces = netinfo::interfaces();
+    {
+        let net = state.net.lock().unwrap();
+        for i in &mut ifaces {
+            i.description = net
+                .adapters
+                .get(&i.name)
+                .and_then(|(_, info)| info.as_ref())
+                .and_then(|a| a.description.clone());
+        }
+    }
+    let list = lan_diagnosis::direct_broadcasts(&ifaces, netinfo::route_source());
+    *state.direct.lock().unwrap() = Some((patchpilot_local::now(), list.clone()));
+    list
+}
+
+/// Beacons go straight onto at least one home subnet.
+fn sends_direct(state: &LanState) -> bool {
+    state
+        .direct
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|(_, list)| !list.is_empty())
 }
 
 /// Send a beacon now, so linked machines nearby pull a new backup soon.
@@ -745,6 +795,7 @@ fn facts(app: &AppHandle) -> Facts {
         subnets: net.subnets,
         public: crate::sync::public(app),
         reports: crate::sync::reports(app),
+        direct_sends: sends_direct(&state),
     }
 }
 
@@ -821,6 +872,7 @@ pub(crate) fn own_report(app: &AppHandle) -> NetReport {
         },
         virtual_adapter,
         send_error,
+        direct: sends_direct(&state),
         internet_vpn: if recent {
             through_vpn(&net.route_egress)
         } else {
@@ -949,6 +1001,7 @@ pub async fn lan_use(app: AppHandle) -> Result<(), String> {
             adapters: std::mem::take(&mut net.adapters),
             ..NetCache::default()
         };
+        *state.direct.lock().unwrap() = None;
     }
     start(&app);
     let _ = app.emit(BACKUP_CHANGED, ());
