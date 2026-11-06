@@ -186,7 +186,7 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     // Their home-network reports: one read each, only for linked machines.
     let mut reports = BTreeMap::new();
     for id in others.iter().filter_map(|n| n.strip_prefix("machine/")) {
-        if let Some(r) = fetch_report(&relay, rig, id).await {
+        if let Some(r) = fetch_report(&relay, rig, id, false).await {
             reports.insert(id.to_owned(), r);
         }
     }
@@ -222,7 +222,7 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
                     }
                 } else if event.kind == "changed"
                     && let Some(id) = patchpilot_local::sync::other_report(&event.name, &this)
-                    && let Some(r) = fetch_report(&relay, rig, id).await
+                    && let Some(r) = fetch_report(&relay, rig, id, true).await
                 {
                     // `lan` looks at it within one beacon.
                     state.reports.lock().expect("reports lock").insert(id.to_owned(), r);
@@ -334,18 +334,38 @@ pub(crate) async fn fetch_file(
 /// offline.
 async fn send_report(app: &AppHandle, relay: &Relay, this: &str, rig: &RigKey) {
     let state = app.state::<SyncState>();
-    let report = crate::lan::own_report(app);
-    let sent = match patchpilot_local::sync::outgoing_report(this, rig, &report) {
-        Ok((object, sealed)) => relay.put(&object, sealed).await,
-        Err(e) => Err(e),
-    };
-    match sent {
-        Ok(ip) => {
-            remember_public(&state, ip);
-            *state.report_put.lock().expect("report lock") =
-                Some((report, std::time::Instant::now()));
+    // The put's answer may show a new public address (this machine moved):
+    // then the report it just sent is wrong about it, so send it again.
+    for _ in 0..2 {
+        let report = crate::lan::own_report(app);
+        let sent = match patchpilot_local::sync::outgoing_report(this, rig, &report) {
+            Ok((object, sealed)) => relay.put(&object, sealed).await,
+            Err(e) => Err(e),
+        };
+        match sent {
+            Ok(ip) => {
+                remember_public(&state, ip);
+                let moved = ip.map(patchpilot_local::net_report::public_tag) != report.public
+                    && ip.is_some();
+                *state.report_put.lock().expect("report lock") =
+                    Some((report, std::time::Instant::now()));
+                if !moved {
+                    return;
+                }
+            }
+            Err(e) => {
+                eprintln!("sync: home-network report not sent: {e}");
+                return;
+            }
         }
-        Err(e) => eprintln!("sync: home-network report not sent: {e}"),
+    }
+}
+
+/// This machine moved to another network: the public address the relay
+/// last saw is the old one's until the next upload says.
+pub fn forget_public(app: &AppHandle) {
+    if let Some(state) = app.try_state::<SyncState>() {
+        *state.public.lock().expect("public lock") = None;
     }
 }
 
@@ -359,14 +379,14 @@ fn remember_public(state: &Sync, ip: Option<std::net::IpAddr>) {
 
 /// Another machine's home-network report, with when it reached the relay
 /// by this machine's clock; None when it has none (an older Patch Pilot) or
-/// it won't open.
-async fn fetch_report(relay: &Relay, rig: &RigKey, id: &str) -> Option<Received> {
+/// it won't open. `live`: fetched because it just changed.
+async fn fetch_report(relay: &Relay, rig: &RigKey, id: &str, live: bool) -> Option<Received> {
     let object = patchpilot_sync::net_object(id).ok()?;
     let (sealed, held_ms) = relay.get_aged(&object).await.ok()??;
     let report = patchpilot_local::sync::incoming_report(rig, &object, &sealed)?;
     Some(Received {
         report,
-        at: patchpilot_local::net_report::received_at(patchpilot_local::now(), held_ms),
+        at: patchpilot_local::net_report::received_at(patchpilot_local::now(), held_ms, live),
     })
 }
 
@@ -888,7 +908,10 @@ mod tests {
         let relay = Relay::new(&rig);
         // The first put claims the rig; the relay says where it came from.
         let ip = relay.put("machine/pc", b"sealed".to_vec()).await.unwrap();
-        assert!(ip.is_some(), "the relay answers with this machine's address");
+        assert!(
+            ip.is_some(),
+            "the relay answers with this machine's address"
+        );
         let report = NetReport {
             on: true,
             hears: vec!["mac".into()],
@@ -898,11 +921,12 @@ mod tests {
             patchpilot_local::sync::outgoing_report("pc", &rig, &report).unwrap();
         relay.put(&object, sealed).await.unwrap();
         tokio::time::sleep(Duration::from_millis(1100)).await;
-        let got = fetch_report(&relay, &rig, "pc").await.unwrap();
+        let got = fetch_report(&relay, &rig, "pc", false).await.unwrap();
         assert_eq!(got.report, report);
-        assert!(got.at < patchpilot_local::now(), "held about a second: {}", got.at);
-        assert!(got.at >= patchpilot_local::now() - 5);
-        assert!(fetch_report(&relay, &rig, "nobody").await.is_none());
+        let got = got.at.expect("this relay says how long it held it");
+        assert!(got < patchpilot_local::now(), "held about a second: {got}");
+        assert!(got >= patchpilot_local::now() - 5);
+        assert!(fetch_report(&relay, &rig, "nobody", false).await.is_none());
     }
 
     #[tokio::test]

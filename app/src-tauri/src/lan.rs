@@ -93,6 +93,9 @@ struct LanState {
     last: Mutex<Option<LastPull>>,
     /// Since when this machine has listened, for "Looking for…" first.
     listening_since: Mutex<Option<Instant>>,
+    /// The same as Unix seconds, for this machine's report: fixed once, so
+    /// the report doesn't look changed every time it's built.
+    listening_at: Mutex<Option<i64>>,
     /// When a beacon of this rig came in that this version can't read.
     other_version: Mutex<Option<Instant>>,
     /// When a Patch Pilot beacon under another rig key came in.
@@ -112,7 +115,10 @@ struct LanState {
 /// This machine's network as last looked at, while a machine was missing.
 #[derive(Default, Clone)]
 struct NetCache {
-    checked: Option<Instant>,
+    /// When it was last looked at (Unix seconds): the wall clock, since a
+    /// Mac's `Instant` stops while it sleeps and facts from before sleep
+    /// would pass as fresh after waking somewhere else.
+    checked_at: Option<i64>,
     broadcast_egress: Option<Egress>,
     route_egress: Option<Egress>,
     has_lan: Option<bool>,
@@ -244,6 +250,11 @@ fn start(app: &AppHandle) {
         .lock()
         .unwrap()
         .get_or_insert_with(Instant::now);
+    state
+        .listening_at
+        .lock()
+        .unwrap()
+        .get_or_insert_with(patchpilot_local::now);
 
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -540,14 +551,14 @@ fn check(app: &AppHandle) {
         .net
         .lock()
         .unwrap()
-        .checked
-        .is_none_or(|t| t.elapsed() >= NET_EVERY);
-    // Only while something is wrong. With nobody here, ask Windows about
-    // the adapters too; with someone here this machine's network works,
-    // and only its subnets and which way it sends matter.
-    let wrong = (!d.missing.is_empty() && !d.looking) || !d.deaf.is_empty();
+        .checked_at
+        .is_none_or(|t| patchpilot_local::now() - t >= NET_EVERY.as_secs() as i64);
+    // Only while something is wrong: a machine that might still turn up is
+    // missing (not one that said it doesn't use the home network), or one
+    // here can't hear this one.
+    let wrong = (d.awaiting() && !d.looking) || !d.deaf.is_empty();
     if wrong && net_due {
-        look_at_network(&state, d.here.is_empty());
+        look_at_network(app);
         d = lan_diagnosis::diagnose(&facts(app));
     }
     let changed = {
@@ -586,9 +597,10 @@ fn clear_stale_error(state: &LanState) -> bool {
 }
 
 /// Which way this machine's packets leave, its subnets, and what Windows
-/// calls the network. At background priority: with `deep` it can run
-/// PowerShell; without, it goes on what Windows said before.
-fn look_at_network(state: &LanState, deep: bool) {
+/// calls the network. At background priority: it can run PowerShell, at
+/// most every 10 minutes per adapter.
+fn look_at_network(app: &AppHandle) {
+    let state = app.state::<LanState>();
     let _quiet = patchpilot_local::quiet::background();
     let mut net = state.net.lock().unwrap().clone();
     let mut ifaces = netinfo::interfaces();
@@ -607,18 +619,16 @@ fn look_at_network(state: &LanState, deep: bool) {
         let fresh = net
             .adapters
             .get(&name)
-            .filter(|(at, _)| !deep || at.elapsed() < ADAPTER_EVERY)
+            .filter(|(at, _)| at.elapsed() < ADAPTER_EVERY)
             .map(|(_, info)| info.clone());
-        let info = if !deep {
-            fresh.flatten()
-        } else {
-            fresh.unwrap_or_else(|| {
-                let info = netinfo::adapter_info(&name);
-                net.adapters
-                    .insert(name.clone(), (Instant::now(), info.clone()));
-                info
-            })
-        };
+        // Without it a VPN called "Ethernet 4" passes for the home network,
+        // so ask even while another machine is here.
+        let info = fresh.unwrap_or_else(|| {
+            let info = netinfo::adapter_info(&name);
+            net.adapters
+                .insert(name.clone(), (Instant::now(), info.clone()));
+            info
+        });
         if let Some(i) = ifaces.iter_mut().find(|i| i.name == name) {
             i.description = info.as_ref().and_then(|a| a.description.clone());
         }
@@ -628,7 +638,13 @@ fn look_at_network(state: &LanState, deep: bool) {
     }
     net.broadcast_egress = broadcast.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
     net.route_egress = route.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
-    net.subnets = lan_diagnosis::subnets(&ifaces, route);
+    let subnets = lan_diagnosis::subnets(&ifaces, route);
+    if !net.subnets.is_empty() && subnets != net.subnets {
+        // Another network: the public address the relay saw belongs to the
+        // old one until the next upload says.
+        crate::sync::forget_public(app);
+    }
+    net.subnets = subnets;
     // Windows lists no adapter at all when none is connected; with no route
     // anywhere either, this machine isn't on a network.
     net.has_lan = if !ifaces.is_empty() {
@@ -643,7 +659,7 @@ fn look_at_network(state: &LanState, deep: bool) {
         Some(Egress::Lan) => broadcast_info.and_then(|a| a.profile),
         _ => None,
     };
-    net.checked = Some(Instant::now());
+    net.checked_at = Some(patchpilot_local::now());
     *state.net.lock().unwrap() = net;
 }
 
@@ -719,11 +735,18 @@ pub(crate) fn own_report(app: &AppHandle) -> NetReport {
     }
     let net = state.net.lock().unwrap().clone();
     // Facts from an earlier problem may no longer hold: say nothing then.
-    let recent = net.checked.is_some_and(|t| t.elapsed() < NET_FACTS_FOR);
+    let recent = net
+        .checked_at
+        .is_some_and(|t| now - t < NET_FACTS_FOR.as_secs() as i64);
+    // A virtual adapter isn't a VPN: its own field, so the others can say so.
     let through_vpn = |e: &Option<Egress>| match e {
-        Some(Egress::Lan) => Some(false),
-        Some(Egress::Vpn { .. } | Egress::Virtual { .. }) => Some(true),
+        Some(Egress::Lan | Egress::Virtual { .. }) => Some(false),
+        Some(Egress::Vpn { .. }) => Some(true),
         Some(Egress::Unknown) | None => None,
+    };
+    let virtual_adapter = match &net.broadcast_egress {
+        Some(Egress::Virtual { name }) if recent => Some(name.clone()),
+        _ => None,
     };
     let mut hears: Vec<String> = state
         .peers
@@ -734,11 +757,8 @@ pub(crate) fn own_report(app: &AppHandle) -> NetReport {
         .map(|(id, _)| id.clone())
         .collect();
     hears.sort();
-    let listening_since = state
-        .listening_since
-        .lock()
-        .unwrap()
-        .map(|t| now - t.elapsed().as_secs() as i64);
+    let listening_since = *state.listening_at.lock().unwrap();
+    let send_error = state.broadcast_error.lock().unwrap().is_some();
     NetReport {
         version: net_report::REPORT_VERSION,
         at: now,
@@ -751,6 +771,8 @@ pub(crate) fn own_report(app: &AppHandle) -> NetReport {
         } else {
             None
         },
+        virtual_adapter,
+        send_error,
         internet_vpn: if recent {
             through_vpn(&net.route_egress)
         } else {
@@ -774,10 +796,14 @@ fn share(app: &AppHandle) {
             .lock()
             .unwrap()
             .as_ref()
-            .is_some_and(|d| !d.missing.is_empty() || !d.deaf.is_empty());
+            .is_some_and(|d| d.awaiting() || !d.deaf.is_empty());
     // Against what actually reached the relay, so a failed put is retried.
     let last = crate::sync::last_report(app);
     if !net_report::should_send(&report, last.as_ref().map(|(r, ago)| (r, *ago)), heartbeat) {
+        return;
+    }
+    // Offline, the next session sends one at its start anyway.
+    if !crate::sync::online(app) {
         return;
     }
     let mut asked = state.asked.lock().unwrap();
@@ -861,6 +887,7 @@ pub async fn lan_use(app: AppHandle) -> Result<(), String> {
     // Picking the home network (again) starts the "Looking for…" time over.
     let state = app.state::<LanState>();
     *state.listening_since.lock().unwrap() = Some(Instant::now());
+    *state.listening_at.lock().unwrap() = Some(patchpilot_local::now());
     *state.diagnosis.lock().unwrap() = None;
     {
         // Look at the network afresh; what Windows said about each adapter

@@ -50,10 +50,17 @@ pub struct NetReport {
     /// prefix only. Empty when it hasn't looked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subnets: Vec<Subnet>,
-    /// Its broadcasts leave through a VPN or a virtual adapter. None when it
-    /// hasn't looked.
+    /// Its broadcasts leave through a VPN. None when it hasn't looked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vpn: Option<bool>,
+    /// Its broadcasts leave into a virtual network inside it (WSL, Hyper-V,
+    /// Docker), by adapter name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub virtual_adapter: Option<String>,
+    /// Its last broadcast failed to go out (macOS Local Network off, say):
+    /// nothing it sends reaches anyone, whatever this machine does.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub send_error: bool,
     /// Its internet traffic leaves through a VPN, so `public` is the VPN's,
     /// not its home router's. None when it hasn't looked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,6 +85,8 @@ impl Default for NetReport {
             listening_since: None,
             subnets: Vec::new(),
             vpn: None,
+            virtual_adapter: None,
+            send_error: false,
             internet_vpn: None,
             hears: Vec::new(),
             public: None,
@@ -91,6 +100,10 @@ fn yes() -> bool {
 
 fn is_true(b: &bool) -> bool {
     *b
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl NetReport {
@@ -135,24 +148,30 @@ impl NetReport {
 }
 
 /// Another machine's report, with when it reached the relay on this
-/// machine's clock.
+/// machine's clock. None when that's unknown: fetched from an older relay
+/// that doesn't say how long it held it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Received {
     pub report: NetReport,
-    pub at: i64,
+    pub at: Option<i64>,
 }
 
 impl Received {
-    /// Recent enough to say something about now.
+    /// Known to be recent enough to say something about now.
     pub fn is_fresh(&self, now: i64) -> bool {
-        now - self.at.min(now) <= FRESH_SECS
+        self.at.is_some_and(|at| now - at.min(now) <= FRESH_SECS)
     }
 }
 
-/// When a report reached the relay, on this machine's clock: now, less how
-/// long the relay says it has held it. Without that, now.
-pub fn received_at(now: i64, held_ms: Option<i64>) -> i64 {
-    now - held_ms.map_or(0, |ms| ms.max(0) / 1000)
+/// When a report reached the relay, on this machine's clock. `live`: it
+/// just arrived as a change, so now. Otherwise now less how long the relay
+/// says it held it, or unknown when it doesn't say.
+pub fn received_at(now: i64, held_ms: Option<i64>, live: bool) -> Option<i64> {
+    match held_ms {
+        _ if live => Some(now),
+        Some(ms) => Some(now - ms.max(0) / 1000),
+        None => None,
+    }
 }
 
 /// How a public address is compared: an IPv4 address whole (one per home
@@ -340,15 +359,22 @@ mod tests {
     fn fresh_means_recently_on_the_relay_by_this_machines_clock() {
         let r = Received {
             report: on(),
-            at: 10_000,
+            at: Some(10_000),
         };
         assert!(r.is_fresh(10_000));
         assert!(r.is_fresh(10_000 + FRESH_SECS));
         assert!(!r.is_fresh(10_000 + FRESH_SECS + 1));
         assert!(r.is_fresh(10_000 - 60));
-        assert_eq!(received_at(10_000, Some(90_500)), 10_000 - 90);
-        assert_eq!(received_at(10_000, Some(-5)), 10_000);
-        assert_eq!(received_at(10_000, None), 10_000);
+        let unknown = Received { at: None, ..r };
+        assert!(!unknown.is_fresh(10_000), "an unknown age is never fresh");
+        assert_eq!(received_at(10_000, Some(90_500), false), Some(10_000 - 90));
+        assert_eq!(received_at(10_000, Some(-5), false), Some(10_000));
+        assert_eq!(received_at(10_000, None, false), None, "an older relay");
+        assert_eq!(
+            received_at(10_000, None, true),
+            Some(10_000),
+            "just arrived"
+        );
     }
 
     #[test]

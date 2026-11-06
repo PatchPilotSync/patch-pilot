@@ -590,6 +590,7 @@ export type LanWhy =
   | { kind: "cant_listen" }
   | { kind: "quiet"; since: number }
   | { kind: "their_vpn" }
+  | { kind: "their_virtual"; name: string }
   | { kind: "one_way" }
   | { kind: "other_network" }
   | { kind: "blocked" };
