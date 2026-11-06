@@ -415,7 +415,8 @@ fn why(f: &Facts, id: &str, seen: Option<&Seen>) -> Option<Why> {
     if both_looked && !share_a_network(&r.subnets, &f.subnets) {
         return Some(Why::OtherNetwork);
     }
-    if r.direct && r.vpn == Some(true) {
+    // Unless it hears this machine: then local traffic gets through its VPN.
+    if r.direct && r.vpn == Some(true) && !r.hears.contains(&f.this_id) {
         return Some(Why::TheirVpnOn);
     }
     // Both sides' sends go where they should, and no VPN on either side
@@ -1788,12 +1789,7 @@ mod tests {
                 ..report()
             })
         };
-        assert_ne!(
-            diagnose(&heard).cause,
-            Some(Cause::VpnBlocks {
-                adapter: Some("NordLynx".into())
-            })
-        );
+        assert_eq!(diagnose(&heard).cause, None);
         // It reports from another network: not the VPN either.
         let elsewhere = Facts {
             broadcast_egress: vpn.broadcast_egress.clone(),
@@ -1836,6 +1832,15 @@ mod tests {
             ..report()
         });
         assert_eq!(why_of(&theirs_elsewhere), Some(Why::OtherNetwork));
+        // It hears this machine with its VPN on: local traffic gets through
+        // it, so its VPN isn't the reason.
+        let theirs_hearing = compared(NetReport {
+            vpn: Some(true),
+            direct: true,
+            hears: vec!["desk".into()],
+            ..report()
+        });
+        assert_eq!(why_of(&theirs_hearing), None);
         // A virtual adapter on this machine's route is fine with direct
         // sends: blocked can still be named.
         let virt = Facts {
