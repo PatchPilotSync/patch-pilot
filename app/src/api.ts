@@ -569,8 +569,30 @@ export interface LanProgress {
 export interface LanPeer {
   machine_name: string;
   seen_at: number;
-  /** Heard from in the last minute or so. */
+  /** Heard from in the last 45 s. */
   here: boolean;
+}
+
+/** Why a linked machine can't be found (decision #123); mirrors patchpilot_local::lan_diagnosis::Cause. */
+export type LanCause =
+  | { kind: "other_version" }
+  | { kind: "no_lan" }
+  | { kind: "vpn"; adapter?: string }
+  | { kind: "virtual_adapter"; name: string }
+  | { kind: "local_network_denied" }
+  | { kind: "public_network" }
+  | { kind: "other_rig" }
+  | { kind: "vpn_on"; adapter?: string };
+
+/** Who's on this network, who's missing and why; mirrors patchpilot_local::lan_diagnosis::Diagnosis. */
+export interface LanDiagnosis {
+  /** Linked machines on this network now, by name. */
+  here: string[];
+  /** Linked machines not on this network now; `seen_at` if heard since launch. */
+  missing: { name: string; seen_at?: number }[];
+  /** Still in the first 30 s: "Looking for…", not "Can't find…". */
+  looking: boolean;
+  cause?: LanCause;
 }
 
 export interface LanView {
@@ -579,6 +601,7 @@ export interface LanView {
   error: string | null;
   progress: LanProgress | null;
   last: { at: number; report: { machines: string[]; copied: number; removed: number } } | null;
+  diagnosis: LanDiagnosis;
 }
 
 export const lanUse = () => invoke<void>("lan_use");
