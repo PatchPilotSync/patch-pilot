@@ -15,6 +15,11 @@
 //! gathered here, and `patchpilot_local::netinfo` looks at the network only
 //! while a machine is missing, so an idle machine with everyone found does
 //! no extra work.
+//!
+//! The same loop keeps this machine's home-network report on the relay
+//! (decision #124): sent when it changes and, while a machine is missing or
+//! can't hear this one, every few minutes. The other machines' reports come
+//! back through `sync` and name what only they can see.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -26,6 +31,7 @@ use patchpilot_local::backup::{self, BackupSettings};
 use patchpilot_local::github::FileIndex;
 use patchpilot_local::lan::{self, Beacon, Connection, Heard, Progress, PullReport};
 use patchpilot_local::lan_diagnosis::{self, Diagnosis, Egress, Expected, Facts, Profile, Seen};
+use patchpilot_local::net_report::{self, NetReport, Subnet};
 use patchpilot_local::netinfo::{self, AdapterInfo};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
@@ -46,14 +52,22 @@ const MAX_CONNECTIONS: usize = 8;
 const NET_EVERY: Duration = Duration::from_secs(30);
 /// Ask Windows about an adapter (PowerShell, about a second) this often.
 const ADAPTER_EVERY: Duration = Duration::from_secs(600);
+/// …or this often while it couldn't say (WMI timed out, PowerShell blocked).
+const ADAPTER_RETRY: Duration = Duration::from_secs(60);
+/// A report's network facts older than this are left out: they were last
+/// looked at during an earlier problem and may no longer hold.
+const NET_FACTS_FOR: Duration = Duration::from_secs(90);
 /// Emitted with a [`Progress`] while a pull runs, then with null.
 pub const LAN_PROGRESS: &str = "lan-progress";
 
 struct Peer {
     name: String,
     addr: SocketAddr,
-    seen: Instant,
+    /// When last heard (Unix seconds). The wall clock, not an `Instant`: a
+    /// Mac's stops while it sleeps.
     seen_at: i64,
+    /// When this stretch of hearing it began (Unix seconds).
+    since: i64,
     /// Its copy's state when last heard.
     state: String,
     /// The state last pulled in full.
@@ -81,6 +95,9 @@ struct LanState {
     last: Mutex<Option<LastPull>>,
     /// Since when this machine has listened, for "Looking for…" first.
     listening_since: Mutex<Option<Instant>>,
+    /// The same as Unix seconds, for this machine's report: fixed once, so
+    /// the report doesn't look changed every time it's built.
+    listening_at: Mutex<Option<i64>>,
     /// When a beacon of this rig came in that this version can't read.
     other_version: Mutex<Option<Instant>>,
     /// When a Patch Pilot beacon under another rig key came in.
@@ -92,16 +109,24 @@ struct LanState {
     net: Mutex<NetCache>,
     /// The diagnosis last told to the UI.
     diagnosis: Mutex<Option<Diagnosis>>,
+    /// When `sync` was last asked to send this machine's report: a put
+    /// that keeps failing is tried again, but not every beacon.
+    asked: Mutex<Option<Instant>>,
 }
 
 /// This machine's network as last looked at, while a machine was missing.
 #[derive(Default, Clone)]
 struct NetCache {
-    checked: Option<Instant>,
+    /// When it was last looked at (Unix seconds): the wall clock, since a
+    /// Mac's `Instant` stops while it sleeps and facts from before sleep
+    /// would pass as fresh after waking somewhere else.
+    checked_at: Option<i64>,
     broadcast_egress: Option<Egress>,
     route_egress: Option<Egress>,
     has_lan: Option<bool>,
     profile: Option<Profile>,
+    /// The Wi-Fi and Ethernet subnets, for this machine's report.
+    subnets: Vec<Subnet>,
     /// What Windows said about each adapter, by name, and when.
     adapters: HashMap<String, (Instant, Option<AdapterInfo>)>,
 }
@@ -149,12 +174,22 @@ pub fn setup(app: &AppHandle) {
     let handle = app.clone();
     std::thread::spawn(move || {
         refresh_names(&handle);
+        let mut last_round = patchpilot_local::now();
         loop {
+            // A round that came much later than it should: the machine slept.
+            // What the relay said before may be hours old, and the
+            // connection may be dead without knowing it yet.
+            let now = patchpilot_local::now();
+            if now - last_round > 3 * BEACON_EVERY.as_secs() as i64 {
+                crate::sync::woke(&handle);
+            }
+            last_round = now;
             if in_use() {
                 start(&handle);
                 announce(&handle, None);
                 check(&handle);
             }
+            share(&handle);
             std::thread::sleep(BEACON_EVERY);
         }
     });
@@ -226,6 +261,11 @@ fn start(app: &AppHandle) {
         .lock()
         .unwrap()
         .get_or_insert_with(Instant::now);
+    state
+        .listening_at
+        .lock()
+        .unwrap()
+        .get_or_insert_with(patchpilot_local::now);
 
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -320,7 +360,8 @@ fn announce(app: &AppHandle, to: Option<IpAddr>) {
         // Only the broadcast says something about this machine's network: a
         // machine heard before that left answers "unreachable" too.
         if ip == broadcast {
-            *state.broadcast_error.lock().unwrap() = sent.err().and_then(|e| e.raw_os_error());
+            *state.broadcast_error.lock().unwrap() =
+                sent.err().map(|e| e.raw_os_error().unwrap_or(-1));
         }
     }
 }
@@ -341,22 +382,22 @@ fn heard(app: &AppHandle, beacon: Beacon, ip: IpAddr) {
     let (new, wanted) = {
         let mut peers = state.peers.lock().unwrap();
         let addr = SocketAddr::new(ip, beacon.port);
-        let new = peers
-            .get(&beacon.machine_id)
-            .is_none_or(|p| p.seen.elapsed() > GONE);
+        let new = peers.get(&beacon.machine_id).is_none_or(|p| !is_here(p));
         let peer = peers.entry(beacon.machine_id.clone()).or_insert(Peer {
             name: String::new(),
             addr,
-            seen: Instant::now(),
             seen_at: 0,
+            since: 0,
             state: String::new(),
             pulled: None,
             failed: None,
         });
         peer.name = beacon.machine_name;
         peer.addr = addr;
-        peer.seen = Instant::now();
         peer.seen_at = patchpilot_local::now();
+        if new {
+            peer.since = peer.seen_at;
+        }
         peer.state = beacon.state;
         let wanted = peer.pulled.as_ref() != Some(&peer.state)
             && peer.failed.is_none_or(|f| f.elapsed() > RETRY);
@@ -395,7 +436,7 @@ pub fn sync_now(app: &AppHandle) -> Result<(), String> {
         .lock()
         .unwrap()
         .iter()
-        .filter(|(_, p)| p.seen.elapsed() < GONE)
+        .filter(|(_, p)| is_here(p))
         .map(|(id, _)| id.clone())
         .collect();
     for id in ids {
@@ -522,12 +563,14 @@ fn check(app: &AppHandle) {
         .net
         .lock()
         .unwrap()
-        .checked
-        .is_none_or(|t| t.elapsed() >= NET_EVERY);
-    // Only while nobody is here: otherwise this machine's network works,
-    // and diagnose doesn't look at it.
-    if !d.missing.is_empty() && d.here.is_empty() && !d.looking && net_due {
-        look_at_network(&state);
+        .checked_at
+        .is_none_or(|t| !net_age_within(t, NET_EVERY));
+    // Only while something is wrong: a machine that might still turn up is
+    // missing (not one that said it doesn't use the home network), or one
+    // here can't hear this one.
+    let wrong = (d.awaiting() && !d.looking) || !d.deaf.is_empty() || d.maybe_deaf;
+    if wrong && net_due {
+        look_at_network(app);
         d = lan_diagnosis::diagnose(&facts(app));
     }
     let changed = {
@@ -554,7 +597,7 @@ fn clear_stale_error(state: &LanState) -> bool {
             .lock()
             .unwrap()
             .get(id)
-            .is_none_or(|p| p.seen.elapsed() >= GONE)
+            .is_none_or(|p| !is_here(p))
     });
     if gone {
         *from = None;
@@ -565,9 +608,11 @@ fn clear_stale_error(state: &LanState) -> bool {
     gone
 }
 
-/// Which way this machine's packets leave, and what Windows calls the
-/// network. At background priority: it can run PowerShell.
-fn look_at_network(state: &LanState) {
+/// Which way this machine's packets leave, its subnets, and what Windows
+/// calls the network. At background priority: it can run PowerShell, at
+/// most every 10 minutes per adapter.
+fn look_at_network(app: &AppHandle) {
+    let state = app.state::<LanState>();
     let _quiet = patchpilot_local::quiet::background();
     let mut net = state.net.lock().unwrap().clone();
     let mut ifaces = netinfo::interfaces();
@@ -576,6 +621,7 @@ fn look_at_network(state: &LanState) {
     // What Windows says about the adapters the packets leave on, since many
     // VPNs call theirs "Ethernet 4" and say what they are only there.
     let mut broadcast_info = None;
+    let mut undescribed: Vec<String> = Vec::new();
     for (src, is_broadcast) in [(broadcast, true), (route, false)] {
         let Some(name) = src
             .and_then(|ip| netinfo::interface_of(ip, &ifaces))
@@ -586,8 +632,17 @@ fn look_at_network(state: &LanState) {
         let fresh = net
             .adapters
             .get(&name)
-            .filter(|(at, _)| at.elapsed() < ADAPTER_EVERY)
+            .filter(|(at, info)| {
+                at.elapsed()
+                    < if info.is_some() {
+                        ADAPTER_EVERY
+                    } else {
+                        ADAPTER_RETRY
+                    }
+            })
             .map(|(_, info)| info.clone());
+        // Without it a VPN called "Ethernet 4" passes for the home network,
+        // so ask even while another machine is here.
         let info = fresh.unwrap_or_else(|| {
             let info = netinfo::adapter_info(&name);
             net.adapters
@@ -597,12 +652,32 @@ fn look_at_network(state: &LanState) {
         if let Some(i) = ifaces.iter_mut().find(|i| i.name == name) {
             i.description = info.as_ref().and_then(|a| a.description.clone());
         }
+        if info.as_ref().and_then(|a| a.description.as_ref()).is_none() {
+            undescribed.push(name.clone());
+        }
         if is_broadcast {
             broadcast_info = info;
         }
     }
-    net.broadcast_egress = broadcast.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
-    net.route_egress = route.map(|ip| lan_diagnosis::egress_kind(ip, &ifaces, route));
+    // On Windows a VPN often calls its adapter "Ethernet 4" and says what it
+    // is only in the description: without one, the name alone can't tell.
+    let egress = |ip: IpAddr| {
+        let kind = lan_diagnosis::egress_kind(ip, &ifaces, route);
+        let unsure = cfg!(windows)
+            && kind == Egress::Lan
+            && netinfo::interface_of(ip, &ifaces)
+                .is_some_and(|n| undescribed.iter().any(|u| u == n));
+        if unsure { Egress::Unknown } else { kind }
+    };
+    net.broadcast_egress = broadcast.map(egress);
+    net.route_egress = route.map(egress);
+    let subnets = lan_diagnosis::subnets(&ifaces, route);
+    if !net.subnets.is_empty() && subnets != net.subnets {
+        // Another network: the public address the relay saw belongs to the
+        // old one until the next upload says.
+        crate::sync::forget_public(app);
+    }
+    net.subnets = subnets;
     // Windows lists no adapter at all when none is connected; with no route
     // anywhere either, this machine isn't on a network.
     net.has_lan = if !ifaces.is_empty() {
@@ -617,7 +692,7 @@ fn look_at_network(state: &LanState) {
         Some(Egress::Lan) => broadcast_info.and_then(|a| a.profile),
         _ => None,
     };
-    net.checked = Some(Instant::now());
+    net.checked_at = Some(patchpilot_local::now());
     *state.net.lock().unwrap() = net;
 }
 
@@ -635,11 +710,19 @@ fn facts(app: &AppHandle) -> Facts {
         .map(|(id, p)| Seen {
             id: id.clone(),
             name: p.name.clone(),
-            here: p.seen.elapsed() < GONE,
+            here: is_here(p),
             seen_at: p.seen_at,
+            since: p.since,
         })
         .collect();
-    let net = state.net.lock().unwrap().clone();
+    let mut net = state.net.lock().unwrap().clone();
+    if !net
+        .checked_at
+        .is_some_and(|t| net_age_within(t, NET_FACTS_FOR))
+    {
+        // From an earlier look that may no longer hold: as if never looked.
+        net = NetCache::default();
+    }
     Facts {
         listening_for: state
             .listening_since
@@ -656,6 +739,129 @@ fn facts(app: &AppHandle) -> Facts {
         has_lan: net.has_lan,
         profile: net.profile,
         macos: cfg!(target_os = "macos"),
+        this_id: this_machine().unwrap_or_default(),
+        now: patchpilot_local::now(),
+        relay_online: crate::sync::online(app),
+        subnets: net.subnets,
+        public: crate::sync::public(app),
+        reports: crate::sync::reports(app),
+    }
+}
+
+/// A wall-clock time at most `within` ago. A clock stepped back makes it
+/// "not within", so the network is looked at again and old facts aren't
+/// taken as fresh.
+fn net_age_within(t: i64, within: Duration) -> bool {
+    let age = patchpilot_local::now() - t;
+    (0..within.as_secs() as i64).contains(&age)
+}
+
+/// Heard from in the last 45 s.
+fn is_here(p: &Peer) -> bool {
+    patchpilot_local::now() - p.seen_at < GONE.as_secs() as i64
+}
+
+/// What this machine tells the others about its home network: on and
+/// listening, its subnets and whether its broadcasts go astray as last
+/// looked at, and who it hears now. Quick: no store, no command.
+pub(crate) fn own_report(app: &AppHandle) -> NetReport {
+    let now = patchpilot_local::now();
+    // Sync can start before the home network is set up.
+    let Some(state) = app.try_state::<LanState>() else {
+        return NetReport::off(now);
+    };
+    if !in_use() {
+        return NetReport::off(now);
+    }
+    if state.udp.lock().unwrap().is_none() {
+        // Picked, but the port wouldn't open: this machine says why itself.
+        return NetReport {
+            on: true,
+            listening: false,
+            ..NetReport::off(now)
+        };
+    }
+    let net = state.net.lock().unwrap().clone();
+    // Facts from an earlier problem may no longer hold: say nothing then.
+    let recent = net
+        .checked_at
+        .is_some_and(|t| net_age_within(t, NET_FACTS_FOR));
+    // A virtual adapter isn't a VPN: its own field, so the others can say so.
+    let through_vpn = |e: &Option<Egress>| match e {
+        Some(Egress::Lan | Egress::Virtual { .. }) => Some(false),
+        Some(Egress::Vpn { .. }) => Some(true),
+        Some(Egress::Unknown) | None => None,
+    };
+    let virtual_adapter = match &net.broadcast_egress {
+        Some(Egress::Virtual { name }) if recent => Some(name.clone()),
+        _ => None,
+    };
+    let mut hears: Vec<String> = state
+        .peers
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, p)| is_here(p))
+        .map(|(id, _)| id.clone())
+        .collect();
+    hears.sort();
+    let listening_since = *state.listening_at.lock().unwrap();
+    let send_error = state.broadcast_error.lock().unwrap().is_some();
+    NetReport {
+        version: net_report::REPORT_VERSION,
+        at: now,
+        on: true,
+        listening: true,
+        listening_since,
+        subnets: if recent { net.subnets } else { Vec::new() },
+        vpn: if recent {
+            through_vpn(&net.broadcast_egress)
+        } else {
+            None
+        },
+        virtual_adapter,
+        send_error,
+        internet_vpn: if recent {
+            through_vpn(&net.route_egress)
+        } else {
+            None
+        },
+        hears,
+        public: crate::sync::public(app),
+    }
+}
+
+/// Every beacon: have `sync` send this machine's report when it says
+/// something new, or, while a machine is missing or can't hear this one,
+/// when the others should hear it's still running. Not linked, `sync`
+/// isn't running and nothing goes out.
+fn share(app: &AppHandle) {
+    let state = app.state::<LanState>();
+    let report = own_report(app);
+    // While a machine here can't hear this one, sooner: the other side
+    // needs a report from late enough to tell.
+    let heartbeat = state.diagnosis.lock().unwrap().as_ref().and_then(|d| {
+        if !d.deaf.is_empty() {
+            Some(net_report::HEARTBEAT_SOON)
+        } else if d.awaiting() {
+            Some(net_report::HEARTBEAT)
+        } else {
+            None
+        }
+    });
+    // Against what actually reached the relay, so a failed put is retried.
+    let last = crate::sync::last_report(app);
+    if !net_report::should_send(&report, last.as_ref().map(|(r, ago)| (r, *ago)), heartbeat) {
+        return;
+    }
+    // Offline, the next session sends one at its start anyway.
+    if !crate::sync::online(app) {
+        return;
+    }
+    let mut asked = state.asked.lock().unwrap();
+    if asked.is_none_or(|t| t.elapsed() >= net_report::MIN_GAP) {
+        *asked = Some(Instant::now());
+        crate::sync::share_report(app);
     }
 }
 
@@ -699,7 +905,7 @@ pub fn view(app: &AppHandle) -> Option<LanView> {
         .map(|p| LanPeer {
             machine_name: p.name.clone(),
             seen_at: p.seen_at,
-            here: p.seen.elapsed() < GONE,
+            here: is_here(p),
         })
         .collect();
     peers.sort_by_key(|p| std::cmp::Reverse(p.seen_at));
@@ -733,6 +939,7 @@ pub async fn lan_use(app: AppHandle) -> Result<(), String> {
     // Picking the home network (again) starts the "Looking for…" time over.
     let state = app.state::<LanState>();
     *state.listening_since.lock().unwrap() = Some(Instant::now());
+    *state.listening_at.lock().unwrap() = Some(patchpilot_local::now());
     *state.diagnosis.lock().unwrap() = None;
     {
         // Look at the network afresh; what Windows said about each adapter

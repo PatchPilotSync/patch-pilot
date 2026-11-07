@@ -4,10 +4,12 @@
 //! and [`diagnose`] turns them into what the Sync & backup line says. Nothing
 //! here opens a socket or runs a command; [`crate::netinfo`] does the looking.
 //!
-//! A cause is only named when this machine can tell. "The other machine is
-//! on a different Wi-Fi" or "its firewall blocks us" can't be seen from here,
-//! so those stay on the checklist the details show.
+//! A cause is only named when this machine can tell. What only the other
+//! machine knows (it's on another Wi-Fi, its VPN is on, it never hears this
+//! one) comes from its [`NetReport`] over the relay (decision #124) and is
+//! named per machine as a [`Why`], only while that report is fresh.
 
+use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::time::Duration;
@@ -15,6 +17,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::lan::PORT;
+use crate::net_report::{FRESH_SECS, Received, Subnet, same_public, share_a_network};
 
 /// How long the line says "Looking for…" before it says "Can't find…". The
 /// app checks every beacon (10 s), so in practice 30-40 s.
@@ -35,7 +38,28 @@ pub struct Seen {
     /// Heard from in the last 45 s.
     pub here: bool,
     pub seen_at: i64,
+    /// When this stretch of hearing it began (Unix seconds).
+    pub since: i64,
 }
+
+/// A machine that's heard here only counts as unable to hear this one once
+/// its report reached the relay this long after it was first heard here
+/// (both on this machine's clock)…
+const DEAF_AFTER_SECS: i64 = 90;
+/// …and it had been listening this long when it made the report (on its
+/// own clock): time enough for several beacons and the hello back, so a
+/// machine that just restarted isn't taken as deaf.
+const LISTEN_FIRST_SECS: i64 = 30;
+/// A missing machine's report says how things are now only if it reached
+/// the relay at least this long after this machine last heard it (two
+/// beacons, for one lost and clocks in whole seconds): an earlier one was
+/// made while it was still here, before it went to sleep, quit or moved.
+const AFTER_HEARD_SECS: i64 = 20;
+/// How long a report's `hears` keeps a machine after last hearing it (the
+/// app's 45 s "gone"), plus a beacon: "it hears this machine" only means now
+/// in a report made at least this long after this machine last heard it, or
+/// after this machine started listening (it may have heard the run before).
+const HEARS_FOR_SECS: i64 = 55;
 
 /// A network interface: its name as the OS shows it ("Wi-Fi", "en0"), its
 /// addresses with their prefix lengths, and on Windows the adapter's
@@ -116,6 +140,20 @@ pub struct Facts {
     /// Windows only; None elsewhere or when unknown.
     pub profile: Option<Profile>,
     pub macos: bool,
+    /// This machine's id, to find it in the others' reports.
+    pub this_id: String,
+    /// Unix seconds now.
+    pub now: i64,
+    /// Connected to the relay, so a quiet machine is really quiet.
+    pub relay_online: bool,
+    /// This machine's home-network subnets, as last looked at; empty when
+    /// it hasn't looked.
+    pub subnets: Vec<Subnet>,
+    /// This machine's public address as the relay saw it
+    /// ([`crate::net_report::public_tag`]).
+    pub public: Option<String>,
+    /// The other machines' latest reports, by id (decision #124).
+    pub reports: BTreeMap<String, Received>,
 }
 
 /// What the Sync & backup line says about the home network. Mirrored in
@@ -131,6 +169,19 @@ pub struct Diagnosis {
     /// The most likely reason this machine can see, while one is missing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<Cause>,
+    /// Machines heard here that say they don't hear this one, by name: they
+    /// get nothing from this machine.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub deaf: Vec<String>,
+    /// Why they can't hear this machine, when this machine can tell. Its
+    /// own: this machine's VPN says nothing about why another is missing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deaf_cause: Option<Cause>,
+    /// A machine heard here has a fresh report that doesn't list this one
+    /// yet, too soon to call it deaf: worth looking at this machine's
+    /// network now, so its report says how its sends go. Not shown.
+    #[serde(skip)]
+    pub maybe_deaf: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -139,6 +190,38 @@ pub struct Missing {
     /// When it was last heard on this network, since launch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seen_at: Option<i64>,
+    /// What its own report says is wrong.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<Why>,
+}
+
+/// Why one machine can't be found, from its own report. Mirrored in
+/// `app/src/api.ts`; the words are in `Backup.tsx`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Why {
+    /// Home network sync isn't picked there.
+    Off,
+    /// It's picked there, but Patch Pilot couldn't open its network port.
+    CantListen,
+    /// No report for a while: asleep, Patch Pilot closed, or offline.
+    Quiet { since: i64 },
+    /// Its broadcasts leave through a VPN.
+    TheirVpn,
+    /// Its broadcasts leave into a virtual network inside it.
+    TheirVirtual { name: String },
+    /// A VPN carries its internet traffic and it's on this machine's range
+    /// but hears nothing: many VPNs block local traffic. A guess.
+    TheirVpnOn,
+    /// It hears this machine, but nothing it sends arrives here.
+    OneWay,
+    /// It's on another network: no home subnet in common, or the same
+    /// range behind another router (another public address).
+    OtherNetwork,
+    /// The same network (same subnet and public address), both listening,
+    /// no VPN either side, and neither hears the other: a firewall, or the
+    /// router keeping devices apart.
+    Blocked,
 }
 
 /// Mirrored in `app/src/api.ts`; the words are in `Backup.tsx`.
@@ -194,27 +277,193 @@ pub fn diagnose(f: &Facts) -> Diagnosis {
                 // The name it last broadcast is the freshest.
                 name: seen.map_or_else(|| e.name.clone(), |s| s.name.clone()),
                 seen_at: seen.map(|s| s.seen_at),
+                why: why(f, &e.id, seen),
             }
         })
         .collect();
+    let mut deaf: Vec<String> = f
+        .seen
+        .iter()
+        .filter(|s| s.here && f.expected.iter().any(|e| e.id == s.id))
+        .filter(|s| {
+            f.reports.get(&s.id).is_some_and(|rx| {
+                let r = &rx.report;
+                r.on && r.listening
+                    && rx.is_fresh(f.now)
+                    && rx.at.is_some_and(|at| at >= s.since + DEAF_AFTER_SECS)
+                    && r.listened_for(LISTEN_FIRST_SECS)
+                    && !r.hears.contains(&f.this_id)
+            })
+        })
+        .map(|s| s.name.clone())
+        .collect();
+    deaf.sort();
+    let maybe_deaf = f
+        .seen
+        .iter()
+        .filter(|s| s.here && f.expected.iter().any(|e| e.id == s.id))
+        .any(|s| {
+            f.reports.get(&s.id).is_some_and(|rx| {
+                rx.report.on
+                    && rx.is_fresh(f.now)
+                    && rx.at.is_some_and(|at| at >= s.since)
+                    && !rx.report.hears.contains(&f.this_id)
+            })
+        });
     let looking = !missing.is_empty() && f.listening_for < GRACE;
-    let cause = if missing.is_empty() || looking {
-        None
+    // A missing machine that reports from somewhere this machine can't
+    // confirm is its own network: advice about this network (make it
+    // Private, a VPN for the internet here) may be about a café's Wi-Fi.
+    let elsewhere = f.expected.iter().any(|e| {
+        let seen = f.seen.iter().find(|s| s.id == e.id);
+        seen.is_none_or(|s| !s.here)
+            && current(f, &e.id, seen).is_some_and(|(rx, _)| !same_network(f, &rx.report))
+    });
+    let cause = if !missing.is_empty() && !looking {
+        cause(f, !here.is_empty(), elsewhere)
     } else {
-        cause(f, !here.is_empty())
+        None
     };
+    let deaf_cause = if deaf.is_empty() { None } else { deaf_cause(f) };
     Diagnosis {
         here,
         missing,
         looking,
         cause,
+        deaf,
+        deaf_cause,
+        maybe_deaf,
+    }
+}
+
+/// A missing machine's report that says how things are now, and when it
+/// reached the relay: on, fresh, this machine online (offline, a newer one
+/// could be waiting unseen), and reached the relay after this machine last
+/// heard that machine (an earlier one was made while it was still here).
+fn current<'a>(f: &'a Facts, id: &str, seen: Option<&Seen>) -> Option<(&'a Received, i64)> {
+    let rx = f.reports.get(id)?;
+    let at = rx.at?;
+    (rx.report.on
+        && rx.is_fresh(f.now)
+        && f.relay_online
+        && seen.is_none_or(|s| at >= s.seen_at + AFTER_HEARD_SECS))
+    .then_some((rx, at))
+}
+
+/// The report shows it on this machine's network: a subnet in common and
+/// the same public address, compared directly (no VPN for the internet on
+/// either side).
+fn same_network(f: &Facts, r: &crate::net_report::NetReport) -> bool {
+    let direct = matches!(f.route_egress, Some(Egress::Lan)) && r.internet_vpn == Some(false);
+    direct
+        && share_a_network(&r.subnets, &f.subnets)
+        && matches!((&r.public, &f.public), (Some(a), Some(b)) if same_public(a, b) == Some(true))
+}
+
+/// What a missing machine's own report says, surest first. Only "off" holds
+/// however old the report is: the machine would have said if it turned the
+/// home network on.
+fn why(f: &Facts, id: &str, seen: Option<&Seen>) -> Option<Why> {
+    let rx = f.reports.get(id)?;
+    let r = &rx.report;
+    if !r.on {
+        return Some(Why::Off);
+    }
+    // How old it is is unknown (an older relay): only "off" holds.
+    let at = rx.at?;
+    if !rx.is_fresh(f.now) {
+        // Offline here, every report goes stale; and one heard here lately
+        // was running, its report just hadn't needed refreshing.
+        let heard_lately = seen.is_some_and(|s| f.now - s.seen_at < FRESH_SECS);
+        let last = seen.map_or(at, |s| s.seen_at.max(at));
+        return (f.relay_online && !heard_lately).then_some(Why::Quiet { since: last });
+    }
+    let (_, at) = current(f, id, seen)?;
+    if !r.listening {
+        return Some(Why::CantListen);
+    }
+    if r.vpn == Some(true) {
+        return Some(Why::TheirVpn);
+    }
+    if let Some(name) = &r.virtual_adapter {
+        return Some(Why::TheirVirtual { name: name.clone() });
+    }
+    let both_looked = !r.subnets.is_empty() && !f.subnets.is_empty();
+    if both_looked && !share_a_network(&r.subnets, &f.subnets) {
+        return Some(Why::OtherNetwork);
+    }
+    // Both sides' sends go where they should, and no VPN on either side
+    // that might drop local traffic, so what it hears or doesn't says
+    // something about the firewalls and the network between.
+    let sends_fine = r.vpn == Some(false)
+        && r.internet_vpn == Some(false)
+        && !r.send_error
+        && matches!(f.broadcast_egress, Some(Egress::Lan))
+        && matches!(f.route_egress, Some(Egress::Lan))
+        && f.broadcast_error.is_none();
+    let listening_from = f.now - f.listening_for.as_secs() as i64;
+    if r.hears.contains(&f.this_id) {
+        // Its `hears` keeps a machine 45 s: it must postdate both this
+        // machine losing it and this run starting.
+        let current = at >= listening_from + HEARS_FOR_SECS
+            && seen.is_none_or(|s| at >= s.seen_at + HEARS_FOR_SECS);
+        return (sends_fine && current).then_some(Why::OneWay);
+    }
+    if !both_looked {
+        return None;
+    }
+    // The same range. Most routers hand out the same few, so it's the same
+    // network only if the public address matches too, and that only says
+    // something when neither side's internet goes through a VPN.
+    // Its VPN carries its internet traffic and it hears nothing here: many
+    // VPNs block local traffic too.
+    if r.internet_vpn == Some(true) && matches!(f.route_egress, Some(Egress::Lan)) {
+        return Some(Why::TheirVpnOn);
+    }
+    let direct = matches!(f.route_egress, Some(Egress::Lan)) && r.internet_vpn == Some(false);
+    let same = match (&r.public, &f.public) {
+        (Some(a), Some(b)) if direct => same_public(a, b)?,
+        _ => return None,
+    };
+    if !same {
+        return Some(Why::OtherNetwork);
+    }
+    // Same network: blocked only when neither side's packets go astray, and
+    // it had time to hear this run's beacons.
+    (sends_fine && at >= listening_from + AFTER_HEARD_SECS).then_some(Why::Blocked)
+}
+
+impl Diagnosis {
+    /// A linked machine is missing that might still turn up: one whose
+    /// report says it doesn't use the home network won't, and needs
+    /// nothing more from this machine.
+    pub fn awaiting(&self) -> bool {
+        self.missing.iter().any(|m| m.why != Some(Why::Off))
+    }
+}
+
+/// Why machines heard here can't hear this one, when this machine can
+/// tell: its own packets leave the wrong way, or it runs a version they
+/// can't read.
+fn deaf_cause(f: &Facts) -> Option<Cause> {
+    if f.other_version {
+        return Some(Cause::OtherVersion);
+    }
+    match &f.broadcast_egress {
+        Some(Egress::Vpn { adapter }) => Some(Cause::Vpn {
+            adapter: adapter.clone(),
+        }),
+        Some(Egress::Virtual { name }) => Some(Cause::VirtualAdapter { name: name.clone() }),
+        _ => None,
     }
 }
 
 /// The first cause that fits, surest first. While another linked machine is
 /// here, this machine's network works, so only causes on the other side
-/// (another version, another rig) are named.
-fn cause(f: &Facts, someone_here: bool) -> Option<Cause> {
+/// (another version, another rig) are named. `elsewhere`: a missing machine
+/// reports from a network this machine can't confirm is its own, so advice
+/// about this network is left out.
+fn cause(f: &Facts, someone_here: bool, elsewhere: bool) -> Option<Cause> {
     if f.other_version {
         return Some(Cause::OtherVersion);
     }
@@ -242,14 +491,17 @@ fn cause(f: &Facts, someone_here: bool) -> Option<Cause> {
         {
             return Some(Cause::LocalNetworkDenied);
         }
-        if f.profile == Some(Profile::Public) {
+        if f.profile == Some(Profile::Public) && !elsewhere {
             return Some(Cause::PublicNetwork);
         }
     }
     if f.other_rig {
         return Some(Cause::OtherRig);
     }
-    if !someone_here && let Some(Egress::Vpn { adapter }) = &f.route_egress {
+    if !someone_here
+        && !elsewhere
+        && let Some(Egress::Vpn { adapter }) = &f.route_egress
+    {
         return Some(Cause::VpnOn {
             adapter: adapter.clone(),
         });
@@ -333,6 +585,24 @@ fn kind_with_route(i: &Iface, route: Option<IpAddr>) -> AdapterKind {
     }
 }
 
+/// This machine's home-network subnets: the Wi-Fi and Ethernet ones,
+/// sorted, for its [`NetReport`].
+pub fn subnets(ifaces: &[Iface], route: Option<IpAddr>) -> Vec<Subnet> {
+    let mut out: Vec<Subnet> = ifaces
+        .iter()
+        .filter(|i| kind_with_route(i, route) == AdapterKind::Lan)
+        .flat_map(|i| &i.ips)
+        .filter(|(ip, _)| lan_v4(ip))
+        .filter_map(|(ip, prefix)| match ip {
+            IpAddr::V4(v4) => Subnet::of(*v4, *prefix),
+            IpAddr::V6(_) => None,
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// True when some Wi-Fi or Ethernet interface has a home-network address.
 /// `route`: the address internet traffic leaves from, if known.
 pub fn has_lan(ifaces: &[Iface], route: Option<IpAddr>) -> bool {
@@ -391,6 +661,7 @@ pub fn bind_error_text(kind: ErrorKind, raw_os_error: Option<i32>, detail: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net_report::NetReport;
     use std::net::Ipv4Addr;
 
     fn ip(a: u8, b: u8, c: u8, d: u8) -> IpAddr {
@@ -470,6 +741,7 @@ mod tests {
                 name: "Laptop (renamed)".into(),
                 here: false,
                 seen_at: 1_700_000_000,
+                since: 1_699_999_000,
             }],
             ..alone()
         };
@@ -478,7 +750,8 @@ mod tests {
             d.missing,
             vec![Missing {
                 name: "Laptop (renamed)".into(),
-                seen_at: Some(1_700_000_000)
+                seen_at: Some(1_700_000_000),
+                why: None,
             }]
         );
     }
@@ -490,6 +763,7 @@ mod tests {
             name: "Desktop".into(),
             here: true,
             seen_at: 1,
+            since: 1,
         };
         let f = Facts {
             expected: vec![
@@ -527,6 +801,7 @@ mod tests {
                 name: "MacBook".into(),
                 here: true,
                 seen_at: 1,
+                since: 1,
             }],
             ..alone()
         });
@@ -808,5 +1083,566 @@ mod tests {
             c,
             serde_json::json!({ "kind": "virtual_adapter", "name": "docker0" })
         );
+    }
+
+    const NOW: i64 = 1_800_000_000;
+    const HOME_IP: &str = "v4:203.0.113.5";
+
+    fn home() -> Subnet {
+        Subnet::of(Ipv4Addr::new(192, 168, 1, 20), 24).unwrap()
+    }
+
+    /// The laptop's report: on and listening for ten minutes, fresh, on the
+    /// home network behind the home router, no VPN, hears nobody.
+    fn report() -> NetReport {
+        NetReport {
+            version: 1,
+            at: NOW - 60,
+            on: true,
+            listening_since: Some(NOW - 660),
+            subnets: vec![home()],
+            vpn: Some(false),
+            internet_vpn: Some(false),
+            public: Some(HOME_IP.into()),
+            ..NetReport::default()
+        }
+    }
+
+    /// As if it reached the relay when it was made.
+    fn rx(r: NetReport) -> Received {
+        Received {
+            at: Some(r.at),
+            report: r,
+        }
+    }
+
+    /// Alone for an hour, with the laptop's report in and this machine's
+    /// network known.
+    fn compared(r: NetReport) -> Facts {
+        Facts {
+            listening_for: Duration::from_secs(3600),
+            this_id: "desk".into(),
+            now: NOW,
+            relay_online: true,
+            subnets: vec![home()],
+            public: Some(HOME_IP.into()),
+            reports: [("laptop".to_string(), rx(r))].into(),
+            ..alone()
+        }
+    }
+
+    fn why_of(f: &Facts) -> Option<Why> {
+        diagnose(f).missing[0].why.clone()
+    }
+
+    #[test]
+    fn the_other_machines_report_says_why_surest_first() {
+        assert_eq!(why_of(&compared(report())), Some(Why::Blocked));
+        let off = NetReport {
+            at: NOW - 86_400,
+            ..NetReport::off(0)
+        };
+        assert_eq!(
+            why_of(&compared(off)),
+            Some(Why::Off),
+            "off holds however old"
+        );
+        let old = NetReport {
+            at: NOW - 3_600,
+            ..report()
+        };
+        assert_eq!(
+            why_of(&compared(old.clone())),
+            Some(Why::Quiet { since: NOW - 3_600 })
+        );
+        assert_eq!(
+            why_of(&Facts {
+                relay_online: false,
+                ..compared(old.clone())
+            }),
+            None,
+            "offline here, every report looks old"
+        );
+        // Heard here a few minutes ago: running, its report just old.
+        let lately = Facts {
+            seen: vec![Seen {
+                id: "laptop".into(),
+                name: "Brian's Laptop".into(),
+                here: false,
+                seen_at: NOW - 120,
+                since: NOW - 7_200,
+            }],
+            ..compared(old)
+        };
+        assert_eq!(why_of(&lately), None);
+        let no_port = NetReport {
+            listening: false,
+            ..report()
+        };
+        assert_eq!(why_of(&compared(no_port)), Some(Why::CantListen));
+        let vpn = NetReport {
+            vpn: Some(true),
+            hears: vec!["desk".into()],
+            ..report()
+        };
+        assert_eq!(why_of(&compared(vpn)), Some(Why::TheirVpn));
+        let hears_us = NetReport {
+            hears: vec!["desk".into()],
+            ..report()
+        };
+        assert_eq!(why_of(&compared(hears_us)), Some(Why::OneWay));
+        let elsewhere = NetReport {
+            subnets: vec![Subnet::of(Ipv4Addr::new(10, 0, 0, 7), 24).unwrap()],
+            ..report()
+        };
+        assert_eq!(why_of(&compared(elsewhere)), Some(Why::OtherNetwork));
+    }
+
+    #[test]
+    fn the_same_range_behind_another_router_is_another_network() {
+        // A friend's router hands out 192.168.1.x too.
+        let friends = NetReport {
+            public: Some("v4:198.51.100.7".into()),
+            ..report()
+        };
+        assert_eq!(why_of(&compared(friends.clone())), Some(Why::OtherNetwork));
+        // Can't compare: IPv6 to the relay there, IPv4 here.
+        let v6 = NetReport {
+            public: Some("v6:2001:db8:1:2::/64".into()),
+            ..report()
+        };
+        assert_eq!(why_of(&compared(v6)), None);
+        // Its internet through a VPN: its public address is the VPN's, so
+        // it can't say which network; but on this range and hearing nothing,
+        // the VPN is the likely reason (many block local traffic).
+        let tunneled = NetReport {
+            internet_vpn: Some(true),
+            ..friends.clone()
+        };
+        assert_eq!(why_of(&compared(tunneled)), Some(Why::TheirVpnOn));
+        assert_eq!(
+            why_of(&Facts {
+                route_egress: Some(Egress::Vpn { adapter: None }),
+                ..compared(friends.clone())
+            }),
+            None
+        );
+        // An older relay that doesn't say: same range, nothing to name.
+        assert_eq!(
+            why_of(&Facts {
+                public: None,
+                ..compared(friends)
+            }),
+            None
+        );
+        assert_eq!(
+            why_of(&compared(NetReport {
+                public: None,
+                ..report()
+            })),
+            None,
+            "not blocked without knowing it's the same router"
+        );
+    }
+
+    #[test]
+    fn a_report_names_nothing_it_cant_back() {
+        // Neither side looked at its network yet.
+        let unknown = NetReport {
+            subnets: vec![],
+            ..report()
+        };
+        assert_eq!(why_of(&compared(unknown)), None);
+        assert_eq!(
+            why_of(&Facts {
+                subnets: vec![],
+                ..compared(report())
+            }),
+            None
+        );
+        // Same network, but its VPN state unknown, or this machine's
+        // broadcasts going astray: not "blocked".
+        let vpn_unknown = NetReport {
+            vpn: None,
+            ..report()
+        };
+        assert_eq!(why_of(&compared(vpn_unknown)), None);
+        assert_eq!(
+            why_of(&Facts {
+                broadcast_egress: Some(Egress::Unknown),
+                ..compared(report())
+            }),
+            None
+        );
+        // No report at all: an older Patch Pilot there.
+        assert_eq!(
+            why_of(&Facts {
+                reports: BTreeMap::new(),
+                ..compared(report())
+            }),
+            None
+        );
+        // Another machine's report doesn't speak for the laptop.
+        assert_eq!(
+            why_of(&Facts {
+                reports: [("studio".to_string(), rx(NetReport::off(NOW)))].into(),
+                ..compared(report())
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn a_machine_heard_here_that_doesnt_hear_this_one_is_deaf() {
+        let heard = |since: i64| Seen {
+            id: "laptop".into(),
+            name: "Brian's Laptop".into(),
+            here: true,
+            seen_at: NOW,
+            since,
+        };
+        let f = Facts {
+            seen: vec![heard(NOW - 600)],
+            ..compared(report())
+        };
+        let d = diagnose(&f);
+        assert!(d.missing.is_empty());
+        assert_eq!(d.deaf, vec!["Brian's Laptop".to_string()]);
+        assert_eq!(d.cause, None, "nothing wrong this machine can see");
+        // Its report reached the relay before it could have heard this one.
+        let early = Facts {
+            seen: vec![heard(NOW - 100)],
+            ..f.clone()
+        };
+        assert!(diagnose(&early).deaf.is_empty());
+        // It had only just started (a quick restart, an update) when it
+        // made the report, though this machine kept hearing it.
+        let restarted = Facts {
+            reports: [(
+                "laptop".to_string(),
+                rx(NetReport {
+                    listening_since: Some(NOW - 70),
+                    ..report()
+                }),
+            )]
+            .into(),
+            ..f.clone()
+        };
+        assert!(diagnose(&restarted).deaf.is_empty());
+        // It does hear this one.
+        let fine = compared(NetReport {
+            hears: vec!["desk".into()],
+            ..report()
+        });
+        assert!(
+            diagnose(&Facts {
+                seen: f.seen.clone(),
+                ..fine
+            })
+            .deaf
+            .is_empty()
+        );
+        // Another rig nearby has nothing to do with it.
+        let d = diagnose(&Facts {
+            other_rig: true,
+            ..f.clone()
+        });
+        assert_eq!(d.cause, None);
+        // This machine's broadcasts leave through a VPN: that's why.
+        let d = diagnose(&Facts {
+            broadcast_egress: Some(Egress::Vpn {
+                adapter: Some("NordLynx".into()),
+            }),
+            ..f
+        });
+        assert_eq!(
+            d.deaf_cause,
+            Some(Cause::Vpn {
+                adapter: Some("NordLynx".into())
+            })
+        );
+        assert_eq!(d.cause, None, "nothing is missing");
+    }
+
+    fn left(seen_at: i64) -> Seen {
+        Seen {
+            id: "laptop".into(),
+            name: "Brian's Laptop".into(),
+            here: false,
+            seen_at,
+            since: seen_at - 3_600,
+        }
+    }
+
+    #[test]
+    fn a_report_from_before_the_machine_left_says_nothing_about_now() {
+        // It heard this machine, then went to sleep 4 minutes ago; its last
+        // report is from 8 minutes ago, when it was still here.
+        let asleep = Facts {
+            seen: vec![left(NOW - 240)],
+            ..compared(NetReport {
+                at: NOW - 480,
+                hears: vec!["desk".into()],
+                ..report()
+            })
+        };
+        assert_eq!(why_of(&asleep), None);
+        // A report from after it left does count.
+        let moved = Facts {
+            seen: vec![left(NOW - 240)],
+            ..compared(NetReport {
+                at: NOW - 60,
+                vpn: Some(true),
+                ..report()
+            })
+        };
+        assert_eq!(why_of(&moved), Some(Why::TheirVpn));
+        // Offline here: a newer report may be waiting unseen.
+        assert_eq!(
+            why_of(&Facts {
+                relay_online: false,
+                ..moved
+            }),
+            None
+        );
+        // Unknown age (an older relay): only "off".
+        let mut unknown = compared(report());
+        unknown.reports.get_mut("laptop").unwrap().at = None;
+        assert_eq!(why_of(&unknown), None);
+        unknown.reports.get_mut("laptop").unwrap().report.on = false;
+        assert_eq!(why_of(&unknown), Some(Why::Off));
+    }
+
+    #[test]
+    fn hearing_this_machine_only_counts_from_this_run_with_its_own_sends_fine() {
+        let hears_us = NetReport {
+            hears: vec!["desk".into()],
+            ..report()
+        };
+        // It heard the Patch Pilot that ran here before this one.
+        let restarted = Facts {
+            listening_for: Duration::from_secs(40),
+            ..compared(hears_us.clone())
+        };
+        assert_eq!(why_of(&restarted), None);
+        // Its own VPN state unknown, or its broadcasts failing: this
+        // machine's firewall isn't the likely reason.
+        let unknown_vpn = NetReport {
+            vpn: None,
+            ..hears_us.clone()
+        };
+        assert_eq!(why_of(&compared(unknown_vpn)), None);
+        let failing = NetReport {
+            send_error: true,
+            ..hears_us.clone()
+        };
+        assert_eq!(why_of(&compared(failing)), None);
+        let failing_blocked = NetReport {
+            send_error: true,
+            ..report()
+        };
+        assert_eq!(why_of(&compared(failing_blocked)), None);
+        // A virtual adapter there is its own reason, not "a VPN".
+        let wsl = NetReport {
+            virtual_adapter: Some("vEthernet (WSL)".into()),
+            ..hears_us
+        };
+        assert_eq!(
+            why_of(&compared(wsl)),
+            Some(Why::TheirVirtual {
+                name: "vEthernet (WSL)".into()
+            })
+        );
+    }
+
+    #[test]
+    fn hearing_this_machine_needs_a_report_well_after_it_was_last_heard() {
+        let hears_us = |at: i64| NetReport {
+            at,
+            hears: vec!["desk".into()],
+            ..report()
+        };
+        // A beacon was lost, then it sent a heartbeat and closed its lid:
+        // its "hears" still had this machine in it.
+        let lid = Facts {
+            seen: vec![left(NOW - 120)],
+            ..compared(hears_us(NOW - 107))
+        };
+        assert_eq!(why_of(&lid), None);
+        let later = Facts {
+            seen: vec![left(NOW - 120)],
+            ..compared(hears_us(NOW - 60))
+        };
+        assert_eq!(why_of(&later), Some(Why::OneWay));
+        // It moved to another network while it still listed this machine.
+        let moved = Facts {
+            seen: vec![left(NOW - 120)],
+            ..compared(NetReport {
+                subnets: vec![Subnet::of(Ipv4Addr::new(10, 0, 0, 7), 24).unwrap()],
+                ..hears_us(NOW - 100)
+            })
+        };
+        assert_eq!(why_of(&moved), Some(Why::OtherNetwork));
+        // It heard the run before this one, which quit moments ago.
+        let rerun = Facts {
+            listening_for: Duration::from_secs(90),
+            ..compared(hears_us(NOW - 60))
+        };
+        assert_eq!(why_of(&rerun), None);
+    }
+
+    #[test]
+    fn this_machines_own_failing_sends_rule_out_blocked_and_one_way() {
+        let failing = Facts {
+            broadcast_error: Some(10051),
+            ..compared(report())
+        };
+        assert_eq!(why_of(&failing), None);
+        let hears_us = Facts {
+            broadcast_error: Some(10051),
+            ..compared(NetReport {
+                hears: vec!["desk".into()],
+                ..report()
+            })
+        };
+        assert_eq!(why_of(&hears_us), None);
+    }
+
+    #[test]
+    fn this_machines_vpn_explains_a_deaf_machine_not_a_missing_one() {
+        // Studio is here but can't hear this machine (its broadcasts go into
+        // a VPN); the laptop is asleep, with no reason of its own.
+        let studio = Seen {
+            id: "studio".into(),
+            name: "Studio".into(),
+            here: true,
+            seen_at: NOW,
+            since: NOW - 600,
+        };
+        let studio_report = Received {
+            at: Some(NOW - 30),
+            report: report(),
+        };
+        let mut f = Facts {
+            expected: vec![
+                laptop(),
+                Expected {
+                    id: "studio".into(),
+                    name: "Studio".into(),
+                },
+            ],
+            seen: vec![studio, left(NOW - 300)],
+            broadcast_egress: Some(Egress::Vpn { adapter: None }),
+            ..compared(NetReport {
+                at: NOW - 400,
+                ..report()
+            })
+        };
+        f.reports.insert("studio".into(), studio_report);
+        let d = diagnose(&f);
+        assert_eq!(d.deaf, vec!["Studio".to_string()]);
+        assert_eq!(d.deaf_cause, Some(Cause::Vpn { adapter: None }));
+        assert_eq!(d.cause, None, "the VPN isn't why the laptop is missing");
+    }
+
+    #[test]
+    fn no_advice_about_this_network_while_the_other_may_be_elsewhere() {
+        let public = |r: NetReport| Facts {
+            profile: Some(Profile::Public),
+            ..compared(r)
+        };
+        // It reports from a network this machine can't confirm is its own
+        // (another range, or one it can't compare): a café's Wi-Fi
+        // shouldn't be made Private.
+        let elsewhere = NetReport {
+            subnets: vec![Subnet::of(Ipv4Addr::new(10, 0, 0, 7), 24).unwrap()],
+            ..report()
+        };
+        assert_eq!(diagnose(&public(elsewhere)).cause, None);
+        let v6 = NetReport {
+            public: Some("v6:2001:db8:1:2::/64".into()),
+            ..report()
+        };
+        assert_eq!(diagnose(&public(v6)).cause, None);
+        // Confirmed on this network: Public is the likely reason.
+        assert_eq!(
+            diagnose(&public(report())).cause,
+            Some(Cause::PublicNetwork)
+        );
+        // No report from it (an older Patch Pilot): as before.
+        assert_eq!(
+            diagnose(&Facts {
+                profile: Some(Profile::Public),
+                ..alone()
+            })
+            .cause,
+            Some(Cause::PublicNetwork)
+        );
+    }
+
+    #[test]
+    fn a_fresh_report_without_this_machine_prompts_a_look_before_deafness() {
+        let heard = Seen {
+            id: "laptop".into(),
+            name: "Brian's Laptop".into(),
+            here: true,
+            seen_at: NOW,
+            since: NOW - 70,
+        };
+        let d = diagnose(&Facts {
+            seen: vec![heard],
+            ..compared(report())
+        });
+        assert!(d.deaf.is_empty(), "too soon to say");
+        assert!(d.maybe_deaf);
+        assert!(!diagnose(&compared(report())).maybe_deaf);
+    }
+
+    #[test]
+    fn quiet_counts_from_when_it_was_last_heard_here() {
+        let old = NetReport {
+            at: NOW - 5 * 3_600,
+            ..report()
+        };
+        let d = Facts {
+            seen: vec![left(NOW - 13 * 60)],
+            ..compared(old)
+        };
+        assert_eq!(
+            why_of(&d),
+            Some(Why::Quiet {
+                since: NOW - 13 * 60
+            })
+        );
+    }
+
+    #[test]
+    fn a_machine_off_the_home_network_isnt_awaited() {
+        let off = diagnose(&compared(NetReport::off(NOW)));
+        assert!(!off.awaiting(), "it said it doesn't use the home network");
+        assert!(diagnose(&compared(report())).awaiting());
+        assert!(diagnose(&alone()).awaiting(), "no report: it might turn up");
+    }
+
+    #[test]
+    fn subnets_come_from_wifi_and_ethernet_only() {
+        let ifaces = vec![
+            Iface {
+                ips: vec![(ip(192, 168, 1, 20), 24), (ip(192, 168, 1, 21), 24)],
+                ..iface("Wi-Fi", ip(0, 0, 0, 0))
+            },
+            iface("NordLynx", ip(10, 5, 0, 2)),
+            iface("vEthernet (WSL)", ip(172, 29, 0, 1)),
+            Iface {
+                ips: vec![
+                    (ip(169, 254, 3, 4), 16),
+                    (ip(10, 9, 9, 9), 0),
+                    ("fe80::1".parse().unwrap(), 64),
+                ],
+                ..iface("Ethernet", ip(0, 0, 0, 0))
+            },
+        ];
+        assert_eq!(subnets(&ifaces, None), vec![home()]);
+        assert!(subnets(&[], None).is_empty());
     }
 }

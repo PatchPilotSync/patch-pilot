@@ -5,7 +5,9 @@
 use std::path::{Path, PathBuf};
 
 use patchpilot_store::{ImportReport, Store};
-use patchpilot_sync::{RigKey, machine_object};
+use patchpilot_sync::{RigKey, machine_object, net_object};
+
+use crate::net_report::NetReport;
 
 use crate::now;
 
@@ -98,6 +100,32 @@ pub fn outgoing(
 /// Whether an object on the relay is another machine's, so worth fetching.
 pub fn is_other_machine(object: &str, this: &str) -> bool {
     object.starts_with("machine/") && Some(object) != machine_object(this).ok().as_deref()
+}
+
+/// This machine's home-network report for the relay, sealed (decision #124).
+pub fn outgoing_report(
+    this: &str,
+    rig: &RigKey,
+    report: &NetReport,
+) -> Result<(String, Vec<u8>), String> {
+    let object = net_object(this).map_err(|e| e.to_string())?;
+    let sealed = rig
+        .seal_object(&object, &report.to_bytes())
+        .map_err(|e| e.to_string())?;
+    Ok((object, sealed))
+}
+
+/// The machine id when `object` is another machine's home-network report.
+pub fn other_report<'a>(object: &'a str, this: &str) -> Option<&'a str> {
+    object
+        .strip_prefix("net/")
+        .filter(|id| *id != this && net_object(id).is_ok())
+}
+
+/// Open another machine's home-network report. None when it won't open or
+/// isn't one.
+pub fn incoming_report(rig: &RigKey, object: &str, sealed: &[u8]) -> Option<NetReport> {
+    NetReport::from_bytes(&rig.open_object(object, sealed).ok()?)
 }
 
 /// Open another machine's object and add what's new, with the same add-only
@@ -204,5 +232,20 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn reports_seal_for_linked_machines_only() {
+        let rig = RigKey::generate();
+        let report = NetReport::off(5);
+        let (object, sealed) = outgoing_report("pc", &rig, &report).unwrap();
+        assert_eq!(object, "net/pc");
+        assert_eq!(incoming_report(&rig, &object, &sealed), Some(report));
+        assert_eq!(incoming_report(&RigKey::generate(), &object, &sealed), None);
+        assert_eq!(incoming_report(&rig, "net/mac", &sealed), None);
+        assert_eq!(other_report("net/mac", "pc"), Some("mac"));
+        assert_eq!(other_report("net/pc", "pc"), None, "this machine's own");
+        assert_eq!(other_report("machine/mac", "pc"), None);
+        assert_eq!(other_report("net/Mac", "pc"), None);
     }
 }

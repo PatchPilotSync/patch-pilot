@@ -20,6 +20,7 @@ pub mod ignore;
 pub mod lan;
 pub mod lan_diagnosis;
 pub mod mac_keys;
+pub mod net_report;
 pub mod netinfo;
 pub mod open;
 pub mod quiet;
