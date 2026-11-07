@@ -579,6 +579,7 @@ export type LanCause =
   | { kind: "no_lan" }
   | { kind: "vpn"; adapter?: string }
   | { kind: "virtual_adapter"; name: string }
+  | { kind: "vpn_blocks"; adapter?: string }
   | { kind: "local_network_denied" }
   | { kind: "public_network" }
   | { kind: "other_rig" }

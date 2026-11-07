@@ -16,6 +16,13 @@
 //! while a machine is missing, so an idle machine with everyone found does
 //! no extra work.
 //!
+//! Each beacon goes to 255.255.255.255 and also straight onto every Wi-Fi
+//! and Ethernet subnet (192.168.1.255, decision #125): on Windows the first
+//! follows the lowest-metric route, often a VPN's, while each directed one
+//! follows its subnet's own route out of that adapter. So linked machines on
+//! the same Wi-Fi find each other with a VPN on, unless it blocks local
+//! traffic.
+//!
 //! The same loop keeps this machine's home-network report on the relay
 //! (decision #124): sent when it changes and, while a machine is missing or
 //! can't hear this one, every few minutes. The other machines' reports come
@@ -30,7 +37,9 @@ use std::time::{Duration, Instant};
 use patchpilot_local::backup::{self, BackupSettings};
 use patchpilot_local::github::FileIndex;
 use patchpilot_local::lan::{self, Beacon, Connection, Heard, Progress, PullReport};
-use patchpilot_local::lan_diagnosis::{self, Diagnosis, Egress, Expected, Facts, Profile, Seen};
+use patchpilot_local::lan_diagnosis::{
+    self, Diagnosis, Egress, Expected, Facts, Iface, Profile, Seen,
+};
 use patchpilot_local::net_report::{self, NetReport, Subnet};
 use patchpilot_local::netinfo::{self, AdapterInfo};
 use serde::Serialize;
@@ -54,6 +63,9 @@ const NET_EVERY: Duration = Duration::from_secs(30);
 const ADAPTER_EVERY: Duration = Duration::from_secs(600);
 /// …or this often while it couldn't say (WMI timed out, PowerShell blocked).
 const ADAPTER_RETRY: Duration = Duration::from_secs(60);
+/// Look again at which subnets to send beacons straight onto this often:
+/// one interface list (no command), so a new Wi-Fi is used within a minute.
+const DIRECT_EVERY: Duration = Duration::from_secs(60);
 /// A report's network facts older than this are left out: they were last
 /// looked at during an earlier problem and may no longer hold.
 const NET_FACTS_FOR: Duration = Duration::from_secs(90);
@@ -109,9 +121,36 @@ struct LanState {
     net: Mutex<NetCache>,
     /// The diagnosis last told to the UI.
     diagnosis: Mutex<Option<Diagnosis>>,
+    /// The subnets' directed broadcast addresses beacons also go to, when
+    /// they were worked out (Unix seconds), and the internet route's source
+    /// then: a new one means another network, so they're worked out again.
+    direct: Mutex<Option<Direct>>,
+    /// Held while asking Windows to describe adapters for direct sends.
+    describing: Mutex<()>,
     /// When `sync` was last asked to send this machine's report: a put
     /// that keeps failing is tried again, but not every beacon.
     asked: Mutex<Option<Instant>>,
+}
+
+/// Where beacons go straight onto the home subnets (decision #125).
+struct Direct {
+    /// When it was worked out (Unix seconds).
+    at: i64,
+    /// The internet route's source then.
+    route: Option<IpAddr>,
+    /// The subnets' directed broadcast addresses.
+    list: Vec<Ipv4Addr>,
+    /// Worked out again on the next beacon (the network was just looked at,
+    /// or Home network picked again). Until then the list still stands, so
+    /// the diagnosis and the report don't think direct sends stopped.
+    stale: bool,
+}
+
+/// Work out the direct list again on the next beacon, keeping it till then.
+fn mark_direct_stale(state: &LanState) {
+    if let Some(d) = state.direct.lock().unwrap().as_mut() {
+        d.stale = true;
+    }
 }
 
 /// This machine's network as last looked at, while a machine was missing.
@@ -337,6 +376,11 @@ fn announce(app: &AppHandle, to: Option<IpAddr>) {
         state: lan::state(&lan::mirror_dir(&dir)),
     };
     let bytes = lan::beacon_bytes(&rig, &beacon);
+    let direct: Vec<IpAddr> = if to.is_none() {
+        direct_targets(&state).into_iter().map(IpAddr::V4).collect()
+    } else {
+        Vec::new()
+    };
     let mut targets: Vec<IpAddr> = match to {
         Some(ip) => vec![ip],
         None => {
@@ -349,21 +393,122 @@ fn announce(app: &AppHandle, to: Option<IpAddr>) {
                 .map(|p| p.addr.ip())
                 .collect();
             t.push(IpAddr::V4(Ipv4Addr::BROADCAST));
+            // Straight onto each home subnet too, past a VPN's route.
+            t.extend(direct.iter().copied());
             t
         }
     };
     targets.sort();
     targets.dedup();
     let broadcast = IpAddr::V4(Ipv4Addr::BROADCAST);
+    let mut broadcast_error = None;
+    let (mut direct_sent, mut direct_error) = (false, None);
     for ip in targets {
         let sent = udp.send_to(&bytes, (ip, lan::PORT));
-        // Only the broadcast says something about this machine's network: a
+        let code = sent.as_ref().err().map(|e| e.raw_os_error().unwrap_or(-1));
+        // Only broadcasts say something about this machine's network: a
         // machine heard before that left answers "unreachable" too.
         if ip == broadcast {
-            *state.broadcast_error.lock().unwrap() =
-                sent.err().map(|e| e.raw_os_error().unwrap_or(-1));
+            broadcast_error = code;
+        } else if direct.contains(&ip) {
+            direct_sent |= code.is_none();
+            direct_error = direct_error.or(code);
         }
     }
+    if to.is_none() {
+        // The direct sends are the ones that reach the home network when a
+        // VPN holds the broadcast route: all of them failing (macOS Local
+        // Network off, say) is a failed broadcast too.
+        *state.broadcast_error.lock().unwrap() = if direct_sent {
+            None
+        } else {
+            broadcast_error.or(direct_error)
+        };
+    }
+}
+
+/// The directed broadcast address of each Wi-Fi and Ethernet subnet, worked
+/// out at most every minute. What Windows said about each adapter (from
+/// looking at the network) keeps a VPN called "Ethernet 4" out.
+fn direct_targets(state: &LanState) -> Vec<Ipv4Addr> {
+    // Which way internet traffic leaves: asks the OS, sends nothing.
+    let route = netinfo::route_source();
+    if let Some(d) = state.direct.lock().unwrap().as_ref()
+        && !d.stale
+        && net_age_within(d.at, DIRECT_EVERY)
+        && d.route == route
+    {
+        return d.list.clone();
+    }
+    let mut ifaces = netinfo::interfaces();
+    describe(state, &mut ifaces, route);
+    // Many VPNs call their adapter "Ethernet 3" and say what they are only
+    // in the description: on Windows one it couldn't describe stays out, so
+    // no beacon goes into a work VPN.
+    if cfg!(windows) {
+        ifaces.retain(|i| i.description.is_some());
+    }
+    let list = lan_diagnosis::direct_broadcasts(&ifaces, route);
+    *state.direct.lock().unwrap() = Some(Direct {
+        at: patchpilot_local::now(),
+        route,
+        list: list.clone(),
+        stale: false,
+    });
+    list
+}
+
+/// Fill in what Windows says each home-looking adapter is, from the cache
+/// or, for one not asked about yet, by asking (PowerShell, about a second,
+/// at background priority). A description doesn't change, so each adapter
+/// is asked about once per launch, or again a minute after Windows couldn't
+/// say. Nothing to do on other systems.
+fn describe(state: &LanState, ifaces: &mut [Iface], route: Option<IpAddr>) {
+    if !cfg!(windows) {
+        return;
+    }
+    let names: Vec<String> = lan_diagnosis::home_adapters(ifaces, route)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    // One at a time, so two threads sending beacons don't both ask.
+    let _one = state.describing.lock().unwrap();
+    for name in names {
+        let cached = state
+            .net
+            .lock()
+            .unwrap()
+            .adapters
+            .get(&name)
+            // Couldn't say: ask again only every 10 minutes here, so a
+            // blocked PowerShell doesn't run every minute all day.
+            .filter(|(at, info)| info.is_some() || at.elapsed() < ADAPTER_EVERY)
+            .map(|(_, info)| info.clone());
+        let info = cached.unwrap_or_else(|| {
+            let _quiet = patchpilot_local::quiet::background();
+            let info = netinfo::adapter_info(&name);
+            state
+                .net
+                .lock()
+                .unwrap()
+                .adapters
+                .insert(name.clone(), (Instant::now(), info.clone()));
+            info
+        });
+        if let Some(i) = ifaces.iter_mut().find(|i| i.name == name) {
+            i.description = info.and_then(|a| a.description);
+        }
+    }
+}
+
+/// Beacons go straight onto at least one home subnet.
+fn sends_direct(state: &LanState) -> bool {
+    state
+        .direct
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|d| !d.list.is_empty())
 }
 
 /// Send a beacon now, so linked machines nearby pull a new backup soon.
@@ -690,10 +835,51 @@ fn look_at_network(app: &AppHandle) {
     // The profile only matters for the home network itself.
     net.profile = match net.broadcast_egress {
         Some(Egress::Lan) => broadcast_info.and_then(|a| a.profile),
+        // Direct sends go out of the home adapter: its profile matters.
+        // Direct sends go out of every home adapter: Public only when
+        // Windows says so of all of them (a Dante NIC on an "Unidentified
+        // network" isn't the Wi-Fi the beacons use).
+        _ if sends_direct(&state) => {
+            let home: Vec<String> = lan_diagnosis::home_adapters(&ifaces, route)
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let profiles: Vec<Option<Profile>> = home
+                .into_iter()
+                .map(|name| {
+                    let fresh = net
+                        .adapters
+                        .get(&name)
+                        .filter(|(at, _)| at.elapsed() < ADAPTER_EVERY)
+                        .map(|(_, info)| info.clone());
+                    fresh
+                        .unwrap_or_else(|| {
+                            let info = netinfo::adapter_info(&name);
+                            net.adapters.insert(name, (Instant::now(), info.clone()));
+                            info
+                        })
+                        .and_then(|a| a.profile)
+                })
+                .collect();
+            match profiles.first() {
+                Some(first) if profiles.iter().all(|p| p == first) => *first,
+                _ => None,
+            }
+        }
         _ => None,
     };
     net.checked_at = Some(patchpilot_local::now());
-    *state.net.lock().unwrap() = net;
+    {
+        // Keep what another thread learned about adapters meanwhile.
+        let mut shared = state.net.lock().unwrap();
+        let mut adapters = std::mem::take(&mut shared.adapters);
+        adapters.extend(std::mem::take(&mut net.adapters));
+        net.adapters = adapters;
+        *shared = net;
+    }
+    // What Windows just said about the adapters may change where direct
+    // sends go: work them out again on the next beacon.
+    mark_direct_stale(&state);
 }
 
 /// What [`lan_diagnosis::diagnose`] goes on, from what's already known:
@@ -745,6 +931,7 @@ fn facts(app: &AppHandle) -> Facts {
         subnets: net.subnets,
         public: crate::sync::public(app),
         reports: crate::sync::reports(app),
+        direct_sends: sends_direct(&state),
     }
 }
 
@@ -821,6 +1008,7 @@ pub(crate) fn own_report(app: &AppHandle) -> NetReport {
         },
         virtual_adapter,
         send_error,
+        direct: sends_direct(&state),
         internet_vpn: if recent {
             through_vpn(&net.route_egress)
         } else {
@@ -949,6 +1137,7 @@ pub async fn lan_use(app: AppHandle) -> Result<(), String> {
             adapters: std::mem::take(&mut net.adapters),
             ..NetCache::default()
         };
+        mark_direct_stale(&state);
     }
     start(&app);
     let _ = app.emit(BACKUP_CHANGED, ());

@@ -154,6 +154,10 @@ pub struct Facts {
     pub public: Option<String>,
     /// The other machines' latest reports, by id (decision #124).
     pub reports: BTreeMap<String, Received>,
+    /// This machine also sends its beacons straight onto each home-network
+    /// subnet (decision #125): a VPN or virtual adapter on the broadcast
+    /// route no longer takes them all.
+    pub direct_sends: bool,
 }
 
 /// What the Sync & backup line says about the home network. Mirrored in
@@ -239,6 +243,12 @@ pub enum Cause {
     },
     /// Broadcasts leave into a virtual network inside this machine.
     VirtualAdapter { name: String },
+    /// A VPN is on and this machine also sent straight onto the home
+    /// network, yet nobody heard: the VPN most likely blocks local traffic.
+    VpnBlocks {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        adapter: Option<String>,
+    },
     /// macOS refused to send on the local network: almost surely Local
     /// Network access is off for Patch Pilot.
     LocalNetworkDenied,
@@ -319,8 +329,15 @@ pub fn diagnose(f: &Facts) -> Diagnosis {
         seen.is_none_or(|s| !s.here)
             && current(f, &e.id, seen).is_some_and(|(rx, _)| !same_network(f, &rx.report))
     });
+    // A missing machine whose current report says it hears this one: this
+    // machine's sends get out.
+    let heard_by_missing = f.expected.iter().any(|e| {
+        let seen = f.seen.iter().find(|s| s.id == e.id);
+        seen.is_none_or(|s| !s.here)
+            && current(f, &e.id, seen).is_some_and(|(rx, _)| rx.report.hears.contains(&f.this_id))
+    });
     let cause = if !missing.is_empty() && !looking {
-        cause(f, !here.is_empty(), elsewhere)
+        cause(f, !here.is_empty(), elsewhere, heard_by_missing)
     } else {
         None
     };
@@ -382,15 +399,25 @@ fn why(f: &Facts, id: &str, seen: Option<&Seen>) -> Option<Why> {
     if !r.listening {
         return Some(Why::CantListen);
     }
-    if r.vpn == Some(true) {
-        return Some(Why::TheirVpn);
-    }
-    if let Some(name) = &r.virtual_adapter {
-        return Some(Why::TheirVirtual { name: name.clone() });
+    // Without direct sends there, its VPN or virtual adapter takes all its
+    // beacons. With them (decision #125) its VPN is only a likely reason (it
+    // may block local traffic), named after "another network", and a
+    // virtual adapter none.
+    if !r.direct {
+        if r.vpn == Some(true) {
+            return Some(Why::TheirVpn);
+        }
+        if let Some(name) = &r.virtual_adapter {
+            return Some(Why::TheirVirtual { name: name.clone() });
+        }
     }
     let both_looked = !r.subnets.is_empty() && !f.subnets.is_empty();
     if both_looked && !share_a_network(&r.subnets, &f.subnets) {
         return Some(Why::OtherNetwork);
+    }
+    // Unless it hears this machine: then local traffic gets through its VPN.
+    if r.direct && r.vpn == Some(true) && !r.hears.contains(&f.this_id) {
+        return Some(Why::TheirVpnOn);
     }
     // Both sides' sends go where they should, and no VPN on either side
     // that might drop local traffic, so what it hears or doesn't says
@@ -398,7 +425,11 @@ fn why(f: &Facts, id: &str, seen: Option<&Seen>) -> Option<Why> {
     let sends_fine = r.vpn == Some(false)
         && r.internet_vpn == Some(false)
         && !r.send_error
-        && matches!(f.broadcast_egress, Some(Egress::Lan))
+        && match f.broadcast_egress {
+            Some(Egress::Lan) => true,
+            Some(Egress::Virtual { .. }) => f.direct_sends,
+            _ => false,
+        }
         && matches!(f.route_egress, Some(Egress::Lan))
         && f.broadcast_error.is_none();
     let listening_from = f.now - f.listening_for.as_secs() as i64;
@@ -449,6 +480,24 @@ fn deaf_cause(f: &Facts) -> Option<Cause> {
     if f.other_version {
         return Some(Cause::OtherVersion);
     }
+    // With direct sends, a machine heard here shows local traffic gets
+    // through whatever holds the broadcast route.
+    if f.direct_sends {
+        return None;
+    }
+    egress_cause(f)
+}
+
+/// What the broadcast route says. Without direct sends, a VPN or virtual
+/// adapter there takes every beacon. With them (decision #125) a virtual
+/// adapter takes nothing that matters, and a VPN is only the likely reason:
+/// the beacons went straight onto the home network too, so it most likely
+/// blocks local traffic.
+fn egress_cause(f: &Facts) -> Option<Cause> {
+    if f.direct_sends {
+        // Only a guess now: ranked with the other guesses in `cause`.
+        return None;
+    }
     match &f.broadcast_egress {
         Some(Egress::Vpn { adapter }) => Some(Cause::Vpn {
             adapter: adapter.clone(),
@@ -463,7 +512,7 @@ fn deaf_cause(f: &Facts) -> Option<Cause> {
 /// (another version, another rig) are named. `elsewhere`: a missing machine
 /// reports from a network this machine can't confirm is its own, so advice
 /// about this network is left out.
-fn cause(f: &Facts, someone_here: bool, elsewhere: bool) -> Option<Cause> {
+fn cause(f: &Facts, someone_here: bool, elsewhere: bool, heard_by_missing: bool) -> Option<Cause> {
     if f.other_version {
         return Some(Cause::OtherVersion);
     }
@@ -471,16 +520,8 @@ fn cause(f: &Facts, someone_here: bool, elsewhere: bool) -> Option<Cause> {
         if f.has_lan == Some(false) {
             return Some(Cause::NoLan);
         }
-        match &f.broadcast_egress {
-            Some(Egress::Vpn { adapter }) => {
-                return Some(Cause::Vpn {
-                    adapter: adapter.clone(),
-                });
-            }
-            Some(Egress::Virtual { name }) => {
-                return Some(Cause::VirtualAdapter { name: name.clone() });
-            }
-            _ => {}
+        if let Some(c) = egress_cause(f) {
+            return Some(c);
         }
         // With no default route macOS refuses a broadcast with the same
         // error, so a working route to the internet is needed to tell.
@@ -497,6 +538,20 @@ fn cause(f: &Facts, someone_here: bool, elsewhere: bool) -> Option<Cause> {
     }
     if f.other_rig {
         return Some(Cause::OtherRig);
+    }
+    // Direct sends went straight onto the home network and still nobody
+    // heard: a VPN on the broadcast route most likely blocks local traffic.
+    // Not while a missing machine may be elsewhere, or hears this machine
+    // (then this machine's sends do get out).
+    if !someone_here
+        && !elsewhere
+        && !heard_by_missing
+        && f.direct_sends
+        && let Some(Egress::Vpn { adapter }) = &f.broadcast_egress
+    {
+        return Some(Cause::VpnBlocks {
+            adapter: adapter.clone(),
+        });
     }
     if !someone_here
         && !elsewhere
@@ -597,6 +652,33 @@ pub fn subnets(ifaces: &[Iface], route: Option<IpAddr>) -> Vec<Subnet> {
             IpAddr::V4(v4) => Subnet::of(*v4, *prefix),
             IpAddr::V6(_) => None,
         })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The Wi-Fi and Ethernet adapters with a home-network address, by name:
+/// the ones direct sends go out of.
+pub fn home_adapters(ifaces: &[Iface], route: Option<IpAddr>) -> Vec<&str> {
+    ifaces
+        .iter()
+        .filter(|i| {
+            kind_with_route(i, route) == AdapterKind::Lan && i.ips.iter().any(|(ip, _)| lan_v4(ip))
+        })
+        .map(|i| i.name.as_str())
+        .collect()
+}
+
+/// Where this machine sends its beacons besides 255.255.255.255 (decision
+/// #125): the directed broadcast address of each Wi-Fi or Ethernet subnet.
+/// Each follows its subnet's own route out of that adapter, so a VPN or
+/// virtual adapter holding the broadcast route doesn't take them. VPN
+/// adapters are left out: their own subnet is the VPN's, not home.
+pub fn direct_broadcasts(ifaces: &[Iface], route: Option<IpAddr>) -> Vec<std::net::Ipv4Addr> {
+    let mut out: Vec<_> = subnets(ifaces, route)
+        .iter()
+        .filter_map(Subnet::broadcast)
         .collect();
     out.sort();
     out.dedup();
@@ -1622,6 +1704,166 @@ mod tests {
         assert!(!off.awaiting(), "it said it doesn't use the home network");
         assert!(diagnose(&compared(report())).awaiting());
         assert!(diagnose(&alone()).awaiting(), "no report: it might turn up");
+    }
+
+    #[test]
+    fn beacons_also_go_straight_onto_each_home_subnet() {
+        let ifaces = vec![
+            iface("Wi-Fi", ip(10, 0, 0, 35)),
+            Iface {
+                ips: vec![(ip(192, 168, 50, 2), 23)],
+                ..iface("Ethernet", ip(0, 0, 0, 0))
+            },
+            iface("NordLynx", ip(10, 5, 0, 2)),
+            Iface {
+                description: Some("PANGP Virtual Ethernet Adapter".into()),
+                ..iface("Ethernet 4", ip(10, 20, 0, 7))
+            },
+            Iface {
+                ips: vec![(ip(172, 21, 48, 1), 20)],
+                ..iface("vEthernet (WSL (Hyper-V firewall))", ip(0, 0, 0, 0))
+            },
+            Iface {
+                ips: vec![(ip(10, 9, 9, 9), 32)],
+                ..iface("Ethernet 7", ip(0, 0, 0, 0))
+            },
+        ];
+        assert_eq!(
+            direct_broadcasts(&ifaces, None),
+            vec![
+                std::net::Ipv4Addr::new(10, 0, 0, 255),
+                std::net::Ipv4Addr::new(192, 168, 51, 255)
+            ]
+        );
+        // A Hyper-V external switch carrying the internet is home.
+        let ext = vec![Iface {
+            description: Some("Hyper-V Virtual Ethernet Adapter".into()),
+            ..iface("vEthernet (External Switch)", ip(192, 168, 1, 20))
+        }];
+        assert_eq!(
+            direct_broadcasts(&ext, Some(ip(192, 168, 1, 20))),
+            vec![std::net::Ipv4Addr::new(192, 168, 1, 255)]
+        );
+        assert!(direct_broadcasts(&[], None).is_empty());
+    }
+
+    #[test]
+    fn with_direct_sends_a_vpn_is_a_likely_blocker_and_a_virtual_adapter_nothing() {
+        let vpn = Facts {
+            broadcast_egress: Some(Egress::Vpn {
+                adapter: Some("NordLynx".into()),
+            }),
+            direct_sends: true,
+            ..alone()
+        };
+        assert_eq!(
+            diagnose(&vpn).cause,
+            Some(Cause::VpnBlocks {
+                adapter: Some("NordLynx".into())
+            })
+        );
+        let wsl = Facts {
+            broadcast_egress: Some(Egress::Virtual {
+                name: "vEthernet (WSL)".into(),
+            }),
+            direct_sends: true,
+            ..alone()
+        };
+        assert_eq!(diagnose(&wsl).cause, None);
+        // A sure cause comes before the guess: Public Wi-Fi.
+        assert_eq!(
+            diagnose(&Facts {
+                profile: Some(Profile::Public),
+                ..vpn.clone()
+            })
+            .cause,
+            Some(Cause::PublicNetwork)
+        );
+        // The missing machine hears this one: its sends get out, so not
+        // the VPN.
+        let heard = Facts {
+            broadcast_egress: vpn.broadcast_egress.clone(),
+            direct_sends: true,
+            ..compared(NetReport {
+                hears: vec!["desk".into()],
+                ..report()
+            })
+        };
+        assert_eq!(diagnose(&heard).cause, None);
+        // It reports from another network: not the VPN either.
+        let elsewhere = Facts {
+            broadcast_egress: vpn.broadcast_egress.clone(),
+            direct_sends: true,
+            ..compared(NetReport {
+                subnets: vec![Subnet::of(Ipv4Addr::new(10, 9, 0, 7), 24).unwrap()],
+                ..report()
+            })
+        };
+        assert_eq!(diagnose(&elsewhere).cause, None);
+        // A machine heard here that can't hear this one: local traffic gets
+        // through the VPN, so it isn't named.
+        let deaf = Facts {
+            seen: vec![Seen {
+                id: "laptop".into(),
+                name: "Brian's Laptop".into(),
+                here: true,
+                seen_at: NOW,
+                since: NOW - 600,
+            }],
+            ..heard.clone()
+        };
+        let mut deaf = deaf;
+        deaf.reports.get_mut("laptop").unwrap().report.hears.clear();
+        let d = diagnose(&deaf);
+        assert_eq!(d.deaf, vec!["Brian's Laptop".to_string()]);
+        assert_eq!(d.deaf_cause, None);
+        // The other side's report says the same of its own, after "another
+        // network".
+        let theirs = compared(NetReport {
+            vpn: Some(true),
+            direct: true,
+            ..report()
+        });
+        assert_eq!(why_of(&theirs), Some(Why::TheirVpnOn));
+        let theirs_elsewhere = compared(NetReport {
+            vpn: Some(true),
+            direct: true,
+            subnets: vec![Subnet::of(Ipv4Addr::new(10, 9, 0, 7), 24).unwrap()],
+            ..report()
+        });
+        assert_eq!(why_of(&theirs_elsewhere), Some(Why::OtherNetwork));
+        // It hears this machine with its VPN on: local traffic gets through
+        // it, so its VPN isn't the reason.
+        let theirs_hearing = compared(NetReport {
+            vpn: Some(true),
+            direct: true,
+            hears: vec!["desk".into()],
+            ..report()
+        });
+        assert_eq!(why_of(&theirs_hearing), None);
+        // A virtual adapter on this machine's route is fine with direct
+        // sends: blocked can still be named.
+        let virt = Facts {
+            broadcast_egress: Some(Egress::Virtual {
+                name: "vEthernet (WSL)".into(),
+            }),
+            direct_sends: true,
+            ..compared(report())
+        };
+        assert_eq!(why_of(&virt), Some(Why::Blocked));
+        let their_wsl = compared(NetReport {
+            virtual_adapter: Some("vEthernet (WSL)".into()),
+            direct: true,
+            ..report()
+        });
+        assert_ne!(
+            why_of(&their_wsl),
+            Some(Why::TheirVirtual {
+                name: "vEthernet (WSL)".into()
+            })
+        );
+        let c = serde_json::to_value(Cause::VpnBlocks { adapter: None }).unwrap();
+        assert_eq!(c, serde_json::json!({ "kind": "vpn_blocks" }));
     }
 
     #[test]
