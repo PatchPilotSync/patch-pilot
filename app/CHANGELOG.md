@@ -4,6 +4,12 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
+## Unreleased
+
+### Improved
+
+- When you sync over your home network and Patch Pilot can't find one of your linked machines, it now says which one and, when it can tell, why: a VPN or virtual network adapter is carrying its messages, Windows has the network set to Public, your Mac isn't letting it use the local network, this machine isn't on a network, or the other machine runs a different Patch Pilot version. Open Sync & backup to see each machine and a short list of what to check. It no longer says "In sync" while none of your other machines are on the network.
+
 ## 0.4.58 - 2026-11-06
 
 ### New

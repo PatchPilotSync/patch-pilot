@@ -48,6 +48,9 @@ pub struct SyncStatus {
 pub struct Sync {
     status: Mutex<SyncStatus>,
     on_relay: Mutex<OnRelay>,
+    /// Ids of the other machines on the relay: the ones actually linked,
+    /// unlike machines added from an export file. None until listed.
+    linked: Mutex<Option<std::collections::BTreeSet<String>>>,
     running: AtomicBool,
     nudge: Notify,
     stop: Notify,
@@ -144,10 +147,24 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     upload(&relay, state, &this, rig).await?;
     let mut ws = relay.live().await?;
     let mut changed = false;
-    for o in relay.list("machine/").await? {
-        if patchpilot_local::sync::is_other_machine(&o.name, &this) {
-            changed |= pull(&relay, &this, rig, &o.name).await?;
-        }
+    let others: Vec<String> = relay
+        .list("machine/")
+        .await?
+        .into_iter()
+        .map(|o| o.name)
+        .filter(|name| patchpilot_local::sync::is_other_machine(name, &this))
+        .collect();
+    // Known before pulling, so one object that won't open doesn't hide which
+    // machines are linked.
+    *state.linked.lock().expect("linked lock") = Some(
+        others
+            .iter()
+            .filter_map(|name| name.strip_prefix("machine/"))
+            .map(str::to_owned)
+            .collect(),
+    );
+    for name in &others {
+        changed |= pull(&relay, &this, rig, name).await?;
     }
     if changed {
         let _ = app.emit("data-changed", ());
@@ -170,9 +187,14 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
                 let Ok(event) = serde_json::from_str::<LiveEvent>(&text) else { continue };
                 if event.kind == "changed"
                     && patchpilot_local::sync::is_other_machine(&event.name, &this)
-                    && pull(&relay, &this, rig, &event.name).await?
                 {
-                    let _ = app.emit("data-changed", ());
+                    if let Some(id) = event.name.strip_prefix("machine/") {
+                        let mut linked = state.linked.lock().expect("linked lock");
+                        linked.get_or_insert_default().insert(id.to_owned());
+                    }
+                    if pull(&relay, &this, rig, &event.name).await? {
+                        let _ = app.emit("data-changed", ());
+                    }
                 }
             }
             () = state.nudge.notified() => upload(&relay, state, &this, rig).await?,
@@ -292,6 +314,14 @@ fn set(app: &AppHandle, state: &Sync, f: impl FnOnce(&mut SyncStatus)) {
     let _ = app.emit("sync-status", status);
 }
 
+/// The ids of the other machines linked to this one, as the relay last
+/// listed them; None before the first listing this run (or after unlinking).
+pub fn linked_machines(app: &AppHandle) -> Option<Vec<String>> {
+    let state = app.state::<SyncState>();
+    let linked = state.linked.lock().expect("linked lock");
+    linked.as_ref().map(|l| l.iter().cloned().collect())
+}
+
 #[tauri::command]
 pub fn sync_status(state: State<'_, SyncState>) -> SyncStatus {
     state.status.lock().expect("sync status lock").clone()
@@ -354,6 +384,7 @@ pub async fn link_join(
 #[tauri::command]
 pub fn unlink(state: State<'_, SyncState>) -> Result<(), String> {
     patchpilot_local::sync::forget_rig(&app_dir()?)?;
+    *state.linked.lock().expect("linked lock") = None;
     state.stop.notify_waiters();
     Ok(())
 }

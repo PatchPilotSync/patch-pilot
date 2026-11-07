@@ -28,6 +28,7 @@ import {
   type BackupView,
   type FileToBring,
   type GitHubProgress,
+  type LanCause,
   type LanProgress,
   type LanView,
   type RestoreReport,
@@ -221,6 +222,35 @@ function syncLine(sync: SyncView, where: string, github: string | null, lan: Lan
       `Nothing was taken from ${who}'s latest backup: it isn't signed by your linked machines. If you reinstalled an older Patch Pilot there, update it.`,
     ];
   }
+  // Home network (decision #123): never "in sync" while nobody is here, and
+  // a machine that's missing while another is here is named after the line.
+  const d = lan?.diagnosis;
+  if (d && d.missing.length > 0) {
+    const who = andList(d.missing.map((m) => m.name));
+    const isnt = d.missing.length === 1 ? "isn't" : "aren't";
+    if (d.looking)
+      return d.here.length > 0
+        ? withNote(filesLine(sync, where, github, lan), `looking for ${who}…`)
+        : ["accent", `Looking for ${who} on this network…`];
+    if (d.cause) return ["warn", `Can't find ${who} on this network: ${lanCauseText(d.cause)}`];
+    if (d.here.length > 0) return withNote(filesLine(sync, where, github, lan), `${who} ${isnt} on this network now.`);
+    if (d.missing.every((m) => m.seen_at)) {
+      const latest = Math.max(...d.missing.map((m) => m.seen_at ?? 0));
+      return ["accent", `${who} ${isnt} on this network now (seen ${timeAgo(latest)}).`];
+    }
+    return ["warn", `Can't find ${who} on this network. Show what to check.`];
+  }
+  return filesLine(sync, where, github, lan);
+}
+
+/** A line with a note after it: "In sync with Desktop … · Laptop isn't on this network now." */
+function withNote([tone, text]: [Tone, string], note: string): [Tone, string] {
+  return [tone, `${text.replace(/[.…]$/u, "")} · ${note}`];
+}
+
+/** What the other machines' backups brought, or why nothing came yet. */
+function filesLine(sync: SyncView, where: string, github: string | null, lan: LanView | null): [Tone, string] {
+  const last = sync.last;
   const sources = (last?.sources ?? []).filter((s) => s.linked && !s.unsigned);
   if (!last) return ["ok", `In sync through ${where}. Checking your other machines' files…`];
   if (sources.length === 0 && lan && !lan.peers.some((p) => p.here))
@@ -242,6 +272,79 @@ function syncLine(sync: SyncView, where: string, github: string | null, lan: Lan
   if (recent && Date.now() / 1000 - recent.at < 30 * 60)
     return ["ok", `Synced ${recent.what} ${timeAgo(recent.at)}. Undo in History.`];
   return ["ok", `In sync with ${names(() => true)} through ${where}, checked ${timeAgo(last.looked_at)}.`];
+}
+
+/** What a home-network cause means and what to do, after "Can't find X on this network: ". */
+function lanCauseText(c: LanCause): string {
+  switch (c.kind) {
+    case "other_version":
+      return "a Patch Pilot on another version is on this network. Update Patch Pilot on all your machines.";
+    case "no_lan":
+      return "this machine isn't connected to Wi-Fi or a wired network.";
+    case "vpn":
+      return `a VPN${c.adapter ? ` (${c.adapter})` : ""} is on, so Patch Pilot's messages go through it instead of your home network. Turn it off, or let it allow local network access.`;
+    case "virtual_adapter":
+      return `Patch Pilot's messages go to a virtual network on this machine (${c.name}) instead of your home network.`;
+    case "local_network_denied":
+      return "macOS isn't letting Patch Pilot use the local network. Turn it on in System Settings › Privacy & Security › Local Network.";
+    case "public_network":
+      return "Windows has this network set to Public, so its firewall keeps your other machines out. Set it to Private in Settings › Network & internet.";
+    case "other_rig":
+      return "a Patch Pilot that isn't linked to your machines is on this network. If it's yours, link it again from Machines linked.";
+    case "vpn_on":
+      return `a VPN${c.adapter ? ` (${c.adapter})` : ""} is on. If it blocks local network traffic, turn it off or let it allow local network access.`;
+  }
+}
+
+/** "A", "A and B", "A, B and C". */
+function andList(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** Each linked machine on the home network, and what to check while one can't be found. */
+function LanMachines({ lan }: { lan: LanView }) {
+  const d = lan.diagnosis;
+  if (d.here.length === 0 && d.missing.length === 0) return null;
+  const cause = d.cause?.kind;
+  const items: [string, boolean][] = [
+    ["Both machines are on the same Wi-Fi or wired network.", false],
+    ["No VPN is on, or it allows local network access.", cause === "vpn" || cause === "vpn_on"],
+    ["On Windows, the network is set to Private (Settings › Network & internet).", cause === "public_network"],
+    ["On Windows, Patch Pilot is allowed through Windows Firewall on private networks.", false],
+    ["On a Mac, Patch Pilot is on in System Settings › Privacy & Security › Local Network.", cause === "local_network_denied"],
+    ["Patch Pilot is open on the other machine, with Home network picked under Sync & backup.", false],
+    ["Both machines run the same Patch Pilot version.", cause === "other_version"],
+  ];
+  return (
+    <div className="flex flex-col gap-0.5 text-[11px] text-dim">
+      {d.here.map((n, i) => (
+        <p key={`here-${i}`} className="truncate">
+          <span className="font-medium text-fg">{n}</span> · on this network
+        </p>
+      ))}
+      {d.missing.map((m, i) => (
+        <p key={`missing-${i}`} className="truncate">
+          <span className="font-medium text-fg">{m.name}</span> ·{" "}
+          {m.seen_at ? `last on this network ${timeAgo(m.seen_at)}` : d.looking ? "looking…" : "not found on this network"}
+        </p>
+      ))}
+      {d.missing.length > 0 && !d.looking && (
+        <>
+          {/* The line above is cut to one line; the reason is here in full. */}
+          {d.cause && <p className="mt-1 text-warn">Likely reason: {lanCauseText(d.cause)}</p>}
+          <p className="mt-1">Can't find a machine? Check that:</p>
+          <ul className="list-disc pl-4">
+            {items.map(([text, likely]) => (
+              <li key={text} className={likely ? "text-warn" : undefined}>
+                {text}
+                {likely && " This looks like the reason."}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** How far a long GitHub sync has got, while one runs. */
@@ -534,7 +637,7 @@ function Details({
             className="min-w-0 flex-1 truncate"
             title={`Linked machines on this network copy files straight from each other, encrypted. This machine's copy: ${view.dir}`}
           >
-            Home network{view.lan.peers.length > 0 ? ` · ${view.lan.peers.map(peerText).join(", ")}` : ""}
+            Home network
           </span>
         ) : (
           <span className="min-w-48 flex-1 truncate" title={view.dir}>
@@ -562,6 +665,7 @@ function Details({
           </Button>
         )}
       </div>
+      {view.lan && <LanMachines lan={view.lan} />}
       {last && (
         <p className="text-[11px] text-dim">
           {last.unchanged
@@ -1000,11 +1104,6 @@ export function placeName(view: BackupView): string {
   if (cloud) return cloud.name;
   const f = view.settings.folder ?? "";
   return f.split(/[\\/]/).filter(Boolean).pop() ?? "your folder";
-}
-
-/** "MacBook" while it's on this network, "MacBook (seen 2 h ago)" after. */
-function peerText(p: LanView["peers"][number]): string {
-  return p.here ? p.machine_name : `${p.machine_name} (seen ${timeAgo(p.seen_at)})`;
 }
 
 function when(unixSeconds: number): string {
