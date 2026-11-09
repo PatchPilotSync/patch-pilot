@@ -341,7 +341,7 @@ export interface BringView {
   ignores: IgnoreView[];
   /** This machine is the Primary Rig's own (and nothing was asked `from` another). */
   primary_here: boolean;
-  /** On the Primary machine: files changed here after the Primary Rig saved them (decision #123). */
+  /** On the Primary machine: files changed here after the Primary Rig saved them (decision #126). */
   changed_here: FileToBring[];
   /** The latest Primary Rig version. */
   golden_version: number | null;
@@ -579,8 +579,47 @@ export interface LanProgress {
 export interface LanPeer {
   machine_name: string;
   seen_at: number;
-  /** Heard from in the last minute or so. */
+  /** Heard from in the last 45 s. */
   here: boolean;
+}
+
+/** Why a linked machine can't be found (decision #123); mirrors patchpilot_local::lan_diagnosis::Cause. */
+export type LanCause =
+  | { kind: "other_version" }
+  | { kind: "no_lan" }
+  | { kind: "vpn"; adapter?: string }
+  | { kind: "virtual_adapter"; name: string }
+  | { kind: "vpn_blocks"; adapter?: string }
+  | { kind: "local_network_denied" }
+  | { kind: "public_network" }
+  | { kind: "other_rig" }
+  | { kind: "vpn_on"; adapter?: string };
+
+/** Why one machine can't be found, from its own report over the relay; mirrors patchpilot_local::lan_diagnosis::Why. */
+export type LanWhy =
+  | { kind: "off" }
+  | { kind: "cant_listen" }
+  | { kind: "quiet"; since: number }
+  | { kind: "their_vpn" }
+  | { kind: "their_virtual"; name: string }
+  | { kind: "their_vpn_on" }
+  | { kind: "one_way" }
+  | { kind: "other_network" }
+  | { kind: "blocked" };
+
+/** Who's on this network, who's missing and why; mirrors patchpilot_local::lan_diagnosis::Diagnosis. */
+export interface LanDiagnosis {
+  /** Linked machines on this network now, by name. */
+  here: string[];
+  /** Linked machines not on this network now; `seen_at` if heard since launch, `why` from its own report. */
+  missing: { name: string; seen_at?: number; why?: LanWhy }[];
+  /** Still in the first 30 s: "Looking for…", not "Can't find…". */
+  looking: boolean;
+  cause?: LanCause;
+  /** Machines heard here that say they don't hear this one, by name. */
+  deaf?: string[];
+  /** Why they can't hear this machine, when this machine can tell. */
+  deaf_cause?: LanCause;
 }
 
 export interface LanView {
@@ -589,6 +628,7 @@ export interface LanView {
   error: string | null;
   progress: LanProgress | null;
   last: { at: number; report: { machines: string[]; copied: number; removed: number } } | null;
+  diagnosis: LanDiagnosis;
 }
 
 export const lanUse = () => invoke<void>("lan_use");

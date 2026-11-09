@@ -46,11 +46,25 @@ describe("rig objects", () => {
     expect(ok.status).toBe(200);
     expect(new TextDecoder().decode(await ok.arrayBuffer())).toBe("sealed-1");
     expect(Number(ok.headers.get("x-updated"))).toBeGreaterThan(0);
+    expect(Number(ok.headers.get("x-age"))).toBeGreaterThanOrEqual(0);
 
     const nope = await SELF.fetch(`https://relay.test/v1/rigs/${rig}/objects/machine/pc`, {
       headers: auth(OTHER),
     });
     expect(nope.status).toBe(401);
+  });
+
+  it("a PUT says which address it came from", async () => {
+    const rig = "5".repeat(32);
+    const res = await SELF.fetch(`https://relay.test/v1/rigs/${rig}/objects/net/pc`, {
+      method: "PUT",
+      headers: { ...auth(), "CF-Connecting-IP": "203.0.113.5" },
+      body: "sealed",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { name: string; ip?: string };
+    expect(body.name).toBe("net/pc");
+    expect(body.ip).toBe("203.0.113.5");
   });
 
   it("an unclaimed rig reveals nothing", async () => {

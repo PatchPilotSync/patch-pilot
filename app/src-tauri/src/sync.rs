@@ -5,16 +5,22 @@
 //! Idle cost: one hibernating WebSocket and a ping every 50 s. Uploads happen
 //! after a changed scan (`rig::RIG_CHANGED`), on start, and after making Primary Rig.
 //!
+//! Each machine also keeps a small `net/<id>` report there about its home
+//! network (decision #124), sent by `lan` when it changes or while a machine
+//! is missing; the others read it to say why they can't find that machine.
+//!
 //! The relay's Durable Objects bill by rows read (5 million a day free), and a
 //! rig holds one row per shared file, often tens of thousands. So nothing here
 //! lists every object: the start lists `machine/` only, and uploads ask about
 //! files this run hasn't already seen on the relay.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use patchpilot_local::net_report::{NetReport, Received};
 use patchpilot_sync::{LinkCode, RigKey, link};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Listener, Manager, State};
@@ -48,6 +54,24 @@ pub struct SyncStatus {
 pub struct Sync {
     status: Mutex<SyncStatus>,
     on_relay: Mutex<OnRelay>,
+    /// Ids of the other machines on the relay: the ones actually linked,
+    /// unlike machines added from an export file. None until listed.
+    linked: Mutex<Option<std::collections::BTreeSet<String>>>,
+    /// The other machines' home-network reports, by id.
+    reports: Mutex<BTreeMap<String, Received>>,
+    /// Send this machine's report (`share_report`).
+    report_nudge: Notify,
+    /// Start a new session: the machine woke from sleep (`woke`).
+    restart: Notify,
+    /// Woke from sleep and the reports haven't been read again yet: until
+    /// then nothing read from the relay counts as current.
+    woken: AtomicBool,
+    /// This machine's report as last put on the relay, and when. Only puts
+    /// that went through, so one that failed is tried again.
+    report_put: Mutex<Option<(NetReport, std::time::Instant)>>,
+    /// This machine's public address as the relay last saw it
+    /// (`net_report::public_tag`), from its answer to an upload.
+    public: Mutex<Option<String>>,
     running: AtomicBool,
     nudge: Notify,
     stop: Notify,
@@ -140,15 +164,45 @@ async fn run(app: &AppHandle, state: &Sync) {
 async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), String> {
     let relay = Relay::new(rig);
     let this = this_machine()?;
+    // A new session often means a new network (waking somewhere else): the
+    // address the relay saw before may not be this one. The first upload
+    // says again.
+    *state.public.lock().expect("public lock") = None;
+    // A wake signal meant for the session before this one is handled.
+    let _ = futures_util::FutureExt::now_or_never(state.restart.notified());
     // Upload first: the first upload claims a new rig, and live needs a claimed one.
     upload(&relay, state, &this, rig).await?;
     let mut ws = relay.live().await?;
     let mut changed = false;
-    for o in relay.list("machine/").await? {
-        if patchpilot_local::sync::is_other_machine(&o.name, &this) {
-            changed |= pull(&relay, &this, rig, &o.name).await?;
+    let others: Vec<String> = relay
+        .list("machine/")
+        .await?
+        .into_iter()
+        .map(|o| o.name)
+        .filter(|name| patchpilot_local::sync::is_other_machine(name, &this))
+        .collect();
+    // Known before pulling, so one object that won't open doesn't hide which
+    // machines are linked.
+    *state.linked.lock().expect("linked lock") = Some(
+        others
+            .iter()
+            .filter_map(|name| name.strip_prefix("machine/"))
+            .map(str::to_owned)
+            .collect(),
+    );
+    for name in &others {
+        changed |= pull(&relay, &this, rig, name).await?;
+    }
+    send_report(app, &relay, &this, rig).await;
+    // Their home-network reports: one read each, only for linked machines.
+    let mut reports = BTreeMap::new();
+    for id in others.iter().filter_map(|n| n.strip_prefix("machine/")) {
+        if let Some(r) = fetch_report(&relay, rig, id, false).await {
+            reports.insert(id.to_owned(), r);
         }
     }
+    *state.reports.lock().expect("reports lock") = reports;
+    state.woken.store(false, Ordering::SeqCst);
     if changed {
         let _ = app.emit("data-changed", ());
     }
@@ -158,9 +212,17 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
     });
 
     let mut ping = tokio::time::interval(PING_EVERY);
+    // When a ping went out that nothing has answered yet. A connection that
+    // died silently (sleep, a dropped Wi-Fi) is noticed from that, so this
+    // machine doesn't keep trusting reports it can no longer see change.
+    let mut unanswered: Option<tokio::time::Instant> = None;
     loop {
         tokio::select! {
+            // Messages first, so an answer that came in during a long pull
+            // is seen before the next ping is judged.
+            biased;
             msg = ws.next() => {
+                unanswered = None;
                 let text = match msg {
                     Some(Ok(Message::Text(t))) => t,
                     Some(Ok(Message::Close(_))) | None => return Ok(()),
@@ -170,13 +232,43 @@ async fn session(app: &AppHandle, state: &Sync, rig: &RigKey) -> Result<(), Stri
                 let Ok(event) = serde_json::from_str::<LiveEvent>(&text) else { continue };
                 if event.kind == "changed"
                     && patchpilot_local::sync::is_other_machine(&event.name, &this)
-                    && pull(&relay, &this, rig, &event.name).await?
                 {
-                    let _ = app.emit("data-changed", ());
+                    if let Some(id) = event.name.strip_prefix("machine/") {
+                        let mut linked = state.linked.lock().expect("linked lock");
+                        linked.get_or_insert_default().insert(id.to_owned());
+                    }
+                    if pull(&relay, &this, rig, &event.name).await? {
+                        let _ = app.emit("data-changed", ());
+                    }
+                } else if event.kind == "changed"
+                    && let Some(id) = patchpilot_local::sync::other_report(&event.name, &this)
+                    && let Some(r) = fetch_report(&relay, rig, id, true).await
+                {
+                    // `lan` looks at it within one beacon.
+                    state.reports.lock().expect("reports lock").insert(id.to_owned(), r);
                 }
             }
             () = state.nudge.notified() => upload(&relay, state, &this, rig).await?,
-            _ = ping.tick() => ws.send(Message::text("ping")).await.map_err(|e| e.to_string())?,
+            () = state.report_nudge.notified() => {
+                // A nudge left from before this session or a failed one: the
+                // session start just sent the same.
+                let current = crate::lan::own_report(app);
+                let just_sent = last_report(app)
+                    .is_some_and(|(r, ago)| ago < patchpilot_local::net_report::MIN_GAP && r.same_news(&current));
+                if !just_sent {
+                    send_report(app, &relay, &this, rig).await;
+                }
+            }
+            () = state.restart.notified() => return Err("woke from sleep".into()),
+            tick = ping.tick() => {
+                // Timed by the ticks themselves, so one unanswered ping is
+                // enough, not two.
+                if unanswered.is_some_and(|t| tick - t >= PING_EVERY) {
+                    return Err("the relay stopped answering".into());
+                }
+                ws.send(Message::text("ping")).await.map_err(|e| e.to_string())?;
+                unanswered.get_or_insert(tick);
+            }
         }
     }
 }
@@ -194,7 +286,8 @@ async fn upload(relay: &Relay, state: &Sync, this: &str, rig: &RigKey) -> Result
     let Some((object, sealed)) = out else {
         return Ok(());
     };
-    relay.put(&object, sealed).await?;
+    let ip = relay.put(&object, sealed).await?;
+    remember_public(state, ip);
     upload_files(relay, rig, &files, &state.on_relay).await
 }
 
@@ -241,7 +334,7 @@ async fn upload_files(
         // it doesn't take live sync offline. A few in a row means the
         // connection is gone, and the next upload starts over.
         match relay.put(&name, sealed).await {
-            Ok(()) => remember(on_relay, [name]),
+            Ok(_) => remember(on_relay, [name]),
             Err(e) => {
                 eprintln!("sync: {} not shared: {e}", file.rel);
                 failed += 1;
@@ -273,6 +366,84 @@ pub(crate) async fn fetch_file(
     }
 }
 
+/// Put this machine's home-network report on the relay, made now: one kept
+/// from before going offline could say it hears nobody. One that doesn't go
+/// up waits for the next change or session; it never takes live sync
+/// offline.
+async fn send_report(app: &AppHandle, relay: &Relay, this: &str, rig: &RigKey) {
+    let state = app.state::<SyncState>();
+    // The put's answer may show a new public address (this machine moved):
+    // then the report it just sent is wrong about it, so send it again.
+    for _ in 0..2 {
+        let report = crate::lan::own_report(app);
+        let sent = match patchpilot_local::sync::outgoing_report(this, rig, &report) {
+            Ok((object, sealed)) => relay.put(&object, sealed).await,
+            Err(e) => Err(e),
+        };
+        match sent {
+            Ok(ip) => {
+                remember_public(&state, ip);
+                let moved = ip.map(patchpilot_local::net_report::public_tag) != report.public
+                    && ip.is_some();
+                *state.report_put.lock().expect("report lock") =
+                    Some((report, std::time::Instant::now()));
+                if !moved {
+                    return;
+                }
+            }
+            Err(e) => {
+                eprintln!("sync: home-network report not sent: {e}");
+                return;
+            }
+        }
+    }
+}
+
+/// The machine woke from sleep: forget the reports read before (they may be
+/// hours old, and the connection may be dead without knowing it yet) and
+/// start a new session, which reads them again.
+pub fn woke(app: &AppHandle) {
+    let Some(state) = app.try_state::<SyncState>() else {
+        return;
+    };
+    state.reports.lock().expect("reports lock").clear();
+    state.woken.store(true, Ordering::SeqCst);
+    // A session that's running starts over (and reconnects at once); one
+    // that isn't reads everything again when it starts.
+    if state.status.lock().expect("sync status lock").online {
+        state.restart.notify_one();
+    }
+}
+
+/// This machine moved to another network: the public address the relay
+/// last saw is the old one's until the next upload says.
+pub fn forget_public(app: &AppHandle) {
+    if let Some(state) = app.try_state::<SyncState>() {
+        *state.public.lock().expect("public lock") = None;
+    }
+}
+
+/// Keep the public address the relay saw this machine at.
+fn remember_public(state: &Sync, ip: Option<std::net::IpAddr>) {
+    if let Some(ip) = ip {
+        *state.public.lock().expect("public lock") =
+            Some(patchpilot_local::net_report::public_tag(ip));
+    }
+}
+
+/// Another machine's home-network report, with when it reached the relay
+/// by this machine's clock; None when it has none (an older Patch Pilot) or
+/// it won't open. `live`: fetched because it just changed.
+async fn fetch_report(relay: &Relay, rig: &RigKey, id: &str, live: bool) -> Option<Received> {
+    let object = patchpilot_sync::net_object(id).ok()?;
+    let (sealed, held_ms) = relay.get_aged(&object).await.ok()??;
+    let report = patchpilot_local::sync::incoming_report(rig, &object, &sealed)?;
+    Some(Received {
+        report,
+        at: patchpilot_local::net_report::received_at(patchpilot_local::now(), held_ms, live),
+    })
+}
+
 /// Fetch and merge another machine's object. True if anything changed.
 async fn pull(relay: &Relay, this: &str, rig: &RigKey, object: &str) -> Result<bool, String> {
     let Some(sealed) = relay.get(object).await? else {
@@ -290,6 +461,55 @@ fn set(app: &AppHandle, state: &Sync, f: impl FnOnce(&mut SyncStatus)) {
         s.clone()
     };
     let _ = app.emit("sync-status", status);
+}
+
+/// Send this machine's home-network report now. Offline, the next session
+/// sends one at its start anyway.
+pub fn share_report(app: &AppHandle) {
+    app.state::<SyncState>().report_nudge.notify_one();
+}
+
+/// The other machines' home-network reports, by id, as last read.
+pub fn reports(app: &AppHandle) -> BTreeMap<String, Received> {
+    app.state::<SyncState>()
+        .reports
+        .lock()
+        .expect("reports lock")
+        .clone()
+}
+
+/// This machine's report as last put on the relay, and how long ago.
+pub fn last_report(app: &AppHandle) -> Option<(NetReport, Duration)> {
+    app.state::<SyncState>()
+        .report_put
+        .lock()
+        .expect("report lock")
+        .as_ref()
+        .map(|(r, at)| (r.clone(), at.elapsed()))
+}
+
+/// This machine's public address as the relay last saw it.
+pub fn public(app: &AppHandle) -> Option<String> {
+    app.try_state::<SyncState>()?
+        .public
+        .lock()
+        .expect("public lock")
+        .clone()
+}
+
+/// Connected to the relay now, with the other machines' reports read since
+/// waking.
+pub fn online(app: &AppHandle) -> bool {
+    let state = app.state::<SyncState>();
+    !state.woken.load(Ordering::SeqCst) && state.status.lock().expect("sync status lock").online
+}
+
+/// The ids of the other machines linked to this one, as the relay last
+/// listed them; None before the first listing this run (or after unlinking).
+pub fn linked_machines(app: &AppHandle) -> Option<Vec<String>> {
+    let state = app.state::<SyncState>();
+    let linked = state.linked.lock().expect("linked lock");
+    linked.as_ref().map(|l| l.iter().cloned().collect())
 }
 
 #[tauri::command]
@@ -354,6 +574,9 @@ pub async fn link_join(
 #[tauri::command]
 pub fn unlink(state: State<'_, SyncState>) -> Result<(), String> {
     patchpilot_local::sync::forget_rig(&app_dir()?)?;
+    *state.linked.lock().expect("linked lock") = None;
+    state.reports.lock().expect("reports lock").clear();
+    *state.report_put.lock().expect("report lock") = None;
     state.stop.notify_waiters();
     Ok(())
 }
@@ -450,6 +673,12 @@ struct LiveEvent {
 }
 
 #[derive(Debug, Deserialize)]
+struct PutReply {
+    #[serde(default)]
+    ip: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ObjectInfo {
     name: String,
 }
@@ -481,12 +710,17 @@ impl Relay {
         }
     }
 
-    async fn put(&self, object: &str, sealed: Vec<u8>) -> Result<(), String> {
+    /// Store one object. Gives the public address the relay saw this
+    /// machine at, when it says (older relays don't).
+    async fn put(&self, object: &str, sealed: Vec<u8>) -> Result<Option<std::net::IpAddr>, String> {
         let url = format!("{}/objects/{object}", self.base);
         let res = self
             .send(|| self.http.put(&url).body(sealed.clone()))
             .await?;
-        check(res).await.map(|_| ())
+        let reply = check(res).await?.bytes().await.unwrap_or_default();
+        Ok(serde_json::from_slice::<PutReply>(&reply)
+            .ok()
+            .and_then(|r| r.ip?.parse().ok()))
     }
 
     /// Send with the token, again after a pause if the connection drops
@@ -509,13 +743,24 @@ impl Relay {
     }
 
     async fn get(&self, object: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.get_aged(object).await?.map(|(bytes, _)| bytes))
+    }
+
+    /// An object and how long the relay has held it (ms), when it says.
+    async fn get_aged(&self, object: &str) -> Result<Option<(Vec<u8>, Option<i64>)>, String> {
         let url = format!("{}/objects/{object}", self.base);
         let res = self.send(|| self.http.get(&url)).await?;
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
         let res = check(res).await?;
-        Ok(Some(res.bytes().await.map_err(|e| e.to_string())?.to_vec()))
+        let held = res
+            .headers()
+            .get("x-age")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok());
+        let bytes = res.bytes().await.map_err(|e| e.to_string())?.to_vec();
+        Ok(Some((bytes, held)))
     }
 
     /// The objects whose names start with `prefix`. A relay from before
@@ -706,6 +951,52 @@ mod tests {
             b"<FXCHAIN\n>\n"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a relay (PATCHPILOT_RELAY)"]
+    async fn the_live_connection_answers_pings() {
+        // A session counts as offline when a ping goes unanswered.
+        let rig = RigKey::generate();
+        let relay = Relay::new(&rig);
+        relay.put("machine/pc", b"sealed".to_vec()).await.unwrap();
+        let mut ws = relay.live().await.unwrap();
+        ws.send(Message::text("ping")).await.unwrap();
+        let answer = tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("an answer");
+        let Some(Ok(Message::Text(t))) = answer else {
+            panic!("no pong: {answer:?}")
+        };
+        assert_eq!(t.as_str(), "pong");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a relay (PATCHPILOT_RELAY)"]
+    async fn home_network_reports_travel_with_their_age() {
+        let rig = RigKey::generate();
+        let relay = Relay::new(&rig);
+        // The first put claims the rig; the relay says where it came from.
+        let ip = relay.put("machine/pc", b"sealed".to_vec()).await.unwrap();
+        assert!(
+            ip.is_some(),
+            "the relay answers with this machine's address"
+        );
+        let report = NetReport {
+            on: true,
+            hears: vec!["mac".into()],
+            ..NetReport::off(patchpilot_local::now())
+        };
+        let (object, sealed) =
+            patchpilot_local::sync::outgoing_report("pc", &rig, &report).unwrap();
+        relay.put(&object, sealed).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        let got = fetch_report(&relay, &rig, "pc", false).await.unwrap();
+        assert_eq!(got.report, report);
+        let got = got.at.expect("this relay says how long it held it");
+        assert!(got < patchpilot_local::now(), "held about a second: {got}");
+        assert!(got >= patchpilot_local::now() - 5);
+        assert!(fetch_report(&relay, &rig, "nobody", false).await.is_none());
     }
 
     #[tokio::test]

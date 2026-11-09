@@ -25,7 +25,7 @@ import { Badge, Button, buildTree, Card, Folder, FolderTree, isConflictCopy, Til
  * On the Primary Rig's own machine, files changed here after the Primary Rig
  * saved them aren't offered: bringing the older copy over would undo the
  * change. They get their own card, which updates the Primary Rig instead
- * (decision #123).
+ * (decision #126).
  */
 export function BringOver({ onError }: { onError: (e: string) => void }) {
   const [view, setView] = useState<BringView | null>(null);
@@ -299,7 +299,7 @@ export function BringOver({ onError }: { onError: (e: string) => void }) {
  * On the Primary machine: files changed here after Primary Rig v<n> was
  * saved. They're newer than the Primary Rig's copies, so the way back to
  * parity is to update the Primary Rig with them, not to bring the old ones
- * over (decision #123).
+ * over (decision #126).
  */
 function ChangedHere({
   files,

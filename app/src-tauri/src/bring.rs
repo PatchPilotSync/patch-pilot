@@ -38,7 +38,7 @@ pub struct BringView {
     pub primary_here: bool,
     /// On the Primary machine: files changed here after the Primary Rig
     /// saved them. Not brought over (that would undo the change); "Update
-    /// Primary Rig" adds them to it instead (decision #123).
+    /// Primary Rig" adds them to it instead (decision #126).
     pub changed_here: Vec<FileToBring>,
     /// The latest Primary Rig version, to name it.
     pub golden_version: Option<u32>,

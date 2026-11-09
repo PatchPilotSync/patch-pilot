@@ -134,6 +134,24 @@ impl RigKey {
         Ok(bytes)
     }
 
+    /// Encrypt a small object for storing under `object` on the relay, such
+    /// as a machine's home-network report ([`net_object`]). Bound to its
+    /// name, so it opens under no other.
+    pub fn seal_object(&self, object: &str, bytes: &[u8]) -> Result<Vec<u8>> {
+        check_object(object)?;
+        Ok(envelope::seal(
+            &self.encryption_key(),
+            &self.aad(object),
+            bytes,
+        ))
+    }
+
+    /// Decrypt what [`Self::seal_object`] sealed under `object`.
+    pub fn open_object(&self, object: &str, sealed: &[u8]) -> Result<Vec<u8>> {
+        check_object(object)?;
+        envelope::open(&self.encryption_key(), &self.aad(object), sealed)
+    }
+
     /// Encrypt a message between linked machines on the home network
     /// (decision #94). `label` says what it is (a beacon, a request, the
     /// answer to one request), so a message replayed as something else fails
@@ -197,6 +215,14 @@ pub fn machine_object(machine_id: &str) -> Result<String> {
     Ok(name)
 }
 
+/// The relay object holding what a machine says about its home network
+/// (decision #124): `net/<machine id>`.
+pub fn net_object(machine_id: &str) -> Result<String> {
+    let name = format!("net/{machine_id}");
+    check_object(&name)?;
+    Ok(name)
+}
+
 /// Lowercase letters, digits, `-` and `/`-separated segments only, so object
 /// names are safe as relay keys and URL paths on every platform.
 fn check_object(name: &str) -> Result<()> {
@@ -242,6 +268,20 @@ mod tests {
             profile_id: None,
         });
         b
+    }
+
+    #[test]
+    fn small_objects_open_only_under_their_own_name_and_rig() {
+        let rig = RigKey::generate();
+        let name = net_object("a1").unwrap();
+        assert_eq!(name, "net/a1");
+        let sealed = rig.seal_object(&name, b"{}").unwrap();
+        assert_eq!(rig.open_object(&name, &sealed).unwrap(), b"{}");
+        assert!(rig.open_object("net/b2", &sealed).is_err());
+        assert!(rig.open_object("machine/a1", &sealed).is_err());
+        assert!(RigKey::generate().open_object(&name, &sealed).is_err());
+        assert!(net_object("A1").is_err());
+        assert!(rig.seal_object("net/../x", b"").is_err());
     }
 
     #[test]

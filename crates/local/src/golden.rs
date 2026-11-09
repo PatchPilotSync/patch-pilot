@@ -16,7 +16,7 @@ const OFF_FILE: &str = "drift-alerts-off";
 /// Add `products` (IDs) from `machine_id`'s latest scan to a new Primary Rig
 /// version, noting where they came from. The Primary machine stays the one
 /// the Primary Rig was made from: adding a plug-in from another machine
-/// doesn't make that machine the Primary one (decision #123).
+/// doesn't make that machine the Primary one (decision #126).
 pub fn add_to_golden(
     store: &mut Store,
     machine_id: &str,

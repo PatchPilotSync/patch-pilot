@@ -5,7 +5,7 @@
 //! leaves the network. Backup, restore and keeping files in sync work on the
 //! copy exactly as on a cloud folder; only how files travel changes.
 //!
-//! How machines find each other: every few seconds each one broadcasts a
+//! How machines find each other: every 10 s each one broadcasts a
 //! small beacon on UDP [`PORT`], sealed with the rig key, saying who it is,
 //! which TCP port it answers on and a short [`state`] of its copy. A machine
 //! that hears a linked machine's beacon with a state it hasn't pulled asks
@@ -91,10 +91,49 @@ pub fn beacon_bytes(key: &RigKey, beacon: &Beacon) -> Vec<u8> {
     out
 }
 
+/// What came in on the beacon port (decision #123).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Heard {
+    /// A linked machine's beacon.
+    Ours(Beacon),
+    /// This rig's beacon, or a newer envelope, that this version can't
+    /// read: Patch Pilot differs between the machines.
+    OtherVersion,
+    /// A Patch Pilot beacon sealed under another rig key.
+    OtherRig,
+    /// Anything else.
+    Noise,
+}
+
+/// A sealed envelope's version byte, nonce and tag: nothing shorter is one.
+const SEALED_MIN: usize = 1 + 24 + 16;
+/// The envelope version this build seals with (`patchpilot_sync::envelope`).
+const ENVELOPE_VERSION: u8 = 1;
+
+/// Tell a linked machine's beacon from another version's, another rig's
+/// and noise.
+pub fn read(key: &RigKey, bytes: &[u8]) -> Heard {
+    let Some(sealed) = bytes.strip_prefix(MAGIC) else {
+        return Heard::Noise;
+    };
+    if sealed.len() < SEALED_MIN {
+        return Heard::Noise;
+    }
+    if sealed[0] > ENVELOPE_VERSION {
+        return Heard::OtherVersion;
+    }
+    match key.open_lan("beacon", sealed) {
+        Ok(json) => serde_json::from_slice(&json).map_or(Heard::OtherVersion, Heard::Ours),
+        Err(_) => Heard::OtherRig,
+    }
+}
+
 /// A linked machine's beacon; `None` for anything else on the port.
 pub fn read_beacon(key: &RigKey, bytes: &[u8]) -> Option<Beacon> {
-    let sealed = bytes.strip_prefix(MAGIC)?;
-    serde_json::from_slice(&key.open_lan("beacon", sealed).ok()?).ok()
+    match read(key, bytes) {
+        Heard::Ours(b) => Some(b),
+        _ => None,
+    }
 }
 
 /// The copy in a few characters: it changes whenever any folder gets a new
@@ -635,6 +674,36 @@ mod tests {
         assert_eq!(read_beacon(&rig, &bytes), Some(b));
         assert_eq!(read_beacon(&RigKey::generate(), &bytes), None);
         assert_eq!(read_beacon(&rig, b"PPLAN1junk"), None);
+    }
+
+    #[test]
+    fn beacons_tell_another_rig_and_another_version_from_noise() {
+        let rig = RigKey::generate();
+        let b = Beacon {
+            machine_id: "pc".into(),
+            machine_name: "Studio PC".into(),
+            port: PORT,
+            state: "abc".into(),
+        };
+        let bytes = beacon_bytes(&rig, &b);
+        assert_eq!(read(&rig, &bytes), Heard::Ours(b));
+        assert_eq!(read(&RigKey::generate(), &bytes), Heard::OtherRig);
+        assert_eq!(
+            read(&rig, b"PPLAN1junk"),
+            Heard::Noise,
+            "too short to be sealed"
+        );
+        assert_eq!(read(&rig, b"hello"), Heard::Noise);
+        assert_eq!(read(&rig, b""), Heard::Noise);
+
+        // Sealed by this rig, but not a beacon this version understands.
+        let mut odd = MAGIC.to_vec();
+        odd.extend(rig.seal_lan("beacon", br#"{"machine_id":"pc","v":2}"#));
+        assert_eq!(read(&rig, &odd), Heard::OtherVersion);
+        // A newer envelope.
+        let mut newer = bytes.clone();
+        newer[MAGIC.len()] = ENVELOPE_VERSION + 1;
+        assert_eq!(read(&rig, &newer), Heard::OtherVersion);
     }
 
     #[test]

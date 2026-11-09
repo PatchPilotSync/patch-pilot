@@ -474,7 +474,7 @@ impl Store {
     /// from. A version that only added products from another machine
     /// ("Added Acme Delay from Studio Mac") keeps its parent's: Patch Pilot
     /// before 0.4.59 saved the adding machine there, which made that machine
-    /// the Primary one (decision #123).
+    /// the Primary one (decision #126).
     fn primary_machines(&self) -> Result<BTreeMap<u32, Option<String>>> {
         let mut stmt = self.conn.prepare(
             "SELECT version, source_machine_id, note FROM golden_versions

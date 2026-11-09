@@ -16,7 +16,7 @@ pub mod link;
 mod rig;
 
 pub use code::LinkCode;
-pub use rig::{RigKey, content_hash, machine_object};
+pub use rig::{RigKey, content_hash, machine_object, net_object};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

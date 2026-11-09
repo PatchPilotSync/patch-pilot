@@ -366,7 +366,7 @@ fn golden_versions_are_kept_and_chained() {
 #[test]
 fn adding_from_another_machine_keeps_the_primary_machine() {
     // Before 0.4.59 an "Added ... from <machine>" version saved the adding
-    // machine as its source, which made it the Primary one (decision #123).
+    // machine as its source, which made it the Primary one (decision #126).
     let studio = fixture_manifest();
     let mut store = Store::open_in_memory().unwrap();
     store.save_golden(&studio, Some("pc"), None, 100).unwrap();
