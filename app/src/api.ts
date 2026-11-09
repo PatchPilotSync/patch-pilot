@@ -317,6 +317,8 @@ export interface FileToBring {
   size: number | null;
   /** This machine has a different copy, backed up before it is replaced. */
   replaces: boolean;
+  /** This machine's different copy was saved after this one (or either time is unknown). */
+  newer_here: boolean;
   too_large: boolean;
   /** Its product, to match it with comparison rows. */
   product_id: string | null;
@@ -337,6 +339,12 @@ export interface BringView {
   ignored: FileToBring[];
   /** The ignores behind `ignored`. */
   ignores: IgnoreView[];
+  /** This machine is the Primary Rig's own (and nothing was asked `from` another). */
+  primary_here: boolean;
+  /** On the Primary machine: files changed here after the Primary Rig saved them (decision #126). */
+  changed_here: FileToBring[];
+  /** The latest Primary Rig version. */
+  golden_version: number | null;
 }
 
 export interface BringResult {
@@ -360,6 +368,8 @@ export const filesToBring = (from?: string) => invoke<BringView>("files_to_bring
 /** Bring these files and every file they need; from the Primary Rig unless `from` names a linked machine. */
 export const bringFiles = (keys: string[], from?: string) =>
   invoke<BringResult>("bring_files", { keys, from: from ?? null });
+/** On the Primary machine: put this machine's copies of these changed files into a new Primary Rig version. */
+export const keepChangesInGolden = (keys: string[]) => invoke<number>("keep_changes_in_golden", { keys });
 
 // Big-file hand-off (decision #64); mirrors src-tauri/src/transfer.rs and patchpilot_local::transfer.
 

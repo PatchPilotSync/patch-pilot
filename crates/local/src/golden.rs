@@ -14,7 +14,9 @@ const SEEN_FILE: &str = "alerts-seen.json";
 const OFF_FILE: &str = "drift-alerts-off";
 
 /// Add `products` (IDs) from `machine_id`'s latest scan to a new Primary Rig
-/// version, noting where they came from.
+/// version, noting where they came from. The Primary machine stays the one
+/// the Primary Rig was made from: adding a plug-in from another machine
+/// doesn't make that machine the Primary one (decision #126).
 pub fn add_to_golden(
     store: &mut Store,
     machine_id: &str,
@@ -39,8 +41,13 @@ pub fn add_to_golden(
         many => format!("{} products", many.len()),
     };
     let note = format!("Added {what} from {}", scan.machine.name);
+    let primary = golden
+        .info
+        .source_machine_id
+        .as_deref()
+        .unwrap_or(machine_id);
     store
-        .save_golden(&next, Some(machine_id), Some(&note), now)
+        .save_golden(&next, Some(primary), Some(&note), now)
         .map_err(err)
 }
 
@@ -225,6 +232,11 @@ mod tests {
             g.manifest
                 .product(&ProductId("acme-delay".into()))
                 .is_some()
+        );
+        // Adding from the laptop leaves the studio the Primary machine.
+        assert_eq!(
+            g.info.source_machine_id.as_deref(),
+            Some(studio.machine.id.as_str())
         );
 
         // The studio now lacks Acme Delay: one drift alert, about itself.

@@ -546,9 +546,10 @@ function MachineItem({
         <ScoreBar score={m.score} className="w-full" />
         <span className="flex w-full items-baseline gap-2 text-[11px] text-dim">
           <span className="min-w-0 flex-1 truncate">
+            {/* Primary first: the line is cut short in the narrow list. */}
+            {m.golden_source ? "Primary · " : ""}
             {m.os === "macos" ? "macOS" : "Windows"}
             {m.is_this_machine ? " · this machine" : ""}
-            {m.golden_source ? " · Primary machine" : ""}
             {m.profile ? ` · ${m.profile.name}` : ""}
           </span>
           <DiskSummary disks={m.disks} os={m.os} named={false} className="shrink-0 tabular-nums" />

@@ -10,7 +10,7 @@ mod migrations;
 mod paths;
 mod restore_points;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use patchpilot_core::{
@@ -441,7 +441,8 @@ impl Store {
                 |r| Ok((golden_info(r)?, r.get::<_, i64>(5)?)),
             )
             .optional()?;
-        row.map(|(info, snapshot_id)| {
+        row.map(|(mut info, snapshot_id)| {
+            info.source_machine_id = self.primary_machines()?.remove(&info.version).flatten();
             let mut manifest = self.snapshot_manifest(snapshot_id)?;
             // Versions saved before the rename (decision #60) are stored as
             // "Golden Rig v<n>".
@@ -458,7 +459,50 @@ impl Store {
              FROM golden_versions WHERE golden_id = ?1 ORDER BY version DESC",
         )?;
         let rows = stmt.query_map([GOLDEN_ID], golden_info)?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let mut primary = self.primary_machines()?;
+        Ok(rows
+            .map(|r| {
+                r.map(|mut info| {
+                    info.source_machine_id = primary.remove(&info.version).flatten();
+                    info
+                })
+            })
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Each version's Primary machine: the machine it was made or updated
+    /// from. A version that only added products from another machine
+    /// ("Added Acme Delay from Studio Mac") keeps its parent's: Patch Pilot
+    /// before 0.4.59 saved the adding machine there, which made that machine
+    /// the Primary one (decision #126).
+    fn primary_machines(&self) -> Result<BTreeMap<u32, Option<String>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT version, source_machine_id, note FROM golden_versions
+             WHERE golden_id = ?1 ORDER BY version",
+        )?;
+        let rows = stmt.query_map([GOLDEN_ID], |r| {
+            Ok((
+                r.get::<_, u32>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        let mut out = BTreeMap::new();
+        let mut last: Option<String> = None;
+        for row in rows {
+            let (version, source, note) = row?;
+            let added = note
+                .as_deref()
+                .is_some_and(|n| n.starts_with("Added ") && n.contains(" from "));
+            let primary = if added && last.is_some() {
+                last.clone()
+            } else {
+                source
+            };
+            last = primary.clone();
+            out.insert(version, primary);
+        }
+        Ok(out)
     }
 
     /// Bundle these machines' latest scans (and their profile assignments),

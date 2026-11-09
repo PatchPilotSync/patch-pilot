@@ -370,7 +370,7 @@ pub async fn ignore_suggestions(app: AppHandle, items: Vec<IgnoreItem>) -> Resul
 
 /// After a change made on this machine: no alert about it here, upload it,
 /// and refresh the windows.
-fn changed_here(app: &AppHandle, store: &Store) {
+pub(crate) fn changed_here(app: &AppHandle, store: &Store) {
     crate::alerts::rebaseline(app, store);
     crate::sync::nudge(app);
     let _ = app.emit("data-changed", ());
