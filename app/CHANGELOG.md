@@ -4,7 +4,13 @@ What changed in each version of the Patch Pilot app. The section for a version
 becomes its release notes, which the app shows when it offers that update
 (see `docs/releasing.md`). Write for users, not developers.
 
-## Unreleased
+## 0.4.59 - 2026-11-09
+
+### Fixed
+
+- Your Primary Rig's own machine no longer offers to "Bring over from the Primary Rig". If you change a key map, menu, script or template there after the Primary Rig was saved, Get Up To Speed now says "Changed here since Primary Rig" with an **Update Primary Rig** button, instead of offering to put the older copy back.
+- Adding a plug-in to the Primary Rig from another machine no longer makes that machine the Primary one. Rigs where this already happened are put right automatically.
+- Compare's machine list shows "Primary" first, so it's no longer cut off.
 
 ### Improved
 
